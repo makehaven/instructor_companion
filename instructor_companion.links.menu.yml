@@ -1,0 +1,13 @@
+instructor_companion.settings:
+  title: 'Instructor Companion'
+  description: 'Configure instructor notification settings.'
+  route_name: instructor_companion.settings
+  parent: system.admin_config_system
+  weight: 90
+
+instructor_companion.dashboard_admin:
+  title: 'Instructor Dashboard'
+  description: 'Open the instructor dashboard view.'
+  route_name: instructor_companion.dashboard
+  parent: instructor_companion.settings
+  weight: 10

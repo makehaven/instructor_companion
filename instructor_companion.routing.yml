@@ -1,0 +1,15 @@
+instructor_companion.dashboard:
+  path: '/instructor/dashboard'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorDashboardController::build'
+    _title: 'Instructor Dashboard'
+  requirements:
+    _permission: 'access instructor dashboard'
+
+instructor_companion.settings:
+  path: '/admin/config/makerspace/instructor-companion'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\SettingsForm'
+    _title: 'Instructor Companion'
+  requirements:
+    _permission: 'administer site configuration'

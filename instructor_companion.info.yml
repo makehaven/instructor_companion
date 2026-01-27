@@ -1,0 +1,11 @@
+name: 'Instructor Companion'
+type: module
+description: 'Enhances the instructor experience: specialized registration, dashboard, and class feedback tools.'
+core_version_requirement: ^10 || ^11
+package: 'Makerspace'
+configure: instructor_companion.settings
+dependencies:
+  - drupal:user
+  - drupal:webform
+  - profile:profile
+  - profile_registration

@@ -1,0 +1,9 @@
+{
+  "name": "makehaven/instructor_companion",
+  "description": "Enhances the instructor experience: specialized registration, dashboard, and class feedback tools.",
+  "type": "drupal-custom-module",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "drupal/core": "^10 || ^11"
+  }
+}

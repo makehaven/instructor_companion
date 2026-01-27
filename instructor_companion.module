@@ -1,0 +1,64 @@
+<?php
+
+/**
+ * @file
+ * Primary module hooks for Instructor Companion.
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_register_form.
+ */
+function instructor_companion_form_user_register_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $query = \Drupal::request()->query;
+  if ($query->get('profile') === 'instructor') {
+    // Add a custom submit handler to trigger the notification.
+    $form['actions']['submit']['#submit'][] = 'instructor_companion_user_register_notify';
+  }
+}
+
+/**
+ * Custom submit handler: Notify staff of new instructor applicant.
+ */
+function instructor_companion_user_register_notify($form, FormStateInterface $form_state) {
+  /** @var \Drupal\user\Entity\User $user */
+  $user = $form_state->getFormObject()->getEntity();
+
+  $mailManager = \Drupal::service('plugin.manager.mail');
+  $module = 'instructor_companion';
+  $key = 'new_instructor_applicant';
+  $config = \Drupal::config('instructor_companion.settings');
+  $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
+  $params['user_name'] = $user->getAccountName();
+  $params['user_email'] = $user->getEmail();
+  $params['user_link'] = $user->toUrl()->setAbsolute()->toString();
+  $langcode = $user->getPreferredLangcode();
+  $send = TRUE;
+
+  $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+
+  if ($result['result'] !== TRUE) {
+    \Drupal::logger('instructor_companion')->error('There was a problem sending the new instructor notification email.');
+  }
+  else {
+    \Drupal::messenger()->addMessage(t('Your instructor application has been started. Staff have been notified.'));
+  }
+}
+
+/**
+ * Implements hook_mail().
+ */
+function instructor_companion_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'new_instructor_applicant':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('New Instructor Application: @name', ['@name' => $params['user_name']]);
+      $message['body'][] = t('A new user has registered via the Instructor path.');
+      $message['body'][] = t('Name: @name', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
+      $message['body'][] = t('Profile: @link', ['@link' => $params['user_link']]);
+      $message['body'][] = t('Please review their application and assign the Instructor role if approved.');
+      break;
+  }
+}

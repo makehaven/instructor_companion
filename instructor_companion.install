@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * @file
+ * Install and update hooks for Instructor Companion.
+ */
+
+/**
+ * Set default notification email if missing.
+ */
+function instructor_companion_update_9001() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  if ($config->get('notification_email') === NULL) {
+    $config->set('notification_email', 'education@makehaven.org')->save();
+  }
+}
+
+/**
+ * Add default toolkit links if missing.
+ */
+function instructor_companion_update_9002() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  $defaults = [
+    'emergency_procedures_url' => 'event-emergency',
+    'instructor_handbook_url' => 'instructor-handbook',
+    'request_reimbursement_url' => 'payment-requests',
+    'log_hours_url' => 'payment-requests',
+  ];
+
+  $changed = FALSE;
+  foreach ($defaults as $key => $value) {
+    if ($config->get($key) === NULL) {
+      $config->set($key, $value);
+      $changed = TRUE;
+    }
+  }
+
+  if ($changed) {
+    $config->save();
+  }
+}

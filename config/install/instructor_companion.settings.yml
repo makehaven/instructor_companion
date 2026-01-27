@@ -1,0 +1,5 @@
+notification_email: 'education@makehaven.org'
+emergency_procedures_url: 'event-emergency'
+instructor_handbook_url: 'instructor-handbook'
+request_reimbursement_url: 'payment-requests'
+log_hours_url: 'payment-requests'
