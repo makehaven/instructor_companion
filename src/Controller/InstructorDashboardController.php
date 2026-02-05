@@ -19,13 +19,65 @@ class InstructorDashboardController extends ControllerBase {
   public function build() {
     $current_user = $this->currentUser();
     $config = $this->config('instructor_companion.settings');
+    $database = \Drupal::database();
     $build = [];
 
-    // 1. Dashboard Header / Toolkit
+    $build['#attached']['library'][] = 'instructor_companion/dashboard';
+
+    // 1. Dashboard Header / Stats & Profile
+    $build['header_container'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['instructor-dashboard-header']],
+    ];
+
+    // Stats Section
+    $stats = $this->getInstructorStats((int) $current_user->id());
+    $build['header_container']['stats'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['instructor-stats-grid']],
+    ];
+
+    $build['header_container']['stats']['classes'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['stat-card']],
+      'value' => ['#markup' => '<div class="stat-value">' . $stats['classes_count'] . '</div>'],
+      'label' => ['#markup' => '<div class="stat-label">' . $this->t('Classes Taught') . '</div>'],
+    ];
+
+    $build['header_container']['stats']['students'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['stat-card']],
+      'value' => ['#markup' => '<div class="stat-value">' . $stats['students_count'] . '</div>'],
+      'label' => ['#markup' => '<div class="stat-label">' . $this->t('Students Impacted') . '</div>'],
+    ];
+
+    if ($stats['avg_rating'] > 0) {
+      $build['header_container']['stats']['rating'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['stat-card']],
+        'value' => ['#markup' => '<div class="stat-value">' . number_format($stats['avg_rating'], 1) . ' / 5.0</div>'],
+        'label' => ['#markup' => '<div class="stat-label">' . $this->t('Average Satisfaction') . '</div>'],
+      ];
+    }
+
+    // Profile Actions
+    $build['header_container']['actions'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['instructor-actions']],
+    ];
+
+    $build['header_container']['actions']['edit_profile'] = [
+      '#type' => 'link',
+      '#title' => $this->t('Edit Instructor Profile'),
+      '#url' => Url::fromUserInput('/user/' . $current_user->id() . '/instructor'),
+      '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
+    ];
+
+    // 2. Dashboard Toolkit
     $build['toolkit'] = [
       '#type' => 'details',
       '#title' => $this->t('Instructor Toolkit & Resources'),
-      '#open' => FALSE,
+      '#open' => TRUE,
       '#attributes' => ['class' => ['instructor-toolkit']],
     ];
 
@@ -40,7 +92,12 @@ class InstructorDashboardController extends ControllerBase {
     foreach ($toolkit_links as $label => $value) {
       $url = $this->buildToolkitUrl($value);
       if ($url) {
-        $toolkit_items[] = Link::fromTextAndUrl($label, $url);
+        $toolkit_items[] = [
+          '#type' => 'link',
+          '#title' => $label,
+          '#url' => $url,
+          '#attributes' => ['class' => ['toolkit-link-card']],
+        ];
       }
     }
 
@@ -48,20 +105,19 @@ class InstructorDashboardController extends ControllerBase {
       $build['toolkit']['links'] = [
         '#theme' => 'item_list',
         '#items' => $toolkit_items,
+        '#attributes' => ['class' => ['toolkit-links-list']],
       ];
     }
 
-    // 2. Profile Check
-    // Check if the user has a filled-out 'instructor' profile.
+    // 3. Profile Check (Warning only if missing)
     $profile_storage = $this->entityTypeManager()->getStorage('profile');
     $profile_ids = $profile_storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('uid', $current_user->id())
       ->condition('type', 'instructor')
       ->execute();
-    $profiles = $profile_storage->loadMultiple($profile_ids);
 
-    if (empty($profiles)) {
+    if (empty($profile_ids)) {
       $profile_link = Link::fromTextAndUrl(
         $this->t('Click here to create it.'),
         Url::fromUserInput('/user/' . $current_user->id() . '/instructor')
@@ -80,7 +136,7 @@ class InstructorDashboardController extends ControllerBase {
       ];
     }
 
-    // 3. Upcoming Classes Table
+    // 4. Upcoming Classes Table
     $header = [
       'date' => $this->t('Date'),
       'title' => $this->t('Class'),
@@ -91,28 +147,37 @@ class InstructorDashboardController extends ControllerBase {
     $rows = [];
 
     try {
-      $storage = $this->entityTypeManager()->getStorage('civicrm_event');
-      $query = $storage->getQuery()->accessCheck(FALSE);
-      $query->condition('field_civi_event_instructor', $current_user->id());
-
-      // Filter for future events (or recent past).
-      // Note: CiviCRM dates are usually Y-m-d H:i:s.
-      $query->condition('start_date', date('Y-m-d H:i:s'), '>=');
-      $query->sort('start_date', 'ASC');
-      // Limit to next 20 events.
+      $query = $database->select('civicrm_event', 'e');
+      $query->addField('e', 'id');
+      $query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $query->condition('i.field_civi_event_instructor_target_id', $current_user->id());
+      $query->condition('e.start_date', date('Y-m-d H:i:s'), '>=');
+      $query->condition('e.is_active', 1);
+      $query->condition('e.is_template', 0);
+      $query->orderBy('e.start_date', 'ASC');
       $query->range(0, 20);
 
-      $ids = $query->execute();
-      $events = $storage->loadMultiple($ids);
+      $ids = $query->execute()->fetchCol();
+      if (empty($ids)) {
+        $events = [];
+      }
+      else {
+        $storage = $this->entityTypeManager()->getStorage('civicrm_event');
+        $events = $storage->loadMultiple($ids);
+      }
 
       foreach ($events as $event) {
         $event_id = $event->id();
 
         // Calculate Enrollment
-        // Note: This relies on CiviCRM entity exposing 'participants' or similar count.
-        // If not available on the entity, we might need a separate query.
-        // For now, we will try to use the max_participants field vs a count query.
-        // We'll leave the count calculation as a TODO or simple placeholder if expensive.
+        $enrollment_query = $database->select('civicrm_participant', 'p');
+        $enrollment_query->addExpression('COUNT(p.id)', 'count');
+        $enrollment_query->innerJoin('civicrm_participant_status_type', 'pst', 'p.status_id = pst.id');
+        $enrollment_query->condition('p.event_id', $event_id);
+        $enrollment_query->condition('pst.is_counted', 1);
+        $enrollment_query->condition('p.is_test', 0);
+        $enrolled_count = $enrollment_query->execute()->fetchField();
+
         $capacity = $event->get('max_participants')->value ?? '∞';
 
         // Roster Link (Deep link to CiviCRM participant list)
@@ -141,8 +206,7 @@ class InstructorDashboardController extends ControllerBase {
         $rows[] = [
           'date' => $formatted_date,
           'title' => $event->label(),
-        // @todo Implement actual count query
-          'enrolled' => "? / $capacity",
+          'enrolled' => "$enrolled_count / $capacity",
           'actions' => [
             'data' => [
               '#type' => 'dropbutton',
@@ -178,6 +242,44 @@ class InstructorDashboardController extends ControllerBase {
   }
 
   /**
+   * Fetches statistics for an instructor.
+   */
+  protected function getInstructorStats(int $uid): array {
+    $database = \Drupal::database();
+    
+    // 1. Classes and Students
+    $query = $database->select('civicrm_event', 'e');
+    $query->addExpression('COUNT(DISTINCT e.id)', 'classes_count');
+    $query->addExpression('COUNT(p.id)', 'students_count');
+    $query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+    $query->leftJoin('civicrm_participant', 'p', 'e.id = p.event_id');
+    $query->leftJoin('civicrm_participant_status_type', 'pst', 'p.status_id = pst.id');
+    $query->condition('i.field_civi_event_instructor_target_id', $uid);
+    $query->condition('e.is_active', 1);
+    $query->condition('e.is_template', 0);
+    $query->condition('e.start_date', date('Y-m-d H:i:s'), '<');
+    
+    $record = $query->execute()->fetchAssoc();
+
+    // 2. Average Rating from Satisfaction surveys (webform_1181)
+    $rating_query = $database->select('webform_submission_data', 'd1');
+    $rating_query->addExpression('AVG(CAST(d1.value as DECIMAL(10,2)))', 'avg_val');
+    $rating_query->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
+    $rating_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
+    $rating_query->condition('d1.webform_id', 'webform_1181');
+    $rating_query->condition('d1.name', 'overall_how_satisfied_were_you_with_the_event');
+    $rating_query->condition('d2.name', 'event_id');
+    $rating_query->condition('i.field_civi_event_instructor_target_id', $uid);
+    $avg_rating = $rating_query->execute()->fetchField();
+
+    return [
+      'classes_count' => (int) ($record['classes_count'] ?? 0),
+      'students_count' => (int) ($record['students_count'] ?? 0),
+      'avg_rating' => (float) $avg_rating,
+    ];
+  }
+
+  /**
    * Builds a Url object for a toolkit link value.
    *
    * @param string|null $value
@@ -192,12 +294,23 @@ class InstructorDashboardController extends ControllerBase {
       return NULL;
     }
 
-    $parsed = parse_url($value);
-    if (!empty($parsed['scheme'])) {
+    // If it looks like a full URL, use fromUri.
+    if (preg_match('/^https?:\/\//', $value)) {
       return Url::fromUri($value);
     }
 
-    return Url::fromUserInput($value);
+    // Ensure internal paths start with a valid character for fromUserInput.
+    if (!preg_match('/^[\/\?#]/', $value)) {
+      $value = '/' . $value;
+    }
+
+    try {
+      return Url::fromUserInput($value);
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('instructor_companion')->warning('Invalid toolkit URL configured: @value', ['@value' => $value]);
+      return NULL;
+    }
   }
 
 }
