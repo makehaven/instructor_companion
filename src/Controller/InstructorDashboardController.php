@@ -24,13 +24,13 @@ class InstructorDashboardController extends ControllerBase {
 
     $build['#attached']['library'][] = 'instructor_companion/dashboard';
 
-    // 1. Dashboard Header / Stats & Profile
+    // 1. Dashboard Header / Stats & Profile.
     $build['header_container'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['instructor-dashboard-header']],
     ];
 
-    // Stats Section
+    // Stats Section.
     $stats = $this->getInstructorStats((int) $current_user->id());
     $build['header_container']['stats'] = [
       '#type' => 'container',
@@ -136,7 +136,7 @@ class InstructorDashboardController extends ControllerBase {
       ];
     }
 
-    // 4. Upcoming Classes Table
+    // 4. Upcoming Classes Table.
     $header = [
       'date' => $this->t('Date'),
       'title' => $this->t('Class'),
@@ -246,37 +246,46 @@ class InstructorDashboardController extends ControllerBase {
    */
   protected function getInstructorStats(int $uid): array {
     $database = \Drupal::database();
-    
-    // 1. Classes and Students
-    $query = $database->select('civicrm_event', 'e');
-    $query->addExpression('COUNT(DISTINCT e.id)', 'classes_count');
-    $query->addExpression('COUNT(p.id)', 'students_count');
-    $query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
-    $query->leftJoin('civicrm_participant', 'p', 'e.id = p.event_id');
-    $query->leftJoin('civicrm_participant_status_type', 'pst', 'p.status_id = pst.id');
-    $query->condition('i.field_civi_event_instructor_target_id', $uid);
-    $query->condition('e.is_active', 1);
-    $query->condition('e.is_template', 0);
-    $query->condition('e.start_date', date('Y-m-d H:i:s'), '<');
-    
-    $record = $query->execute()->fetchAssoc();
-
-    // 2. Average Rating from Satisfaction surveys (webform_1181)
-    $rating_query = $database->select('webform_submission_data', 'd1');
-    $rating_query->addExpression('AVG(CAST(d1.value as DECIMAL(10,2)))', 'avg_val');
-    $rating_query->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
-    $rating_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
-    $rating_query->condition('d1.webform_id', 'webform_1181');
-    $rating_query->condition('d1.name', 'overall_how_satisfied_were_you_with_the_event');
-    $rating_query->condition('d2.name', 'event_id');
-    $rating_query->condition('i.field_civi_event_instructor_target_id', $uid);
-    $avg_rating = $rating_query->execute()->fetchField();
-
-    return [
-      'classes_count' => (int) ($record['classes_count'] ?? 0),
-      'students_count' => (int) ($record['students_count'] ?? 0),
-      'avg_rating' => (float) $avg_rating,
+    $stats = [
+      'classes_count' => 0,
+      'students_count' => 0,
+      'avg_rating' => 0.0,
     ];
+
+    try {
+      // 1. Classes and Students
+      $query = $database->select('civicrm_event', 'e');
+      $query->addExpression('COUNT(DISTINCT e.id)', 'classes_count');
+      $query->addExpression('COUNT(p.id)', 'students_count');
+      $query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $query->leftJoin('civicrm_participant', 'p', 'e.id = p.event_id');
+      $query->leftJoin('civicrm_participant_status_type', 'pst', 'p.status_id = pst.id');
+      $query->condition('i.field_civi_event_instructor_target_id', $uid);
+      $query->condition('e.is_active', 1);
+      $query->condition('e.is_template', 0);
+      $query->condition('e.start_date', date('Y-m-d H:i:s'), '<');
+      
+      $record = $query->execute()->fetchAssoc();
+      $stats['classes_count'] = (int) ($record['classes_count'] ?? 0);
+      $stats['students_count'] = (int) ($record['students_count'] ?? 0);
+
+      // 2. Average Rating from Satisfaction surveys (webform_1181)
+      $rating_query = $database->select('webform_submission_data', 'd1');
+      $rating_query->addExpression('AVG(CAST(d1.value as DECIMAL(10,2)))', 'avg_val');
+      $rating_query->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
+      $rating_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
+      $rating_query->condition('d1.webform_id', 'webform_1181');
+      $rating_query->condition('d1.name', 'overall_how_satisfied_were_you_with_the_event');
+      $rating_query->condition('d2.name', 'event_id');
+      $rating_query->condition('i.field_civi_event_instructor_target_id', $uid);
+      $avg_rating = $rating_query->execute()->fetchField();
+      $stats['avg_rating'] = (float) $avg_rating;
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('instructor_companion')->warning('Could not fetch instructor stats: @message', ['@message' => $e->getMessage()]);
+    }
+
+    return $stats;
   }
 
   /**
