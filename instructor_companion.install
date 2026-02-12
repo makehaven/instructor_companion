@@ -24,6 +24,7 @@ function instructor_companion_update_9002() {
     'emergency_procedures_url' => 'event-emergency',
     'instructor_handbook_url' => 'instructor-handbook',
     'request_reimbursement_url' => 'payment-requests',
+    'payment_status_url' => 'my-requests',
     'log_hours_url' => 'payment-requests',
   ];
 
@@ -37,5 +38,15 @@ function instructor_companion_update_9002() {
 
   if ($changed) {
     $config->save();
+  }
+}
+
+/**
+ * Add payment status toolkit link default if missing.
+ */
+function instructor_companion_update_9003() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  if ($config->get('payment_status_url') === NULL) {
+    $config->set('payment_status_url', '/my-requests')->save();
   }
 }

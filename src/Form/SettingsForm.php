@@ -65,6 +65,13 @@ class SettingsForm extends ConfigFormBase {
       '#default_value' => $config->get('request_reimbursement_url'),
     ];
 
+    $form['toolkit_links']['payment_status_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Payment status link'),
+      '#description' => $this->t('Use a full URL (https://...) or an internal path (e.g. /admin).'),
+      '#default_value' => $config->get('payment_status_url'),
+    ];
+
     $form['toolkit_links']['log_hours_url'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Log hours link'),
@@ -84,6 +91,7 @@ class SettingsForm extends ConfigFormBase {
       ->set('emergency_procedures_url', $form_state->getValue('emergency_procedures_url'))
       ->set('instructor_handbook_url', $form_state->getValue('instructor_handbook_url'))
       ->set('request_reimbursement_url', $form_state->getValue('request_reimbursement_url'))
+      ->set('payment_status_url', $form_state->getValue('payment_status_url'))
       ->set('log_hours_url', $form_state->getValue('log_hours_url'))
       ->save();
 
