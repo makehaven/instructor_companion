@@ -475,9 +475,27 @@ class InstructorDashboardController extends ControllerBase {
       $site_timezone = date_default_timezone_get();
     }
 
-    $date = DrupalDateTime::createFromFormat('Y-m-d H:i:s', $start_date_value, 'UTC');
+    // CiviCRM date values may be stored as either "Y-m-d H:i:s" or ISO 8601
+    // strings (for example "2026-02-15T20:00:00").
+    $date = NULL;
+    try {
+      $date = DrupalDateTime::createFromFormat('Y-m-d H:i:s', $start_date_value, 'UTC');
+    }
+    catch (\InvalidArgumentException $e) {
+      $date = NULL;
+    }
+
     if (!$date) {
-      $date = new DrupalDateTime($start_date_value);
+      try {
+        $date = new DrupalDateTime($start_date_value);
+      }
+      catch (\Exception $e) {
+        \Drupal::logger('instructor_companion')->warning('Could not parse event date "@value": @message', [
+          '@value' => $start_date_value,
+          '@message' => $e->getMessage(),
+        ]);
+        return $start_date_value;
+      }
     }
     $date->setTimezone(new \DateTimeZone($site_timezone));
 
