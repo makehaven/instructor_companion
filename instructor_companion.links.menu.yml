@@ -5,6 +5,13 @@ instructor_companion.settings:
   parent: system.admin_config_system
   weight: 90
 
+instructor_companion.dashboard:
+  title: 'Instructor Dashboard'
+  description: 'Open the instructor dashboard view.'
+  route_name: instructor_companion.dashboard
+  menu_name: instructor-tools
+  weight: 10
+
 instructor_companion.dashboard_admin:
   title: 'Instructor Dashboard'
   description: 'Open the instructor dashboard view.'

@@ -82,6 +82,11 @@ class InstructorRegistrationTest extends BrowserTestBase {
     $this->drupalGet('instructor/dashboard');
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Instructor Dashboard');
+    $this->assertSame(
+      'instructor-tools',
+      \Drupal::service('plugin.manager.menu.link')
+        ->getDefinition('instructor_companion.dashboard')['menu_name']
+    );
 
     $non_instructor = $this->drupalCreateUser();
     $this->drupalLogin($non_instructor);
