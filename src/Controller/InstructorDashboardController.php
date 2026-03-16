@@ -137,7 +137,46 @@ class InstructorDashboardController extends ControllerBase {
       ];
     }
 
-    // 4. Classes tables.
+    // 4. High Demand Workshops (New Section)
+    $high_demand_rows = [];
+    $demand_courses = $this->getHighDemandCourses((int) $current_user->id());
+    foreach ($demand_courses as $course) {
+      $high_demand_rows[] = [
+        'title' => $course->label(),
+        'interest' => $this->t('@count interested', ['@count' => $course->get('field_stat_runs')->value]), // Placeholder for interest flag logic
+        'last_run' => $course->get('field_stat_last_run')->value ? date('M Y', strtotime($course->get('field_stat_last_run')->value)) : $this->t('Never'),
+        'actions' => [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $this->t('Propose Session'),
+            '#url' => Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
+              'query' => [
+                'template_id' => $course->get('field_civicrm_template_id')->value,
+                'course_id' => $course->id(),
+                'propose' => 1,
+              ],
+            ]),
+            '#attributes' => ['class' => ['button', 'button--small']],
+          ],
+        ],
+      ];
+    }
+
+    $build['high_demand_table'] = [
+      '#type' => 'table',
+      '#header' => [
+        'title' => $this->t('Workshop'),
+        'interest' => $this->t('Member Interest'),
+        'last_run' => $this->t('Last Run'),
+        'actions' => $this->t('Actions'),
+      ],
+      '#rows' => $high_demand_rows,
+      '#empty' => $this->t('No high-demand workshops identified at this time.'),
+      '#caption' => $this->t('Workshops with High Demand (Previously Taught by You)'),
+      '#weight' => 5,
+    ];
+
+    // 5. Classes tables.
     $header = [
       'date' => $this->t('Date'),
       'title' => $this->t('Class'),
@@ -500,6 +539,40 @@ class InstructorDashboardController extends ControllerBase {
     $date->setTimezone(new \DateTimeZone($site_timezone));
 
     return $date->format('D, M j, Y \a\t g:ia T');
+  }
+
+  /**
+   * Identifies high demand courses previously taught by this instructor.
+   */
+  protected function getHighDemandCourses(int $uid): array {
+    $database = \Drupal::database();
+    
+    // Find NIDs of courses previously taught by this user.
+    $q = $database->select('civicrm_event__field_civi_event_instructor', 'i');
+    $q->join('civicrm_event__field_parent_course', 'f', 'i.entity_id = f.entity_id');
+    $q->fields('f', ['field_parent_course_target_id']);
+    $q->condition('i.field_civi_event_instructor_target_id', $uid);
+    $q->distinct();
+    $nids = $q->execute()->fetchCol();
+
+    if (empty($nids)) {
+      return [];
+    }
+
+    // Filter those NIDs for High Interest AND No Upcoming Sessions.
+    $storage = $this->entityTypeManager()->getStorage('node');
+    $query = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'course')
+      ->condition('nid', $nids, 'IN')
+      ->condition('field_stat_upcoming', 0)
+      // Any course with interest flags > 0.
+      ->condition('field_stat_runs', 0, '>') 
+      ->sort('field_stat_runs', 'DESC')
+      ->range(0, 5);
+    
+    $final_nids = $query->execute();
+    return !empty($final_nids) ? $storage->loadMultiple($final_nids) : [];
   }
 
 }

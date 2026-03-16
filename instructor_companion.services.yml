@@ -1,0 +1,3 @@
+services:
+  instructor_companion.stats_sync:
+    class: Drupal\instructor_companion\CourseStatsSync

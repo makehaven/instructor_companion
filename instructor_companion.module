@@ -6,6 +6,55 @@
  */
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Markup;
+use Drupal\node\Entity\Node;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\HtmlCommand;
+
+/**
+ * Implements hook_cron().
+ */
+function instructor_companion_cron() {
+  // Sync all course stats once a day or on a schedule.
+  \Drupal::service('instructor_companion.stats_sync')->sync();
+}
+
+/**
+ * Implements hook_civicrm_event_insert().
+ */
+function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInterface $entity) {
+  // If this event was created as inactive, it's a proposal.
+  if (!$entity->get('is_active')->value) {
+    $mailManager = \Drupal::service('plugin.manager.mail');
+    $module = 'instructor_companion';
+    $key = 'new_proposal_submitted';
+    $config = \Drupal::config('instructor_companion.settings');
+    $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
+    
+    $params['event_title'] = $entity->label();
+    $params['event_link'] = $entity->toUrl('edit-form', ['absolute' => TRUE])->toString();
+    $params['user_name'] = \Drupal::currentUser()->getDisplayName();
+    
+    $mailManager->mail($module, $key, $to, 'en', $params, NULL, TRUE);
+    \Drupal::messenger()->addMessage(t('Your proposal has been submitted for staff review.'));
+  }
+
+  // Trigger sync for the parent course.
+  if ($entity->hasField('field_parent_course') && !$entity->get('field_parent_course')->isEmpty()) {
+    $nid = $entity->get('field_parent_course')->target_id;
+    \Drupal::service('instructor_companion.stats_sync')->sync((int) $nid);
+  }
+}
+
+/**
+ * Implements hook_civicrm_event_update().
+ */
+function instructor_companion_civicrm_event_update(\Drupal\Core\Entity\EntityInterface $entity) {
+  if ($entity->hasField('field_parent_course') && !$entity->get('field_parent_course')->isEmpty()) {
+    $nid = $entity->get('field_parent_course')->target_id;
+    \Drupal::service('instructor_companion.stats_sync')->sync((int) $nid);
+  }
+}
 
 /**
  * Implements hook_form_FORM_ID_alter() for user_register_form.
@@ -13,7 +62,6 @@ use Drupal\Core\Form\FormStateInterface;
 function instructor_companion_form_user_register_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   $query = \Drupal::request()->query;
   if ($query->get('profile') === 'instructor') {
-    // Add a custom submit handler to trigger the notification.
     $form['actions']['submit']['#submit'][] = 'instructor_companion_user_register_notify';
   }
 }
@@ -22,9 +70,7 @@ function instructor_companion_form_user_register_form_alter(&$form, FormStateInt
  * Custom submit handler: Notify staff of new instructor applicant.
  */
 function instructor_companion_user_register_notify($form, FormStateInterface $form_state) {
-  /** @var \Drupal\user\Entity\User $user */
   $user = $form_state->getFormObject()->getEntity();
-
   $mailManager = \Drupal::service('plugin.manager.mail');
   $module = 'instructor_companion';
   $key = 'new_instructor_applicant';
@@ -34,16 +80,8 @@ function instructor_companion_user_register_notify($form, FormStateInterface $fo
   $params['user_email'] = $user->getEmail();
   $params['user_link'] = $user->toUrl()->setAbsolute()->toString();
   $langcode = $user->getPreferredLangcode();
-  $send = TRUE;
-
-  $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
-
-  if ($result['result'] !== TRUE) {
-    \Drupal::logger('instructor_companion')->error('There was a problem sending the new instructor notification email.');
-  }
-  else {
-    \Drupal::messenger()->addMessage(t('Your instructor application has been started. Staff have been notified.'));
-  }
+  $mailManager->mail($module, $key, $to, $langcode, $params, NULL, TRUE);
+  \Drupal::messenger()->addMessage(t('Your instructor application has been started. Staff have been notified.'));
 }
 
 /**
@@ -60,5 +98,268 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Profile: @link', ['@link' => $params['user_link']]);
       $message['body'][] = t('Please review their application and assign the Instructor role if approved.');
       break;
+
+    case 'new_proposal_submitted':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('New Session Proposal: @title', ['@title' => $params['event_title']]);
+      $message['body'][] = t('An instructor has proposed a new session.');
+      $message['body'][] = t('Course: @title', ['@title' => $params['event_title']]);
+      $message['body'][] = t('Instructor: @name', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Review Proposal: @link', ['@link' => $params['event_link']]);
+      break;
+  }
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ */
+function instructor_companion_node_view_alter(array &$build, \Drupal\Core\Entity\EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display) {
+  if ($entity->bundle() === 'course' && $build['#view_mode'] === 'full') {
+    $template_id = $entity->get('field_civicrm_template_id')->value;
+    $nid = $entity->id();
+    
+    if (\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
+      $build['schedule_button'] = [
+        '#type' => 'link',
+        '#title' => t('Schedule This Course'),
+        '#url' => \Drupal\Core\Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
+          'query' => [
+            'template_id' => $template_id,
+            'course_id' => $nid,
+          ],
+        ]),
+        '#attributes' => [
+          'class' => ['button', 'button--primary', 'button--action'],
+          'style' => 'margin-bottom: 20px;',
+        ],
+        '#weight' => -100,
+      ];
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for civicrm_event_civicrm_event_add_form.
+ */
+function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $query = \Drupal::request()->query;
+  $template_id = $query->get('template_id');
+  $course_id = $query->get('course_id');
+  $is_proposal = $query->get('propose');
+
+  if ($course_id) {
+    $course_node = Node::load($course_id);
+    if ($course_node && isset($form['field_parent_course'])) {
+      $form['field_parent_course']['widget'][0]['target_id']['#default_value'] = $course_node;
+    }
+    
+    if ($course_node) {
+      // 1. Fetch and Display Past Instructors.
+      $database = \Drupal::database();
+      $q = $database->select('civicrm_event__field_civi_event_instructor', 'i');
+      $q->join('civicrm_event__field_parent_course', 'f', 'i.entity_id = f.entity_id');
+      $q->join('civicrm_event', 'e', 'e.id = i.entity_id');
+      $q->join('users_field_data', 'u', 'u.uid = i.field_civi_event_instructor_target_id');
+      $q->fields('u', ['display_name', 'name']);
+      $q->addExpression('MAX(e.start_date)', 'last_taught');
+      $q->condition('f.field_parent_course_target_id', $course_id);
+      $q->condition('e.is_active', 1);
+      $q->groupBy('u.uid');
+      $q->groupBy('u.display_name');
+      $q->groupBy('u.name');
+      $q->orderBy('last_taught', 'DESC');
+      $instructors = $q->execute()->fetchAll();
+
+      if (!empty($instructors)) {
+        $instr_list = [];
+        foreach ($instructors as $instr) {
+          $date = date('M Y', strtotime($instr->last_taught));
+          $instr_list[] = "{$instr->display_name} (Last: $date)";
+        }
+        if (isset($form['field_civi_event_instructor'])) {
+          $form['field_civi_event_instructor']['widget']['#description'] = Markup::create(
+            '<strong>Past Instructors:</strong> ' . implode(', ', $instr_list)
+          );
+        }
+      }
+
+      // 2. Asset Checking logic with AJAX.
+      $required_assets = $course_node->get('field_required_assets')->referencedEntities();
+      if (!empty($required_assets)) {
+        $asset_names = array_map(fn($a) => $a->getTitle(), $required_assets);
+        $asset_ids = array_map(fn($a) => $a->id(), $required_assets);
+        
+        $form['asset_info'] = [
+          '#type' => 'details',
+          '#title' => t('Required Assets Check'),
+          '#open' => TRUE,
+          '#weight' => -5,
+          '#attributes' => ['id' => 'asset-check-wrapper'],
+          'message' => [
+            '#markup' => '<p>This course requires: <strong>' . implode(', ', $asset_names) . '</strong></p>',
+          ],
+          'conflict_warning' => [
+            '#markup' => '<div id="asset-conflict-warning"><em>Select a date/time to check for tool conflicts.</em></div>',
+          ],
+        ];
+
+        $form['required_asset_ids'] = [
+          '#type' => 'hidden',
+          '#value' => implode(',', $asset_ids),
+        ];
+
+        if (isset($form['start_date'])) {
+          $form['start_date']['widget'][0]['value']['#ajax'] = [
+            'callback' => 'instructor_companion_check_conflicts_ajax',
+            'wrapper' => 'asset-conflict-warning',
+            'event' => 'change',
+          ];
+        }
+        if (isset($form['end_date'])) {
+          $form['end_date']['widget'][0]['value']['#ajax'] = [
+            'callback' => 'instructor_companion_check_conflicts_ajax',
+            'wrapper' => 'asset-conflict-warning',
+            'event' => 'change',
+          ];
+        }
+      }
+
+      if ($is_proposal) {
+        $form['#title'] = t('Propose a Session: @course', ['@course' => $course_node->label()]);
+        if (isset($form['is_active'])) {
+          $form['is_active']['widget']['#default_value'] = 0;
+          $form['is_active']['#access'] = FALSE;
+        }
+        $pay_type = $course_node->get('field_payment_type')->value;
+        $pay_amt = $course_node->get('field_payment_amount')->value;
+        $pay_msg = ($pay_type === 'hourly') ? t('$@amt per hour', ['@amt' => $pay_amt]) : t('$@amt fixed total', ['@amt' => $pay_amt]);
+        $form['agreement'] = [
+          '#type' => 'fieldset',
+          '#title' => t('Instructor Agreement'),
+          '#weight' => 90,
+        ];
+        $form['agreement']['terms'] = [
+          '#markup' => '<p>' . t('By proposing this session, you agree to the standard MakeHaven instructor terms. Your compensation for this specific course is set at <strong>@pay</strong>, subject to final staff review.', ['@pay' => $pay_msg]) . '</p>',
+        ];
+        $form['agreement']['accept_terms'] = [
+          '#type' => 'checkbox',
+          '#title' => t('I accept the instructor agreement for this session.'),
+          '#required' => TRUE,
+        ];
+        if (isset($form['field_civi_event_instructor'])) {
+           $form['field_civi_event_instructor']['widget'][0]['target_id']['#default_value'] = \Drupal::currentUser();
+        }
+      }
+
+      if ($course_node->hasField('field_course_image') && !$course_node->get('field_course_image')->isEmpty()) {
+         if (isset($form['field_civi_event_media_image'])) {
+            $media_id = $course_node->get('field_course_image')->target_id;
+            $form['field_civi_event_media_image']['widget']['#default_value'] = [$media_id];
+         }
+      }
+    }
+  }
+
+  if ($template_id) {
+    try {
+      \Drupal::service('civicrm')->initialize();
+      $template = \civicrm_api3('Event', 'getsingle', ['id' => $template_id]);
+      $fields = [
+        'title' => $template['title'] ?? '',
+        'summary' => $template['summary'] ?? '',
+        'description' => $template['description'] ?? '',
+        'event_type_id' => $template['event_type_id'] ?? NULL,
+        'max_participants' => $template['max_participants'] ?? NULL,
+        'is_public' => $template['is_public'] ?? 1,
+        'is_online_registration' => $template['is_online_registration'] ?? 1,
+      ];
+      foreach ($fields as $key => $val) {
+        if ($val !== NULL && isset($form[$key])) {
+          if (isset($form[$key]['widget'][0]['value'])) {
+            $form[$key]['widget'][0]['value']['#default_value'] = $val;
+          } else {
+            $form[$key]['widget']['#default_value'] = $val;
+          }
+        }
+      }
+    } catch (\Exception $e) {
+      \Drupal::logger('instructor_companion')->error('Error pre-filling event: @msg', ['@msg' => $e->getMessage()]);
+    }
+  }
+}
+
+/**
+ * AJAX Callback to check for asset conflicts.
+ */
+function instructor_companion_check_conflicts_ajax(array &$form, FormStateInterface $form_state) {
+  $response = new AjaxResponse();
+  $start = $form_state->getValue(['start_date', 0, 'value']);
+  $end = $form_state->getValue(['end_date', 0, 'value']);
+  $asset_ids_str = $form_state->getValue('required_asset_ids');
+  if (!$start || !$end || !$asset_ids_str) {
+    return $response->addCommand(new HtmlCommand('#asset-conflict-warning', '<em>Enter both start and end dates to check conflicts.</em>'));
+  }
+  $start_ts = strtotime($start . ' UTC');
+  $end_ts = strtotime($end . ' UTC');
+  $asset_ids = explode(',', $asset_ids_str);
+  $checker = \Drupal::service('makerspace_reservations.conflict_checker');
+  $conflicts_found = [];
+  foreach ($asset_ids as $nid) {
+    $result = $checker->checkConflicts((int)$nid, $start_ts, $end_ts);
+    $asset = Node::load($nid);
+    $asset_label = $asset ? $asset->label() : "Asset $nid";
+    foreach ($result->getDirectConflicts() as $c) {
+      $conflicts_found[] = $checker->formatConflictMessage($c, 'direct', $asset_label);
+    }
+    foreach ($result->getAncestorConflicts() as $c) {
+      $conflicts_found[] = $checker->formatConflictMessage($c, 'ancestor', $asset_label);
+    }
+    foreach ($result->getDescendantConflicts() as $c) {
+      $conflicts_found[] = $checker->formatConflictMessage($c, 'descendant', $asset_label);
+    }
+  }
+  if (!empty($conflicts_found)) {
+    $output = '<div class="messages messages--warning">';
+    $output .= '<strong>Conflict Warning:</strong><ul><li>' . implode('</li><li>', $conflicts_found) . '</li></ul>';
+    $output .= '</div>';
+  } else {
+    $output = '<div class="messages messages--status">No tool conflicts detected for the selected time.</div>';
+  }
+  return $response->addCommand(new HtmlCommand('#asset-conflict-warning', $output));
+}
+
+/**
+ * Implements hook_preprocess_views_view_field().
+ */
+function instructor_companion_preprocess_views_view_field(&$variables) {
+  $view = $variables['view'];
+  $field = $variables['field'];
+  $row = $variables['row'];
+
+  if ($view->id() === 'course_library') {
+    if ($field->options['id'] === 'rev_per_run') {
+      $rev = (float) ($row->node__field_stat_total_rev_field_stat_total_rev_value ?? 0);
+      $runs = (int) ($row->node__field_stat_runs_field_stat_runs_value ?? 0);
+      $val = $runs > 0 ? $rev / $runs : 0;
+      $variables['output'] = Markup::create('$' . number_format($val, 2));
+    }
+    if ($field->options['id'] === 'rev_per_head') {
+      $rev = (float) ($row->node__field_stat_total_rev_field_stat_total_rev_value ?? 0);
+      $att = (int) ($row->node__field_stat_total_att_field_stat_total_att_value ?? 0);
+      $val = $att > 0 ? $rev / $att : 0;
+      $variables['output'] = Markup::create('$' . number_format($val, 2));
+    }
+  }
+}
+
+/**
+ * Implements hook_views_pre_view().
+ */
+function instructor_companion_views_pre_view(\Drupal\views\ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() === 'course_library') {
+    // Restrict access to authorized staff only.
+    if (!\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
+      $view->access = FALSE;
+    }
   }
 }
