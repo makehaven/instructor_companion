@@ -52,6 +52,15 @@ This module depends on specific site configurations that are not bundled in code
 3.  **Entity Reference View:** Create `materials_class_supplies` to filter materials for the feedback form.
 *See `README.md` for exact steps.*
 
+## Future Requirements & Considerations
+
+### 1. Instructor Payment Models
+- **Current State:** Compensation is negotiated per-session and tracked as a flat fee or hourly rate.
+- **Future Requirement:** Support for "per head" payment (compensation based on the number of attendees). This will require integration with CiviCRM participant counts and an update to the `field_payment_type` options.
+
+### 2. Compliance Tracking
+- **Instructor Agreement:** Users must sign the Master Instructor Agreement (`webform_5220`) before they are approved to teach. This is tracked via `field_instructor_agreement_date` on the instructor profile.
+
 ## Development Conventions
 
 - **Hooks:** Standard Drupal hooks are used for form alterations and mail handling (`.module` file).

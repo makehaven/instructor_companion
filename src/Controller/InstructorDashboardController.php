@@ -136,6 +136,29 @@ class InstructorDashboardController extends ControllerBase {
         ],
       ];
     }
+    else {
+      // Check for signed agreement.
+      $profile = $profile_storage->load(reset($profile_ids));
+      if ($profile->get('field_instructor_agreement_date')->isEmpty()) {
+        $agreement_link = Link::fromTextAndUrl(
+          $this->t('Please click here to sign the MakeHaven Instructor Agreement.'),
+          Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220'])
+        );
+        $warning_message = new FormattableMarkup(
+          'Our records indicate you have not yet signed the master instructor agreement. This is required before scheduling or proposing new sessions. @link',
+          ['@link' => $agreement_link->toString()]
+        );
+        $build['agreement_warning'] = [
+          '#type' => 'messagelist',
+          '#messages' => [
+            'warning' => [
+              $warning_message,
+            ],
+          ],
+          '#weight' => -100,
+        ];
+      }
+    }
 
     // 4. High Demand Workshops (New Section)
     $high_demand_rows = [];
