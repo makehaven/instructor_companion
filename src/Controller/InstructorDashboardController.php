@@ -160,23 +160,45 @@ class InstructorDashboardController extends ControllerBase {
       }
     }
 
-    // 4. High Demand Workshops (New Section)
+    // 4. High Demand Workshops.
     $high_demand_rows = [];
     $demand_courses = $this->getHighDemandCourses((int) $current_user->id());
+    $interest_counts = $this->getCourseInterestCounts(array_keys($demand_courses));
     foreach ($demand_courses as $course) {
+      $nid = (int) $course->id();
+      $interest = $interest_counts[$nid] ?? 0;
+      $feedback = $this->getCourseFeedbackSummary($nid);
+      $last_run = $course->get('field_stat_last_run')->value
+        ? date('M Y', strtotime($course->get('field_stat_last_run')->value))
+        : $this->t('Never');
+
+      $interest_cell = $interest > 0
+        ? $this->t('@count @noun following', [
+            '@count' => $interest,
+            '@noun'  => $interest === 1 ? 'person' : 'people',
+          ])
+        : $this->t('—');
+
+      $rating_cell = $feedback['count'] > 0
+        ? $this->t('@avg / 5 (@n reviews)', [
+            '@avg'   => number_format($feedback['avg'], 1),
+            '@n'     => $feedback['count'],
+          ])
+        : $this->t('—');
+
       $high_demand_rows[] = [
-        'title' => $course->label(),
-        'interest' => $this->t('@count interested', ['@count' => $course->get('field_stat_runs')->value]), // Placeholder for interest flag logic
-        'last_run' => $course->get('field_stat_last_run')->value ? date('M Y', strtotime($course->get('field_stat_last_run')->value)) : $this->t('Never'),
+        'title'   => $course->label(),
+        'interest' => $interest_cell,
+        'rating'  => $rating_cell,
+        'last_run' => $last_run,
         'actions' => [
           'data' => [
-            '#type' => 'link',
-            '#title' => $this->t('Propose Session'),
-            '#url' => Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
+            '#type'       => 'link',
+            '#title'      => $this->t('Propose Session'),
+            '#url'        => Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
               'query' => [
-                'template_id' => $course->get('field_civicrm_template_id')->value,
-                'course_id' => $course->id(),
-                'propose' => 1,
+                'course_id' => $nid,
+                'propose'   => 1,
               ],
             ]),
             '#attributes' => ['class' => ['button', 'button--small']],
@@ -186,17 +208,18 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     $build['high_demand_table'] = [
-      '#type' => 'table',
-      '#header' => [
-        'title' => $this->t('Workshop'),
+      '#type'    => 'table',
+      '#header'  => [
+        'title'    => $this->t('Workshop'),
         'interest' => $this->t('Member Interest'),
+        'rating'   => $this->t('Avg Rating'),
         'last_run' => $this->t('Last Run'),
-        'actions' => $this->t('Actions'),
+        'actions'  => $this->t('Actions'),
       ],
-      '#rows' => $high_demand_rows,
-      '#empty' => $this->t('No high-demand workshops identified at this time.'),
-      '#caption' => $this->t('Workshops with High Demand (Previously Taught by You)'),
-      '#weight' => 5,
+      '#rows'    => $high_demand_rows,
+      '#empty'   => $this->t('No high-demand workshops identified at this time.'),
+      '#caption' => $this->t('Workshops with High Member Interest (Previously Taught by You)'),
+      '#weight'  => 5,
     ];
 
     // 5. Classes tables.
@@ -565,11 +588,14 @@ class InstructorDashboardController extends ControllerBase {
   }
 
   /**
-   * Identifies high demand courses previously taught by this instructor.
+   * Identifies high-demand courses previously taught by this instructor.
+   *
+   * Returns courses the instructor has taught that currently have no upcoming
+   * sessions, sorted by member interest (flag count) then offer frequency.
    */
   protected function getHighDemandCourses(int $uid): array {
     $database = \Drupal::database();
-    
+
     // Find NIDs of courses previously taught by this user.
     $q = $database->select('civicrm_event__field_civi_event_instructor', 'i');
     $q->join('civicrm_event__field_parent_course', 'f', 'i.entity_id = f.entity_id');
@@ -582,20 +608,151 @@ class InstructorDashboardController extends ControllerBase {
       return [];
     }
 
-    // Filter those NIDs for High Interest AND No Upcoming Sessions.
+    // Courses with no upcoming sessions, at least one past run.
     $storage = $this->entityTypeManager()->getStorage('node');
-    $query = $storage->getQuery()
+    $candidate_nids = $storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('type', 'course')
       ->condition('nid', $nids, 'IN')
       ->condition('field_stat_upcoming', 0)
-      // Any course with interest flags > 0.
-      ->condition('field_stat_runs', 0, '>') 
-      ->sort('field_stat_runs', 'DESC')
-      ->range(0, 5);
-    
-    $final_nids = $query->execute();
-    return !empty($final_nids) ? $storage->loadMultiple($final_nids) : [];
+      ->condition('field_stat_runs', 0, '>')
+      ->execute();
+
+    if (empty($candidate_nids)) {
+      return [];
+    }
+
+    // Sort by interest flag count DESC, then runs DESC.
+    $interest_counts = $this->getCourseInterestCounts(array_values($candidate_nids));
+    $nodes = $storage->loadMultiple($candidate_nids);
+
+    uasort($nodes, function ($a, $b) use ($interest_counts) {
+      $ai = $interest_counts[(int) $a->id()] ?? 0;
+      $bi = $interest_counts[(int) $b->id()] ?? 0;
+      if ($ai !== $bi) {
+        return $bi <=> $ai;
+      }
+      return (int) $b->get('field_stat_runs')->value <=> (int) $a->get('field_stat_runs')->value;
+    });
+
+    return array_slice($nodes, 0, 8, TRUE);
+  }
+
+  /**
+   * Returns flag_counts for course_interest for a set of node IDs.
+   *
+   * @param int[] $nids
+   *
+   * @return array<int, int>  Keyed by NID, value is interest count.
+   */
+  protected function getCourseInterestCounts(array $nids): array {
+    if (empty($nids)) {
+      return [];
+    }
+    try {
+      $rows = \Drupal::database()
+        ->select('flag_counts', 'fc')
+        ->fields('fc', ['entity_id', 'count'])
+        ->condition('fc.flag_id', 'course_interest')
+        ->condition('fc.entity_id', $nids, 'IN')
+        ->execute()
+        ->fetchAllKeyed();
+      return array_map('intval', $rows);
+    }
+    catch (\Throwable $e) {
+      return [];
+    }
+  }
+
+  /**
+   * Returns aggregated satisfaction rating from event evaluation webforms.
+   *
+   * Matches submissions by the CiviCRM event titles linked to this course via
+   * field_parent_course. Uses webforms 'webform_26478' (Event Evaluation) and
+   * 'evaluation' (Meetup Evaluation), both of which store an 'overall' score
+   * (1–5) and a 'name'/'workshop' event title field.
+   *
+   * @return array{avg: float, count: int}
+   */
+  protected function getCourseFeedbackSummary(int $nid): array {
+    $result = ['avg' => 0.0, 'count' => 0];
+    try {
+      $db = \Drupal::database();
+
+      // Get all CiviCRM event titles linked to this course.
+      $linked_ids = $db->select('civicrm_event__field_parent_course', 'pc')
+        ->fields('pc', ['entity_id'])
+        ->condition('pc.field_parent_course_target_id', $nid)
+        ->execute()
+        ->fetchCol();
+
+      if (empty($linked_ids)) {
+        return $result;
+      }
+
+      $titles = $db->select('civicrm_event', 'e')
+        ->fields('e', ['title'])
+        ->condition('e.id', $linked_ids, 'IN')
+        ->execute()
+        ->fetchCol();
+
+      if (empty($titles)) {
+        return $result;
+      }
+
+      // webform_26478 stores event title in 'workshop'; 'evaluation' uses 'name'.
+      $total = 0;
+      $count = 0;
+      foreach ([['webform_26478', 'workshop'], ['evaluation', 'name']] as [$wid, $title_key]) {
+        $sids = $db->select('webform_submission', 'ws')
+          ->fields('ws', ['sid'])
+          ->condition('ws.webform_id', $wid)
+          ->execute()
+          ->fetchCol();
+
+        if (empty($sids)) {
+          continue;
+        }
+
+        // Load data from webform_submission_data for matching submissions.
+        $title_matches = $db->select('webform_submission_data', 'd')
+          ->fields('d', ['sid'])
+          ->condition('d.webform_id', $wid)
+          ->condition('d.name', $title_key)
+          ->condition('d.value', $titles, 'IN')
+          ->condition('d.sid', $sids, 'IN')
+          ->execute()
+          ->fetchCol();
+
+        if (empty($title_matches)) {
+          continue;
+        }
+
+        $ratings = $db->select('webform_submission_data', 'r')
+          ->fields('r', ['value'])
+          ->condition('r.webform_id', $wid)
+          ->condition('r.name', 'overall')
+          ->condition('r.sid', $title_matches, 'IN')
+          ->execute()
+          ->fetchCol();
+
+        foreach ($ratings as $rating) {
+          $val = (int) $rating;
+          if ($val >= 1 && $val <= 5) {
+            $total += $val;
+            $count++;
+          }
+        }
+      }
+
+      if ($count > 0) {
+        $result = ['avg' => $total / $count, 'count' => $count];
+      }
+    }
+    catch (\Throwable $e) {
+      // Return empty on any DB error.
+    }
+    return $result;
   }
 
 }
