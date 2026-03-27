@@ -363,3 +363,46 @@ function instructor_companion_views_pre_view(\Drupal\views\ViewExecutable $view,
     }
   }
 }
+
+/**
+ * Implements hook_views_query_alter().
+ */
+function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $view, \Drupal\views\Plugin\views\query\QueryPluginBase $query): void {
+  if ($view->id() !== 'public_course_catalog') {
+    return;
+  }
+
+  $view->element['#cache']['contexts'][] = 'url.query_args:sort';
+
+  // Clear the default title sort.
+  $query->orderby = [];
+
+  $sort_by = \Drupal::request()->query->get('sort', 'frequency');
+
+  if ($sort_by === 'interest') {
+    // LEFT JOIN flag_counts so courses with no votes sort last (count = NULL).
+    $configuration = [
+      'table'      => 'flag_counts',
+      'field'      => 'entity_id',
+      'left_table' => 'node_field_data',
+      'left_field' => 'nid',
+      'extra'      => [
+        ['field' => 'flag_id',     'value' => 'course_interest'],
+        ['field' => 'entity_type', 'value' => 'node'],
+      ],
+      'type'       => 'LEFT',
+    ];
+    /** @var \Drupal\views\Plugin\views\join\JoinPluginBase $join */
+    $join = \Drupal::service('plugin.manager.views.join')
+      ->createInstance('standard', $configuration);
+    $alias = $query->addTable('flag_counts', NULL, $join, 'workshop_flag_counts');
+    $query->addOrderBy(NULL, "COALESCE($alias.count, 0)", 'DESC', 'workshop_interest_sort');
+  }
+
+  // Secondary (or primary for default): most-offered first.
+  $runs_alias = $query->ensureTable('node__field_stat_runs');
+  $query->addOrderBy($runs_alias, 'field_stat_runs_value', 'DESC', 'workshop_runs_sort');
+
+  // Deterministic third sort by title.
+  $query->addOrderBy('node_field_data', 'title', 'ASC', 'workshop_title_sort');
+}

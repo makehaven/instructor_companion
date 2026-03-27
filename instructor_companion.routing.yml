@@ -13,3 +13,35 @@ instructor_companion.settings:
     _title: 'Instructor Companion'
   requirements:
     _permission: 'administer site configuration'
+
+instructor_companion.course_merge_form:
+  path: '/admin/structure/courses/merge/{source_nid}'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\CourseMergeForm'
+    _title: 'Merge Workshop'
+  requirements:
+    _permission: 'create civicrm_event entities'
+
+instructor_companion.course_merge_execute:
+  path: '/admin/structure/courses/merge/{source_nid}/{target_nid}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\CourseMergeController::merge'
+    _title: 'Merge Courses'
+  requirements:
+    _permission: 'create civicrm_event entities'
+
+instructor_companion.event_reassign_form:
+  path: '/admin/structure/courses/reassign-event/{event_id}'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\EventReassignForm'
+    _title: 'Move Event to Course'
+  requirements:
+    _permission: 'create civicrm_event entities'
+
+instructor_companion.event_reassign_execute:
+  path: '/admin/structure/courses/reassign-event/{event_id}/{target_nid}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EventReassignController::reassign'
+    _title: 'Moving Event'
+  requirements:
+    _permission: 'create civicrm_event entities'
