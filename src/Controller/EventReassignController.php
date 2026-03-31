@@ -34,12 +34,17 @@ class EventReassignController extends ControllerBase {
 
     // Update the record.
     $database->merge('civicrm_event__field_parent_course')
-      ->key(['entity_id' => $event_id])
+      ->keys(['entity_id' => (int) $event_id])
       ->fields([
-        'bundle' => 'ticketed_workshop', // Fallback, usually overwritten if exists
+        'bundle' => 'ticketed_workshop', // Fallback for new assignments
         'deleted' => 0,
         'langcode' => 'und',
-        'field_parent_course_target_id' => $target_nid,
+        'revision_id' => (int) $event_id,
+        'delta' => 0,
+        'field_parent_course_target_id' => (int) $target_nid,
+      ])
+      ->updateFields([
+        'field_parent_course_target_id' => (int) $target_nid,
       ])
       ->execute();
 
