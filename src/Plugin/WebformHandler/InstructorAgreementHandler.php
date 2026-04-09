@@ -7,13 +7,13 @@ use Drupal\webform\Plugin\WebformHandlerBase;
 use Drupal\webform\WebformSubmissionInterface;
 
 /**
- * Updates the instructor profile with agreement date upon submission.
+ * Updates (or creates) the instructor profile with agreement date on submission.
  *
  * @WebformHandler(
  *   id = "instructor_agreement_handler",
  *   label = @Translation("Instructor Agreement Handler"),
  *   category = @Translation("Makerspace"),
- *   description = @Translation("Updates the instructor profile with the current date when the agreement is signed."),
+ *   description = @Translation("Creates an instructor profile if needed and records the agreement sign date."),
  *   cardinality = \Drupal\webform\Plugin\WebformHandlerInterface::CARDINALITY_SINGLE,
  *   results = \Drupal\webform\Plugin\WebformHandlerInterface::RESULTS_PROCESSED,
  *   submission = \Drupal\webform\Plugin\WebformHandlerInterface::SUBMISSION_REQUIRED,
@@ -36,22 +36,49 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       'type' => 'instructor',
     ]);
 
+    $now = date('Y-m-d\TH:i:s');
+
     if (!empty($profiles)) {
       $profile = reset($profiles);
-      // Use Drupal format for datetime field.
-      $profile->set('field_instructor_agreement_date', date('Y-m-d\TH:i:s'));
+      $profile->set('field_instructor_agreement_date', $now);
       $profile->save();
-      
       \Drupal::logger('instructor_companion')->notice('Instructor agreement signed by @name. Profile @id updated.', [
         '@name' => $account->getDisplayName(),
         '@id' => $profile->id(),
       ]);
     }
     else {
-      \Drupal::logger('instructor_companion')->warning('Instructor agreement signed by @name, but no instructor profile found to update.', [
+      // Create the instructor profile for an existing member who signed via
+      // the /become-instructor flow (no profile exists yet).
+      $profile = $profile_storage->create([
+        'uid' => $account->id(),
+        'type' => 'instructor',
+        'status' => 1,
+        'field_instructor_agreement_date' => $now,
+      ]);
+      $profile->save();
+      \Drupal::logger('instructor_companion')->notice('Instructor profile created and agreement signed for @name.', [
         '@name' => $account->getDisplayName(),
       ]);
     }
+
+    // Notify staff via the module mail system.
+    $config = \Drupal::config('instructor_companion.settings');
+    $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
+    $params = [
+      'user_name' => $account->getDisplayName(),
+      'user_email' => $account->getEmail(),
+      'user_link' => $account->toUrl()->setAbsolute()->toString(),
+    ];
+    \Drupal::service('plugin.manager.mail')->mail(
+      'instructor_companion',
+      'instructor_agreement_signed',
+      $to,
+      'en',
+      $params,
+      NULL,
+      TRUE
+    );
   }
 
 }

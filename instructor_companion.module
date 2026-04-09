@@ -107,6 +107,43 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Instructor: @name', ['@name' => $params['user_name']]);
       $message['body'][] = t('Review Proposal: @link', ['@link' => $params['event_link']]);
       break;
+
+    case 'instructor_agreement_signed':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Instructor Agreement Signed: @name', ['@name' => $params['user_name']]);
+      $message['body'][] = t('A member has signed the base instructor agreement and is awaiting approval.');
+      $message['body'][] = t('Name: @name', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
+      $message['body'][] = t('User profile: @link', ['@link' => $params['user_link']]);
+      $message['body'][] = t('Next step: review their background and assign the Instructor role when ready. Reply to this email or contact them directly to discuss their first class.');
+      break;
+
+    case 'proposal_approved':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Your session proposal has been approved: @title', ['@title' => $params['event_title']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Great news — your proposed session has been approved and is now live on the MakeHaven calendar!');
+      $message['body'][] = t('Session: @title', ['@title' => $params['event_title']]);
+      if (!empty($params['start_date'])) {
+        $message['body'][] = t('Date: @date', ['@date' => $params['start_date']]);
+      }
+      if (!empty($params['event_link'])) {
+        $message['body'][] = t('View your session: @link', ['@link' => $params['event_link']]);
+      }
+      $message['body'][] = t('Please log into your Instructor Dashboard to review enrollment, request payment, and submit post-class feedback. If you have any questions, reply to this email.');
+      $message['body'][] = t('Thank you for teaching at MakeHaven!');
+      break;
+
+    case 'proposal_denied':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Update on your session proposal: @title', ['@title' => $params['event_title']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Thank you for submitting a session proposal. After review, we are not able to move forward with this particular proposal at this time.');
+      $message['body'][] = t('Session: @title', ['@title' => $params['event_title']]);
+      $message['body'][] = t('Reason:');
+      $message['body'][] = $params['reason'];
+      $message['body'][] = t('We encourage you to reach out if you have questions or would like to discuss other teaching opportunities. You can reply directly to this email or contact education@makehaven.org.');
+      break;
   }
 }
 
@@ -326,6 +363,71 @@ function instructor_companion_check_conflicts_ajax(array &$form, FormStateInterf
     $output = '<div class="messages messages--status">No tool conflicts detected for the selected time.</div>';
   }
   return $response->addCommand(new HtmlCommand('#asset-conflict-warning', $output));
+}
+
+/**
+ * Implements hook_entity_view_alter() for user entities.
+ *
+ * Adds a "Become an Instructor" CTA to a member's own profile page when they
+ * have indicated teaching availability but don't have an instructor profile yet.
+ */
+function instructor_companion_user_view_alter(array &$build, \Drupal\Core\Entity\EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display) {
+  $current_user = \Drupal::currentUser();
+
+  // Only show on the user's own profile, full view mode.
+  if ((int) $entity->id() !== (int) $current_user->id()) {
+    return;
+  }
+  if ($build['#view_mode'] !== 'full') {
+    return;
+  }
+  // Skip if they already have the instructor role.
+  if ($current_user->hasRole('instructor')) {
+    return;
+  }
+
+  // Check main profile for teaching availability.
+  $profile_storage = \Drupal::entityTypeManager()->getStorage('profile');
+  $main_profiles = $profile_storage->loadByProperties([
+    'uid' => $current_user->id(),
+    'type' => 'main',
+    'status' => 1,
+  ]);
+  if (empty($main_profiles)) {
+    return;
+  }
+
+  $main_profile = reset($main_profiles);
+  $has_teaching_avail = FALSE;
+  foreach ($main_profile->get('field_member_availability') as $item) {
+    if (in_array($item->value, ['teach_volunteer', 'teach_paid'], TRUE)) {
+      $has_teaching_avail = TRUE;
+      break;
+    }
+  }
+  if (!$has_teaching_avail) {
+    return;
+  }
+
+  // Check whether they've already started the instructor application.
+  $instructor_profiles = $profile_storage->loadByProperties([
+    'uid' => $current_user->id(),
+    'type' => 'instructor',
+  ]);
+  if (!empty($instructor_profiles)) {
+    return;
+  }
+
+  // Show the CTA.
+  $build['instructor_cta'] = [
+    '#type' => 'container',
+    '#attributes' => ['class' => ['instructor-profile-cta', 'messages', 'messages--status']],
+    '#weight' => -50,
+    'text' => [
+      '#markup' => '<strong>' . t('You indicated interest in teaching — want to make it official?') . '</strong> '
+        . '<a href="/become-instructor">' . t('Learn how to become a MakeHaven Instructor') . '</a>.',
+    ],
+  ];
 }
 
 /**

@@ -1,3 +1,62 @@
+instructor_companion.become_instructor:
+  path: '/become-instructor'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\BecomeInstructorController::build'
+    _title: 'Become a MakeHaven Instructor'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+
+instructor_companion.course_picker:
+  path: '/become-instructor/courses'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\CoursePickerController::build'
+    _title: 'Workshops Available to Teach'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+
+instructor_companion.prospective_instructors:
+  path: '/admin/people/prospective-instructors'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ProspectiveInstructorsController::build'
+    _title: 'Prospective Instructors'
+  requirements:
+    _permission: 'administer users'
+
+instructor_companion.proposals_list:
+  path: '/admin/structure/proposals'
+  defaults:
+    _controller: '\Drupal\Core\Controller\TitleResolver'
+    _title: 'Pending Proposals'
+  requirements:
+    _permission: 'create civicrm_event entities'
+
+instructor_companion.proposal_review:
+  path: '/admin/structure/proposals/{event_id}/review'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ProposalReviewController::build'
+    _title: 'Review Proposal'
+  requirements:
+    _permission: 'create civicrm_event entities'
+    event_id: '\d+'
+
+instructor_companion.proposal_approve:
+  path: '/admin/structure/proposals/{event_id}/approve'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ProposalReviewController::approve'
+    _title: 'Approve Proposal'
+  requirements:
+    _permission: 'create civicrm_event entities'
+    event_id: '\d+'
+
+instructor_companion.proposal_deny:
+  path: '/admin/structure/proposals/{event_id}/deny'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\ProposalDenyForm'
+    _title: 'Deny Proposal'
+  requirements:
+    _permission: 'create civicrm_event entities'
+    event_id: '\d+'
+
 instructor_companion.dashboard:
   path: '/instructor/dashboard'
   defaults:

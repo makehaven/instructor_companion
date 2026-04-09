@@ -18,3 +18,26 @@ instructor_companion.dashboard_admin:
   route_name: instructor_companion.dashboard
   parent: instructor_companion.settings
   weight: 10
+
+instructor_companion.staff_tools_group:
+  title: 'Education'
+  menu_name: staff-tools
+  parent: slack_member_sync.staff_tab
+  url: 'internal:/admin/people/prospective-instructors'
+  weight: 20
+
+instructor_companion.staff_tools_prospective:
+  title: 'Prospective Instructors'
+  description: 'Members who indicated teaching interest but are not yet instructors.'
+  route_name: instructor_companion.prospective_instructors
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 10
+
+instructor_companion.staff_tools_proposals:
+  title: 'Pending Session Proposals'
+  description: 'Review and approve instructor session proposals.'
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  url: 'internal:/admin/structure/proposals'
+  weight: 20
