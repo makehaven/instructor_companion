@@ -237,6 +237,46 @@ class InstructorDashboardController extends ControllerBase {
     try {
       $upcoming_events = $this->loadInstructorEvents((int) $current_user->id(), '>=', 'ASC', 20);
       $completed_events = $this->loadInstructorEvents((int) $current_user->id(), '<', 'DESC', 20);
+
+      // Badge prerequisite check: warn if any upcoming class awards a badge the
+      // instructor does not yet hold. Non-blocking — just a heads-up.
+      $badge_gaps = $this->getBadgePrerequisiteGaps((int) $current_user->id(), $upcoming_events);
+      if (!empty($badge_gaps)) {
+        $rows = [];
+        foreach ($badge_gaps as $gap) {
+          $rows[] = [
+            'class' => $gap['event_label'] . ($gap['event_date'] ? ' (' . $gap['event_date'] . ')' : ''),
+            'badge' => $gap['badge_label'],
+            'action' => [
+              'data' => [
+                '#type' => 'link',
+                '#title' => $this->t('Book a badge checkout'),
+                '#url' => Url::fromUserInput('/appointment'),
+                '#attributes' => ['class' => ['button', 'button--small']],
+              ],
+            ],
+          ];
+        }
+        $build['badge_prerequisites'] = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['messages', 'messages--warning']],
+          '#weight' => -15,
+          'heading' => [
+            '#markup' => '<strong>' . $this->t('Badger Status Required') . '</strong><p>'
+              . $this->t("You're scheduled to teach classes that award badges, but you're not yet an approved badger for the badge(s) listed below. To become a badger: (1) earn the badge, (2) shadow an existing badger, (3) run a session under supervision, then (4) staff will grant you badger status. Contact education@makehaven.org to start the process.")
+              . '</p>',
+          ],
+          'table' => [
+            '#type' => 'table',
+            '#header' => [
+              'class' => $this->t('Class'),
+              'badge' => $this->t('Badge Needed'),
+              'action' => $this->t('Get Started'),
+            ],
+            '#rows' => $rows,
+          ],
+        ];
+      }
       $all_event_ids = array_unique(array_merge(array_keys($upcoming_events), array_keys($completed_events)));
       $payment_status_by_event = $this->getPaymentStatusSummaryByEvent((int) $current_user->id(), $all_event_ids);
 
@@ -662,6 +702,41 @@ class InstructorDashboardController extends ControllerBase {
     catch (\Throwable $e) {
       return [];
     }
+  }
+
+  /**
+   * Finds upcoming events where the instructor is not yet an approved badger.
+   *
+   * Being a badger means appearing in field_badge_issuer on the badge term —
+   * a status staff grant after: earn badge → shadow a badger → supervised
+   * session. Simply holding a badge_request is not sufficient.
+   *
+   * @param int $uid
+   * @param array $upcoming_events  Keyed CiviCRM event entities.
+   * @return array[] Each entry: ['event_label', 'event_date', 'badge_label'].
+   */
+  protected function getBadgePrerequisiteGaps(int $uid, array $upcoming_events): array {
+    $gaps = [];
+    foreach ($upcoming_events as $event) {
+      if (!$event->hasField('field_civi_event_badges') || $event->get('field_civi_event_badges')->isEmpty()) {
+        continue;
+      }
+      $badge_terms = $event->get('field_civi_event_badges')->referencedEntities();
+      foreach ($badge_terms as $badge) {
+        $issuer_uids = array_map(
+          'intval',
+          array_column($badge->get('field_badge_issuer')->getValue(), 'target_id')
+        );
+        if (!in_array($uid, $issuer_uids, TRUE)) {
+          $gaps[] = [
+            'event_label' => $event->label(),
+            'event_date' => $this->formatEventDate((string) $event->get('start_date')->value),
+            'badge_label' => $badge->label(),
+          ];
+        }
+      }
+    }
+    return $gaps;
   }
 
   /**

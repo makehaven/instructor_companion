@@ -176,6 +176,56 @@ function instructor_companion_node_view_alter(array &$build, \Drupal\Core\Entity
 }
 
 /**
+ * Returns badge terms for which the given user is not yet an approved badger.
+ *
+ * Being a badger (badge issuer) means the user appears in field_badge_issuer
+ * on the badge taxonomy term. That status is granted by staff after the full
+ * process: earn the badge → shadow a badger → run a supervised session → staff
+ * approval. Simply holding an active badge_request is not sufficient.
+ *
+ * @param \Drupal\taxonomy\TermInterface[] $badge_terms
+ * @param int $uid
+ * @return string[] Labels of badges for which the user is not yet a badger.
+ */
+function instructor_companion_missing_badges(array $badge_terms, int $uid): array {
+  if (empty($badge_terms) || !$uid) {
+    return [];
+  }
+  $missing = [];
+  foreach ($badge_terms as $badge) {
+    $issuer_uids = array_map(
+      'intval',
+      array_column($badge->get('field_badge_issuer')->getValue(), 'target_id')
+    );
+    if (!in_array($uid, $issuer_uids, TRUE)) {
+      $missing[] = $badge->label();
+    }
+  }
+  return $missing;
+}
+
+/**
+ * Adds a badge prerequisite warning element to a form.
+ *
+ * @param array $form
+ * @param string[] $missing_badges
+ */
+function instructor_companion_add_badge_warning(array &$form, array $missing_badges): void {
+  $list = implode(', ', array_map(fn($b) => "<strong>$b</strong>", $missing_badges));
+  $form['badge_prerequisite_warning'] = [
+    '#type' => 'container',
+    '#attributes' => ['class' => ['messages', 'messages--warning']],
+    '#weight' => -20,
+    'message' => [
+      '#markup' => t(
+        'This class awards the following badge(s): !badges. Before teaching it, you\'ll need to become an approved badger for each one. The process is: (1) earn the badge, (2) shadow an existing badger, (3) run a session under supervision, then (4) staff will grant you badger status. Contact education@makehaven.org to get started.',
+        ['!badges' => $list]
+      ),
+    ],
+  ];
+}
+
+/**
  * Implements hook_form_FORM_ID_alter() for civicrm_event_civicrm_event_add_form.
  */
 function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$form, FormStateInterface $form_state, $form_id) {
@@ -319,9 +369,48 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
           }
         }
       }
+
+      // Badge prerequisite warning: load the template event entity to read its
+      // configured badges, then warn the proposing instructor if they're missing any.
+      $template_event = \Drupal::entityTypeManager()
+        ->getStorage('civicrm_event')
+        ->load($template_id);
+      if ($template_event && $template_event->hasField('field_civi_event_badges') && !$template_event->get('field_civi_event_badges')->isEmpty()) {
+        $badge_terms = $template_event->get('field_civi_event_badges')->referencedEntities();
+        $missing = instructor_companion_missing_badges($badge_terms, \Drupal::currentUser()->id());
+        if (!empty($missing)) {
+          instructor_companion_add_badge_warning($form, $missing);
+        }
+      }
     } catch (\Exception $e) {
       \Drupal::logger('instructor_companion')->error('Error pre-filling event: @msg', ['@msg' => $e->getMessage()]);
     }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for civicrm_event_civicrm_event_edit_form.
+ *
+ * Warns the assigned instructor (or current user editing) if they lack an active
+ * badge for any badge this event awards.
+ */
+function instructor_companion_form_civicrm_event_civicrm_event_edit_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $event = $form_state->getFormObject()->getEntity();
+  if (!$event->hasField('field_civi_event_badges') || $event->get('field_civi_event_badges')->isEmpty()) {
+    return;
+  }
+
+  // Determine whose badge status to check: prefer the assigned instructor,
+  // fall back to the current user.
+  $uid = \Drupal::currentUser()->id();
+  if ($event->hasField('field_civi_event_instructor') && !$event->get('field_civi_event_instructor')->isEmpty()) {
+    $uid = (int) $event->get('field_civi_event_instructor')->target_id;
+  }
+
+  $badge_terms = $event->get('field_civi_event_badges')->referencedEntities();
+  $missing = instructor_companion_missing_badges($badge_terms, $uid);
+  if (!empty($missing)) {
+    instructor_companion_add_badge_warning($form, $missing);
   }
 }
 
