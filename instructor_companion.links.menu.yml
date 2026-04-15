@@ -41,3 +41,35 @@ instructor_companion.staff_tools_proposals:
   parent: instructor_companion.staff_tools_group
   url: 'internal:/admin/structure/proposals'
   weight: 20
+
+instructor_companion.staff_tools_workshop_proposal_queue:
+  title: 'Workshop Proposal Queue'
+  description: 'Triage proposed workshops awaiting scheduling.'
+  route_name: instructor_companion.workshop_proposal_queue
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 30
+
+instructor_companion.staff_tools_instructor_interest:
+  title: 'Instructor Interest Queue'
+  description: 'Members who expressed interest in teaching.'
+  route_name: instructor_companion.instructor_interest_queue
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 40
+
+instructor_companion.staff_tools_facilitator_dashboard:
+  title: 'Facilitator Dashboard'
+  description: 'Open the facilitator dashboard view.'
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  url: 'internal:/facilitator/dashboard'
+  weight: 50
+
+instructor_companion.staff_tools_instructor_dashboard:
+  title: 'Instructor Dashboard'
+  description: 'Open the instructor dashboard view.'
+  route_name: instructor_companion.dashboard
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 60

@@ -97,6 +97,22 @@ instructor_companion.event_reassign_form:
   requirements:
     _permission: 'create civicrm_event entities'
 
+instructor_companion.workshop_proposal_queue:
+  path: '/admin/workshop-proposals'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WorkshopProposalQueueController::build'
+    _title: 'Workshop Proposal Queue'
+  requirements:
+    _permission: 'administer webform submission'
+
+instructor_companion.instructor_interest_queue:
+  path: '/admin/instructor-interest'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorInterestQueueController::build'
+    _title: 'Instructor Interest Queue'
+  requirements:
+    _permission: 'administer webform submission'
+
 instructor_companion.event_reassign_execute:
   path: '/admin/structure/courses/reassign-event/{event_id}/{target_nid}'
   defaults:

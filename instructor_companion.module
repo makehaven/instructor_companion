@@ -5,11 +5,13 @@
  * Primary module hooks for Instructor Companion.
  */
 
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\node\Entity\Node;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\HtmlCommand;
+use Drupal\webform\WebformSubmissionInterface;
 
 /**
  * Implements hook_cron().
@@ -17,6 +19,20 @@ use Drupal\Core\Ajax\HtmlCommand;
 function instructor_companion_cron() {
   // Sync all course stats once a day or on a schedule.
   \Drupal::service('instructor_companion.stats_sync')->sync();
+}
+
+/**
+ * Implements hook_entity_insert().
+ *
+ * Posts Slack notifications for new Workshop Proposal / Instructor Interest
+ * submissions so staff see the backlog. Handled webforms are listed in
+ * ProposalNotifier::HANDLED_WEBFORMS.
+ */
+function instructor_companion_entity_insert(EntityInterface $entity) {
+  if ($entity instanceof WebformSubmissionInterface) {
+    \Drupal::service('instructor_companion.proposal_notifier')
+      ->notifyForSubmission($entity);
+  }
 }
 
 /**
@@ -385,6 +401,71 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
     } catch (\Exception $e) {
       \Drupal::logger('instructor_companion')->error('Error pre-filling event: @msg', ['@msg' => $e->getMessage()]);
     }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Prefills the "Instructor" fieldset of the Workshop Proposal webform
+ * (webform_497) from the current user's instructor profile so logged-in
+ * instructors don't re-enter bio, rate, name, email, etc. every time.
+ *
+ * Matches by form_id prefix because the webform is rendered via a webform
+ * node, which produces a form ID like
+ * `webform_submission_webform_497_node_497_add_form`.
+ *
+ * Anonymous users see the form unchanged — the traveling-instructor flow
+ * still works.
+ */
+function instructor_companion_form_alter(array &$form, FormStateInterface $form_state, string $form_id) {
+  if (!str_starts_with($form_id, 'webform_submission_webform_497_')
+    || !str_ends_with($form_id, '_add_form')) {
+    return;
+  }
+  $account = \Drupal::currentUser();
+  if ($account->isAnonymous()) {
+    return;
+  }
+  $prefill = \Drupal::service('instructor_companion.instructor_profile_resolver')
+    ->getPrefillForUser($account);
+  if (empty($prefill)) {
+    return;
+  }
+
+  // Map profile values onto the actual webform element keys. The form_497
+  // config uses suffixed names (e.g. your_name_25) from the original build.
+  $map = [
+    'your_name_25' => $prefill['name'] ?? NULL,
+    'e_mail_address_25' => $prefill['email'] ?? NULL,
+    'phone_number_25' => $prefill['phone'] ?? NULL,
+    'bio_25' => $prefill['bio'] ?? NULL,
+    'instructor_compensation_25' => $prefill['compensation'] ?? NULL,
+  ];
+
+  if (!isset($form['elements']['fieldset_about_the_instructor'])) {
+    return;
+  }
+  $fieldset = &$form['elements']['fieldset_about_the_instructor'];
+  foreach ($map as $key => $value) {
+    if ($value === NULL || $value === '') {
+      continue;
+    }
+    if (isset($fieldset[$key])) {
+      $fieldset[$key]['#default_value'] = $value;
+    }
+  }
+
+  // Add a small banner at the top of the fieldset pointing to the profile
+  // edit page, so users know they can update their saved data.
+  if (!empty($prefill['has_profile'])) {
+    $profile_url = \Drupal\Core\Url::fromUserInput('/user/' . $account->id() . '/instructor')->toString();
+    $fieldset['saved_profile_banner'] = [
+      '#markup' => '<div class="messages messages--status">' .
+        t('Using your saved <a href=":url">instructor profile</a>. Update there once and it applies to every proposal.', [':url' => $profile_url]) .
+        '</div>',
+      '#weight' => -100,
+    ];
   }
 }
 

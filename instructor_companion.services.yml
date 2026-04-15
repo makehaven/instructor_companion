@@ -1,3 +1,19 @@
 services:
   instructor_companion.stats_sync:
     class: Drupal\instructor_companion\CourseStatsSync
+
+  instructor_companion.instructor_profile_resolver:
+    class: Drupal\instructor_companion\Service\InstructorProfileResolver
+    arguments:
+      - '@entity_type.manager'
+
+  instructor_companion.proposal_notifier:
+    class: Drupal\instructor_companion\Service\ProposalNotifier
+    arguments:
+      - '@config.factory'
+      - '@http_client'
+      - '@logger.channel.instructor_companion'
+  logger.channel.instructor_companion:
+    parent: logger.channel_base
+    arguments:
+      - instructor_companion

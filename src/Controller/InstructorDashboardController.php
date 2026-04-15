@@ -3,6 +3,7 @@
 namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Component\Render\FormattableMarkup;
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Link;
@@ -13,6 +14,29 @@ use Drupal\Core\StringTranslation\TranslatableMarkup;
  * Returns responses for Instructor Companion routes.
  */
 class InstructorDashboardController extends ControllerBase {
+
+  /**
+   * Rolling window (months) for satisfaction stats and comment surfacing.
+   */
+  protected const SATISFACTION_WINDOW_MONTHS = 12;
+
+  /**
+   * Days an event must be in the past before its comments can be shown.
+   *
+   * Matches the facilitator dashboard delay pattern — creates separation in
+   * time between a submission and its surfacing so attribution is harder.
+   */
+  protected const FEEDBACK_DELAY_DAYS = 30;
+
+  /**
+   * Minimum comment count required before any comments are shown.
+   */
+  protected const FEEDBACK_MINIMUM_COUNT = 3;
+
+  /**
+   * Maximum number of comments to render.
+   */
+  protected const FEEDBACK_DISPLAY_LIMIT = 6;
 
   /**
    * Builds the Instructor Dashboard.
@@ -52,11 +76,27 @@ class InstructorDashboardController extends ControllerBase {
     ];
 
     if ($stats['avg_rating'] > 0) {
+      $window = self::SATISFACTION_WINDOW_MONTHS;
+      $detail_parts = [];
+      $detail_parts[] = $this->formatPlural(
+        $stats['rating_count'],
+        '1 response',
+        '@count of @total',
+        ['@total' => $stats['eligible_attendees'] ?: $stats['rating_count']]
+      );
+      $detail_parts[] = $this->t('last @m mo', ['@m' => $window]);
+      if ($stats['eligible_attendees'] > 0) {
+        $pct = (int) round(($stats['rating_count'] / $stats['eligible_attendees']) * 100);
+        $detail_parts[] = $this->t('@pct% response', ['@pct' => $pct]);
+      }
+      // Render as a top label + smaller detail line so the card stays compact.
+      $detail_markup = implode(' · ', array_map('strval', $detail_parts));
       $build['header_container']['stats']['rating'] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['stat-card']],
         'value' => ['#markup' => '<div class="stat-value">' . number_format($stats['avg_rating'], 1) . ' / 5.0</div>'],
-        'label' => ['#markup' => '<div class="stat-label">' . $this->t('Average Satisfaction') . '</div>'],
+        'label' => ['#markup' => '<div class="stat-label">' . $this->t('Avg Satisfaction') . '</div>'],
+        'detail' => ['#markup' => '<div class="stat-detail">' . $detail_markup . '</div>'],
       ];
     }
 
@@ -72,6 +112,11 @@ class InstructorDashboardController extends ControllerBase {
       '#url' => Url::fromUserInput('/user/' . $current_user->id() . '/instructor'),
       '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
     ];
+
+    // 1b. Satisfaction breakdown (distribution + anonymized comments).
+    if ($stats['rating_count'] > 0) {
+      $build['satisfaction'] = $this->buildSatisfactionSection((int) $current_user->id(), $stats);
+    }
 
     // 2. Dashboard Toolkit
     $build['toolkit'] = [
@@ -328,7 +373,9 @@ class InstructorDashboardController extends ControllerBase {
     $query->addField('e', 'id');
     $query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
     $query->condition('i.field_civi_event_instructor_target_id', $uid);
-    $query->condition('e.start_date', gmdate('Y-m-d H:i:s'), $operator);
+    // civicrm_event.start_date is stored in the site's local timezone,
+    // so compare against local "now" (date()) rather than UTC (gmdate()).
+    $query->condition('e.start_date', date('Y-m-d H:i:s'), $operator);
     $query->condition('e.is_active', 1);
     $query->condition('e.is_template', 0);
     $query->orderBy('e.start_date', $sort_direction);
@@ -501,7 +548,12 @@ class InstructorDashboardController extends ControllerBase {
       'classes_count' => 0,
       'students_count' => 0,
       'avg_rating' => 0.0,
+      'rating_count' => 0,
+      'eligible_attendees' => 0,
+      'distribution' => [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0],
     ];
+    $window_start = date('Y-m-d H:i:s', strtotime('-' . self::SATISFACTION_WINDOW_MONTHS . ' months'));
+    $now = date('Y-m-d H:i:s');
 
     try {
       // 1. Classes and Students
@@ -520,23 +572,226 @@ class InstructorDashboardController extends ControllerBase {
       $stats['classes_count'] = (int) ($record['classes_count'] ?? 0);
       $stats['students_count'] = (int) ($record['students_count'] ?? 0);
 
-      // 2. Average Rating from Satisfaction surveys (webform_1181)
-      $rating_query = $database->select('webform_submission_data', 'd1');
-      $rating_query->addExpression('AVG(CAST(d1.value as DECIMAL(10,2)))', 'avg_val');
-      $rating_query->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
-      $rating_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
-      $rating_query->condition('d1.webform_id', 'webform_1181');
-      $rating_query->condition('d1.name', 'overall_how_satisfied_were_you_with_the_event');
-      $rating_query->condition('d2.name', 'event_id');
-      $rating_query->condition('i.field_civi_event_instructor_target_id', $uid);
-      $avg_rating = $rating_query->execute()->fetchField();
-      $stats['avg_rating'] = (float) $avg_rating;
+      // 2. Rating distribution from satisfaction surveys (webform_1181),
+      // scoped to the rolling window. Excludes star values of 0 (skipped).
+      $dist_query = $database->select('webform_submission_data', 'd1');
+      $dist_query->addField('d1', 'value');
+      $dist_query->addExpression('COUNT(*)', 'n');
+      $dist_query->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
+      $dist_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
+      $dist_query->innerJoin('civicrm_event', 'e', 'e.id = i.entity_id');
+      $dist_query->condition('d1.webform_id', 'webform_1181');
+      $dist_query->condition('d1.name', 'overall_how_satisfied_were_you_with_the_event');
+      $dist_query->condition('d1.value', 0, '>');
+      $dist_query->condition('d2.name', 'event_id');
+      $dist_query->condition('i.field_civi_event_instructor_target_id', $uid);
+      $dist_query->condition('e.is_active', 1);
+      $dist_query->condition('e.start_date', $window_start, '>=');
+      $dist_query->groupBy('d1.value');
+      $sum = 0;
+      $total = 0;
+      foreach ($dist_query->execute() as $row) {
+        $val = (int) $row->value;
+        $n = (int) $row->n;
+        if ($val >= 1 && $val <= 5) {
+          $stats['distribution'][$val] = $n;
+          $sum += $val * $n;
+          $total += $n;
+        }
+      }
+      $stats['rating_count'] = $total;
+      $stats['avg_rating'] = $total > 0 ? $sum / $total : 0.0;
+
+      // 3. Eligible attendees in the same window — the denominator for the
+      // response rate. Only past events, counted/non-test participants.
+      $elig_query = $database->select('civicrm_event', 'e');
+      $elig_query->addExpression('COUNT(p.id)', 'n');
+      $elig_query->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $elig_query->innerJoin('civicrm_participant', 'p', 'e.id = p.event_id');
+      $elig_query->innerJoin('civicrm_participant_status_type', 'pst', 'p.status_id = pst.id');
+      $elig_query->condition('i.field_civi_event_instructor_target_id', $uid);
+      $elig_query->condition('e.is_active', 1);
+      $elig_query->condition('e.is_template', 0);
+      $elig_query->condition('e.start_date', $window_start, '>=');
+      $elig_query->condition('e.start_date', $now, '<');
+      $elig_query->condition('pst.is_counted', 1);
+      $elig_query->condition('p.is_test', 0);
+      $stats['eligible_attendees'] = (int) $elig_query->execute()->fetchField();
     }
     catch (\Exception $e) {
       \Drupal::logger('instructor_companion')->warning('Could not fetch instructor stats: @message', ['@message' => $e->getMessage()]);
     }
 
     return $stats;
+  }
+
+  /**
+   * Builds the satisfaction details section: distribution + anonymized comments.
+   *
+   * @param int $uid
+   *   The instructor user ID.
+   * @param array $stats
+   *   Pre-computed stats array from getInstructorStats().
+   */
+  protected function buildSatisfactionSection(int $uid, array $stats): array {
+    $section = [
+      '#type' => 'details',
+      '#title' => $this->t('Satisfaction Details (last @m months)', ['@m' => self::SATISFACTION_WINDOW_MONTHS]),
+      '#open' => FALSE,
+      '#attributes' => ['class' => ['instructor-satisfaction']],
+      '#weight' => -5,
+    ];
+
+    // Rating distribution as simple stacked bars.
+    $max = max($stats['distribution']) ?: 1;
+    $rows = [];
+    for ($star = 5; $star >= 1; $star--) {
+      $n = (int) $stats['distribution'][$star];
+      $pct = (int) round(($n / $max) * 100);
+      $label = str_repeat('★', $star) . str_repeat('☆', 5 - $star);
+      $bar = '<div class="isat-bar-track"><div class="isat-bar-fill" style="width:' . $pct . '%"></div></div>';
+      $rows[] = [
+        ['data' => ['#markup' => '<span class="isat-stars">' . $label . '</span>']],
+        ['data' => ['#markup' => $bar]],
+        ['data' => $n],
+      ];
+    }
+
+    $section['distribution'] = [
+      '#type' => 'table',
+      '#rows' => $rows,
+      '#attributes' => ['class' => ['isat-distribution']],
+      '#caption' => $this->t('Rating Distribution'),
+    ];
+
+    // Explainer and response rate context.
+    $explainer_parts = [
+      $this->t('Based on @n completed ratings.', ['@n' => $stats['rating_count']]),
+    ];
+    if ($stats['eligible_attendees'] > 0) {
+      $pct = (int) round(($stats['rating_count'] / $stats['eligible_attendees']) * 100);
+      $explainer_parts[] = $this->t(
+        '@n of @total attendees responded (@pct%). Low response rates can make a few strong opinions look like a trend.',
+        [
+          '@n' => $stats['rating_count'],
+          '@total' => $stats['eligible_attendees'],
+          '@pct' => $pct,
+        ]
+      );
+    }
+    $section['explainer'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['isat-explainer']],
+      'text' => ['#markup' => '<p>' . implode(' ', array_map('strval', $explainer_parts)) . '</p>'],
+    ];
+
+    // Anonymized comments.
+    $comments = $this->loadAnonymizedInstructorComments($uid);
+    $section['comments_heading'] = [
+      '#markup' => '<h4>' . $this->t('Recent Comments (anonymized)') . '</h4>',
+    ];
+    $section['comments_note'] = [
+      '#markup' => '<p class="isat-note"><em>'
+        . $this->t('Comments are shown only after events are at least @d days old, require at least @min total comments before anything is shown, and are displayed in a randomized order with no link back to specific students or classes.', [
+          '@d' => self::FEEDBACK_DELAY_DAYS,
+          '@min' => self::FEEDBACK_MINIMUM_COUNT,
+        ])
+        . '</em></p>',
+    ];
+
+    if (is_string($comments)) {
+      $section['comments'] = ['#markup' => '<p>' . $comments . '</p>'];
+    }
+    else {
+      $section['comments'] = [
+        '#theme' => 'item_list',
+        '#items' => $comments,
+        '#attributes' => ['class' => ['isat-comment-list']],
+      ];
+    }
+
+    return $section;
+  }
+
+  /**
+   * Loads anonymized free-text comments from webform_1181 submissions.
+   *
+   * Privacy protections mirror the facilitator dashboard:
+   *  - Only events whose start date is older than FEEDBACK_DELAY_DAYS are
+   *    eligible, creating time separation from the original submission.
+   *  - Submission IDs, user IDs, and event IDs are dropped — only the raw
+   *    comment text is kept, and sid is never exposed to the caller.
+   *  - If fewer than FEEDBACK_MINIMUM_COUNT comments exist, nothing is shown.
+   *  - Results are shuffled (time-seeded per-instructor) and capped at
+   *    FEEDBACK_DISPLAY_LIMIT so individual classes are hard to identify.
+   *
+   * @return array|string
+   *   An array of render-ready comment strings, or a string message.
+   */
+  protected function loadAnonymizedInstructorComments(int $uid) {
+    $database = \Drupal::database();
+    $window_start = date('Y-m-d H:i:s', strtotime('-' . self::SATISFACTION_WINDOW_MONTHS . ' months'));
+    $delay_cutoff = date('Y-m-d H:i:s', strtotime('-' . self::FEEDBACK_DELAY_DAYS . ' days'));
+    $comment_fields = [
+      'what_was_the_most_valuable_part_of_this_event_for_you',
+      'was_there_anything_that_could_have_been_improved',
+      'do_you_have_any_additional_feedback_or_suggestions',
+    ];
+
+    $comments = [];
+    try {
+      $q = $database->select('webform_submission_data', 'd1');
+      $q->addField('d1', 'value', 'comment');
+      $q->addField('d1', 'name', 'field');
+      $q->innerJoin('webform_submission_data', 'd2', 'd1.sid = d2.sid');
+      $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'd2.value = i.entity_id AND i.deleted = 0');
+      $q->innerJoin('civicrm_event', 'e', 'e.id = i.entity_id');
+      $q->condition('d1.webform_id', 'webform_1181');
+      $q->condition('d1.name', $comment_fields, 'IN');
+      $q->condition('d2.name', 'event_id');
+      $q->condition('i.field_civi_event_instructor_target_id', $uid);
+      $q->condition('e.is_active', 1);
+      $q->condition('e.start_date', $window_start, '>=');
+      $q->condition('e.start_date', $delay_cutoff, '<=');
+      $labels = [
+        'what_was_the_most_valuable_part_of_this_event_for_you' => $this->t('Most valuable'),
+        'was_there_anything_that_could_have_been_improved' => $this->t('Could improve'),
+        'do_you_have_any_additional_feedback_or_suggestions' => $this->t('Additional'),
+      ];
+      foreach ($q->execute() as $row) {
+        $text = trim((string) $row->comment);
+        if ($text === '') {
+          continue;
+        }
+        $tag = (string) ($labels[$row->field] ?? '');
+        $comments[] = [
+          '#markup' => '<blockquote class="isat-comment">'
+            . '<span class="isat-comment-tag">' . Html::escape($tag) . '</span> '
+            . nl2br(Html::escape($text))
+            . '</blockquote>',
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('instructor_companion')->warning('Could not load anonymized comments: @m', ['@m' => $e->getMessage()]);
+      return (string) $this->t('Comments are temporarily unavailable.');
+    }
+
+    if (count($comments) < self::FEEDBACK_MINIMUM_COUNT) {
+      return (string) $this->t(
+        'More delayed feedback is needed before anonymous comments can be shown (at least @min required, @have so far).',
+        ['@min' => self::FEEDBACK_MINIMUM_COUNT, '@have' => count($comments)]
+      );
+    }
+
+    // Shuffle deterministically-per-5-min so page caches are stable but order
+    // still changes over time, further weakening any attribution guesses.
+    $seed = ((int) floor(\Drupal::time()->getRequestTime() / 300)) + $uid;
+    mt_srand($seed);
+    shuffle($comments);
+    mt_srand();
+
+    return array_slice($comments, 0, self::FEEDBACK_DISPLAY_LIMIT);
   }
 
   /**
@@ -600,29 +855,26 @@ class InstructorDashboardController extends ControllerBase {
       $site_timezone = date_default_timezone_get();
     }
 
-    // CiviCRM date values may be stored as either "Y-m-d H:i:s" or ISO 8601
-    // strings (for example "2026-02-15T20:00:00").
-    $date = NULL;
+    // CiviCRM stores civicrm_event.start_date in the site's local timezone
+    // (not UTC). Values may arrive as "Y-m-d H:i:s" or ISO 8601
+    // (for example "2026-02-15T20:00:00").
     try {
-      $date = DrupalDateTime::createFromFormat('Y-m-d H:i:s', $start_date_value, 'UTC');
-    }
-    catch (\InvalidArgumentException $e) {
-      $date = NULL;
-    }
-
-    if (!$date) {
-      try {
-        $date = new DrupalDateTime($start_date_value);
+      $tz = new \DateTimeZone($site_timezone);
+      $date = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $start_date_value, $tz);
+      if (!$date) {
+        $date = new \DateTimeImmutable($start_date_value, $tz);
       }
-      catch (\Exception $e) {
-        \Drupal::logger('instructor_companion')->warning('Could not parse event date "@value": @message', [
-          '@value' => $start_date_value,
-          '@message' => $e->getMessage(),
-        ]);
-        return $start_date_value;
-      }
+      // Ensure formatting uses the site timezone even if the input string
+      // carried its own offset (ISO 8601 with a trailing "Z" or "+00:00").
+      $date = $date->setTimezone($tz);
     }
-    $date->setTimezone(new \DateTimeZone($site_timezone));
+    catch (\Exception $e) {
+      \Drupal::logger('instructor_companion')->warning('Could not parse event date "@value": @message', [
+        '@value' => $start_date_value,
+        '@message' => $e->getMessage(),
+      ]);
+      return $start_date_value;
+    }
 
     return $date->format('D, M j, Y \a\t g:ia T');
   }
