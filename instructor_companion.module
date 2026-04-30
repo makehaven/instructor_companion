@@ -19,6 +19,7 @@ use Drupal\webform\WebformSubmissionInterface;
 function instructor_companion_cron() {
   // Sync all course stats once a day or on a schedule.
   \Drupal::service('instructor_companion.stats_sync')->sync();
+  \Drupal::service('instructor_companion.badge_sync')->sync();
 }
 
 /**
@@ -57,8 +58,9 @@ function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInt
 
   // Trigger sync for the parent course.
   if ($entity->hasField('field_parent_course') && !$entity->get('field_parent_course')->isEmpty()) {
-    $nid = $entity->get('field_parent_course')->target_id;
-    \Drupal::service('instructor_companion.stats_sync')->sync((int) $nid);
+    $nid = (int) $entity->get('field_parent_course')->target_id;
+    \Drupal::service('instructor_companion.stats_sync')->sync($nid);
+    \Drupal::service('instructor_companion.badge_sync')->sync($nid);
   }
 }
 
@@ -67,8 +69,9 @@ function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInt
  */
 function instructor_companion_civicrm_event_update(\Drupal\Core\Entity\EntityInterface $entity) {
   if ($entity->hasField('field_parent_course') && !$entity->get('field_parent_course')->isEmpty()) {
-    $nid = $entity->get('field_parent_course')->target_id;
-    \Drupal::service('instructor_companion.stats_sync')->sync((int) $nid);
+    $nid = (int) $entity->get('field_parent_course')->target_id;
+    \Drupal::service('instructor_companion.stats_sync')->sync($nid);
+    \Drupal::service('instructor_companion.badge_sync')->sync($nid);
   }
 }
 

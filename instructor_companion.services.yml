@@ -2,6 +2,13 @@ services:
   instructor_companion.stats_sync:
     class: Drupal\instructor_companion\CourseStatsSync
 
+  instructor_companion.badge_sync:
+    class: Drupal\instructor_companion\CourseBadgeSync
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.instructor_profile_resolver:
     class: Drupal\instructor_companion\Service\InstructorProfileResolver
     arguments:

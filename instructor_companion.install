@@ -50,3 +50,17 @@ function instructor_companion_update_9003() {
     $config->set('payment_status_url', '/my-requests')->save();
   }
 }
+
+/**
+ * Backfill field_course_badges on every course from its child events.
+ *
+ * Run after the field configs are imported via cim. Idempotent — only
+ * touches courses whose badge set actually changed.
+ */
+function instructor_companion_update_9004() {
+  if (!\Drupal\field\Entity\FieldStorageConfig::loadByName('node', 'field_course_badges')) {
+    return 'field_course_badges does not yet exist; run drush cim first, then re-run updb.';
+  }
+  $touched = \Drupal::service('instructor_companion.badge_sync')->sync();
+  return "Backfilled badges on $touched course(s).";
+}

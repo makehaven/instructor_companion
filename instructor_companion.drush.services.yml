@@ -1,0 +1,7 @@
+services:
+  instructor_companion.badge_sync_commands:
+    class: \Drupal\instructor_companion\Commands\CourseBadgeSyncCommands
+    arguments:
+      - '@instructor_companion.badge_sync'
+    tags:
+      - { name: drush.command }
