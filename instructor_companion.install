@@ -64,3 +64,28 @@ function instructor_companion_update_9004() {
   $touched = \Drupal::service('instructor_companion.badge_sync')->sync();
   return "Backfilled badges on $touched course(s).";
 }
+
+/**
+ * Add "Teach at MakeHaven" link to the member menu (idempotent).
+ */
+function instructor_companion_update_9005() {
+  $storage = \Drupal::entityTypeManager()->getStorage('menu_link_content');
+  $existing = $storage->loadByProperties([
+    'menu_name' => 'menu-member-menu',
+    'link__uri' => 'internal:/become-instructor',
+  ]);
+  if (!empty($existing)) {
+    return 'Member-menu link already exists; nothing to add.';
+  }
+
+  $link = $storage->create([
+    'title' => 'Teach at MakeHaven',
+    'description' => 'Apply to teach workshops — sign the agreement and propose a session.',
+    'menu_name' => 'menu-member-menu',
+    'link' => ['uri' => 'internal:/become-instructor'],
+    'weight' => -45,
+    'enabled' => TRUE,
+  ]);
+  $link->save();
+  return 'Added "Teach at MakeHaven" link (id ' . $link->id() . ') to menu-member-menu.';
+}

@@ -1,0 +1,31 @@
+services:
+  instructor_companion.badge_sync_commands:
+    class: \Drupal\instructor_companion\Commands\CourseBadgeSyncCommands
+    arguments:
+      - '@instructor_companion.badge_sync'
+    tags:
+      - { name: drush.command }
+
+  instructor_companion.template_audit_commands:
+    class: \Drupal\instructor_companion\Commands\TemplateAuditCommands
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@file_system'
+    tags:
+      - { name: drush.command }
+
+  instructor_companion.template_bulk_assign_commands:
+    class: \Drupal\instructor_companion\Commands\TemplateBulkAssignCommands
+    arguments:
+      - '@entity_type.manager'
+    tags:
+      - { name: drush.command }
+
+  instructor_companion.template_backfill_commands:
+    class: \Drupal\instructor_companion\Commands\TemplateBackfillCommands
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+    tags:
+      - { name: drush.command }

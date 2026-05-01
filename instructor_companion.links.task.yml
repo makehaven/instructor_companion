@@ -1,0 +1,5 @@
+instructor_companion.schedule_instance_tab:
+  route_name: instructor_companion.schedule_instance
+  title: 'Schedule New Instance'
+  base_route: entity.node.canonical
+  weight: 30

@@ -22,6 +22,19 @@ instructor_companion.prospective_instructors:
   requirements:
     _permission: 'administer users'
 
+instructor_companion.grant_instructor_role:
+  path: '/admin/people/prospective-instructors/grant/{user}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ProspectiveInstructorsController::grantRole'
+  options:
+    parameters:
+      user:
+        type: entity:user
+  requirements:
+    _permission: 'administer users'
+    _csrf_token: 'TRUE'
+    user: \d+
+
 instructor_companion.proposals_list:
   path: '/admin/structure/proposals'
   defaults:
@@ -120,3 +133,16 @@ instructor_companion.event_reassign_execute:
     _title: 'Moving Event'
   requirements:
     _permission: 'create civicrm_event entities'
+
+instructor_companion.schedule_instance:
+  path: '/admin/course/{node}/schedule-instance'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ScheduleInstanceController::schedule'
+    _title: 'Schedule New Instance'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ScheduleInstanceController::access'
+    node: \d+
+  options:
+    parameters:
+      node:
+        type: entity:node

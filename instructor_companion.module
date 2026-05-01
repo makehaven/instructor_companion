@@ -100,7 +100,7 @@ function instructor_companion_user_register_notify($form, FormStateInterface $fo
   $params['user_link'] = $user->toUrl()->setAbsolute()->toString();
   $langcode = $user->getPreferredLangcode();
   $mailManager->mail($module, $key, $to, $langcode, $params, NULL, TRUE);
-  \Drupal::messenger()->addMessage(t('Your instructor application has been started. Staff have been notified.'));
+  \Drupal::messenger()->addMessage(t('Your instructor application has been started. Please sign the instructor agreement on the next page so staff can review and follow up.'));
 }
 
 /**
@@ -167,30 +167,83 @@ function instructor_companion_mail($key, &$message, $params) {
 }
 
 /**
- * Implements hook_entity_view_alter().
+ * Implements hook_entity_extra_field_info().
+ *
+ * Declares "Schedule new instance" as a configurable display component on
+ * the course content type. Admins can hide / reposition it via Manage
+ * Display. Default-on so it's visible without any setup post-deploy.
  */
-function instructor_companion_node_view_alter(array &$build, \Drupal\Core\Entity\EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display) {
-  if ($entity->bundle() === 'course' && $build['#view_mode'] === 'full') {
-    $template_id = $entity->get('field_civicrm_template_id')->value;
-    $nid = $entity->id();
-    
-    if (\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
-      $build['schedule_button'] = [
-        '#type' => 'link',
-        '#title' => t('Schedule This Course'),
-        '#url' => \Drupal\Core\Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
-          'query' => [
-            'template_id' => $template_id,
-            'course_id' => $nid,
+function instructor_companion_entity_extra_field_info() {
+  return [
+    'node' => [
+      'course' => [
+        'display' => [
+          'schedule_instance_button' => [
+            'label' => t('Schedule new instance button'),
+            'description' => t('Admin button for staff to clone the linked CiviCRM template into a new event.'),
+            'weight' => -10,
+            'visible' => TRUE,
           ],
-        ]),
-        '#attributes' => [
-          'class' => ['button', 'button--primary', 'button--action'],
-          'style' => 'margin-bottom: 20px;',
         ],
-        '#weight' => -100,
-      ];
-    }
+      ],
+    ],
+  ];
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_view().
+ *
+ * Renders the schedule_instance_button pseudo-field into $build['content'],
+ * which is what node templates actually output. Permission-gated and
+ * theme-agnostic.
+ */
+function instructor_companion_node_view(array &$build, EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display, $view_mode) {
+  if ($entity->bundle() !== 'course') {
+    return;
+  }
+  if (!$display->getComponent('schedule_instance_button')) {
+    return;
+  }
+  if (!\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
+    return;
+  }
+
+  $template_id = $entity->hasField('field_civicrm_template_id') && !$entity->get('field_civicrm_template_id')->isEmpty()
+    ? (int) $entity->get('field_civicrm_template_id')->value
+    : NULL;
+
+  if ($template_id) {
+    $build['schedule_instance_button'] = [
+      '#type' => 'link',
+      '#title' => t('Schedule New Instance'),
+      '#url' => \Drupal\Core\Url::fromRoute('instructor_companion.schedule_instance', [
+        'node' => $entity->id(),
+      ]),
+      '#attributes' => [
+        'class' => ['button', 'button--primary', 'button--action'],
+        'title' => t('Clones template @id (with reminders, fees, profiles) into a new event and opens the edit form.', ['@id' => $template_id]),
+      ],
+      '#cache' => [
+        'contexts' => ['user.permissions'],
+        'tags' => $entity->getCacheTags(),
+      ],
+    ];
+  }
+  else {
+    $build['schedule_instance_button'] = [
+      '#type' => 'link',
+      '#title' => t('Configure CiviCRM Template to enable scheduling'),
+      '#url' => \Drupal\Core\Url::fromRoute('entity.node.edit_form', ['node' => $entity->id()], [
+        'fragment' => 'edit-field-civicrm-template-id-0-value',
+      ]),
+      '#attributes' => [
+        'class' => ['button', 'button--secondary'],
+      ],
+      '#cache' => [
+        'contexts' => ['user.permissions'],
+        'tags' => $entity->getCacheTags(),
+      ],
+    ];
   }
 }
 
@@ -246,6 +299,22 @@ function instructor_companion_add_badge_warning(array &$form, array $missing_bad
 
 /**
  * Implements hook_form_FORM_ID_alter() for civicrm_event_civicrm_event_add_form.
+ *
+ * Two flows reach this form:
+ *
+ * 1. Instructor proposal (?course_id=X&propose=1) from CoursePickerController
+ *    at /become-instructor/courses. The instructor fills the form fresh; we
+ *    shallow-prefill from the course node and the CiviCRM template (title,
+ *    type, max participants, etc.) so they don't start from zero. This path
+ *    creates a brand-new draft event — reminders/price-set/profiles are NOT
+ *    cloned because that would surprise the instructor with template state
+ *    they can't see.
+ *
+ * 2. (Removed) Staff "Schedule This Course" — that flow now goes through
+ *    ScheduleInstanceController, which uses CRM_Event_BAO_Event::copy() to
+ *    do a deep clone of the template (reminders, price set, profiles) and
+ *    redirects straight to the new event's edit form. Don't route staff
+ *    scheduling through here; the shallow prefill loses reminders.
  */
 function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   $query = \Drupal::request()->query;
