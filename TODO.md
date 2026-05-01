@@ -18,21 +18,67 @@ This document tracks the remaining work for the instructor feedback loop and the
     - Display: Entity Reference.
 
 ## 4. Webform Implementation (`instructor_feedback`)
+
+> **Replaces `webform.webform.post_workshop_instructor_evaluat`** (Ashley's existing
+> "Post-Workshop Instructor Evaluation", 3 submissions on live as of 2026-05-01). That
+> form has free-text instructor name/email/date and no `event_id`, so submissions can't
+> be tied to a specific CiviCRM event and can't gate downstream actions. Once
+> `instructor_feedback` ships, retire `post_workshop_instructor_evaluat` and redirect
+> `/form/post-workshop-instructor-evaluat` to the new per-event form.
+
+### Architectural decisions (locked in 2026-05-01 spike)
+
+- **Event linkage = hidden field + URL prefill, NOT `webform_civicrm`.** The
+  Instructor Dashboard already builds links as
+  `/form/instructor_feedback?event_id={NID}` in
+  `InstructorDashboardController::buildEventRow()` (search for `$feedback_url`).
+  README §76-77 documents the same contract. Honor it. The 5 webforms that *do*
+  use `webform_civicrm` (`guest_return_checkin`, `guest_waiver`, `next_course_survey`,
+  `join_makehaven_w_consider_wait`, `webform_2670`) all set
+  `participant_reg_type: '0'` — there's no precedent in this codebase for using
+  `webform_civicrm` to bind a submission to an existing event, and we'd gain nothing
+  by introducing one.
+- **Participant prefill (for `attendance_list_actual`) = direct DB query, NOT
+  `webform_civicrm`.** Pattern to follow: `xero_bills_sync_get_payee_event_options()`
+  in `xero_bills_sync.module:572` queries `civicrm_participant` directly via
+  `\Drupal::database()`. Implement an equivalent helper and call it from
+  `hook_webform_submission_form_alter` (or a webform handler) to prefill the textarea
+  with one participant per line, joined to `civicrm_contact.display_name`.
+- **Future cleanup (out of scope for this build, but enabled by it):** add the same
+  hidden `event_id` field to `webform.evaluation` and switch
+  `getCourseFeedbackSummary()` from title-matching to event_id lookup. Closes the
+  Phase 3.3 open item "Surface feedback/rating on the public Course node page
+  (requires `event_id` linkage)" in
+  `conductor/tracks/event_management_ecosystem_20260313/plan.md`.
+
+### Build checklist
+
 - [ ] Create Webform with machine name `instructor_feedback`.
 - [ ] **Elements:**
-    - [ ] `event_id` (Hidden): Pre-populated from URL.
+    - [ ] `event_id` (Hidden): Pre-populated from URL query string `?event_id=NID` (matches the contract already coded into `InstructorDashboardController::buildEventRow()`). Required. If missing, the form should display an error rather than render — the form is unusable without an event context.
+    - [ ] `instructor_uid` (Hidden): Pre-populated from logged-in user; falls back to `field_civi_event_instructor` lookup if needed.
     - [ ] `logistics_status` (Radios): Smooth / Issues.
+    - [ ] `attendance_list_actual` (Textarea): Pre-filled from CiviCRM participants for the event with an "edit if different" note. Captures walk-ins, no-shows, and substitutions that the participant table missed. (From Ashley's form — keep as a supplementary signal even though CiviCRM is authoritative.)
     - [ ] `materials_used` (Entity Autocomplete): Uses `materials_class_supplies` view.
-    - [ ] **NEW:** `low_supplies` (Checkboxes/Table):
+    - [ ] `low_supplies` (Checkboxes/Table):
         - Load materials from the Event (`field_event_materials`).
         - Allow instructors to mark specific items as "Low" or "Missing".
+    - [ ] `tools_needing_maintenance` (Entity Autocomplete to tool nodes, multi-value): Distinct from supplies — routes to `asset_status` workflow rather than restock. Include a per-tool "what's wrong" textarea via webform composite. (From Ashley's form, but structured instead of free-text.)
     - [ ] `student_notes` (Textarea).
-- [ ] **Email Handler:** Notify `education@makehaven.org`.
-- [ ] **Slack Integration:** Post to `#shop-updates` or similar when a "Low Supply" flag is submitted.
+    - [ ] `any_issues_items_of_note` (Textarea): Catch-all for things that don't fit the structured fields. (From Ashley's form.)
+    - [ ] `upload_photos` (`webform_image_file`, multiple): Documents tool issues with evidence and provides marketing-usable post-class shots. (From Ashley's form.)
+    - [ ] `upload_videos` (`webform_video_file`, multiple): Same purpose, video evidence for harder-to-photograph issues. (From Ashley's form.)
+- [ ] **Email Handler:** Notify `education@makehaven.org`. Include event link, instructor name, and a deep link to any pending payment request for the event.
+- [ ] **Slack Integration:**
+    - [ ] Post to `#shop-updates` (or configured channel) when a "Low Supply" flag is submitted.
+    - [ ] Post to `#shop-updates` when a tool is flagged for maintenance; also flip the tool's `asset_status` to a "needs review" state via the existing `asset_status.status_change_logger` pathway.
 
 ## 5. Dashboard Enhancements
 - [ ] Update `InstructorDashboardController.php` to detect if the class has pre-assigned materials.
 - [ ] Add a visual indicator or separate "Restock Request" button if materials are missing.
+- [ ] The "Submit Feedback" link in `buildEventRow()` already targets `/form/instructor_feedback?event_id={NID}` — once the webform exists, that link will start working. No code change needed for the link itself; just confirm the label reads "Submit Post-Workshop Evaluation" (or similar) on past events to match Ashley's mental model.
+- [ ] **Soft gate on Log Hours:** when a past event has no `instructor_feedback` submission for this instructor, show "Request Contractor Payment" with a warning badge ("Evaluation not submitted — please complete it first"). Do not block the action — staff explicitly want to flag, not delay payments. Add a hard gate later only if soft-gate compliance data is poor.
+- [ ] Staff-side instructor roster (`report_instructor_contacts` view or a new staff dashboard tile): "Evaluations pending" column showing count of past events without an `instructor_feedback` submission per instructor.
 
 ---
 
