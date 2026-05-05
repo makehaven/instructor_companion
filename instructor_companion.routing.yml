@@ -4,7 +4,7 @@ instructor_companion.become_instructor:
     _controller: '\Drupal\instructor_companion\Controller\BecomeInstructorController::build'
     _title: 'Become a MakeHaven Instructor'
   requirements:
-    _user_is_logged_in: 'TRUE'
+    _access: 'TRUE'
 
 instructor_companion.course_picker:
   path: '/become-instructor/courses'

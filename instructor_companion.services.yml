@@ -24,3 +24,22 @@ services:
     parent: logger.channel_base
     arguments:
       - instructor_companion
+
+  instructor_companion.agreement_access_subscriber:
+    class: Drupal\instructor_companion\EventSubscriber\AgreementAccessSubscriber
+    arguments:
+      - '@current_route_match'
+      - '@current_user'
+      - '@entity_type.manager'
+      - '@messenger'
+    tags:
+      - { name: event_subscriber }
+
+  instructor_companion.quiz_result_cta_subscriber:
+    class: Drupal\instructor_companion\EventSubscriber\QuizResultCtaSubscriber
+    arguments:
+      - '@current_route_match'
+      - '@current_user'
+      - '@entity_type.manager'
+    tags:
+      - { name: event_subscriber }

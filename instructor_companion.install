@@ -89,3 +89,269 @@ function instructor_companion_update_9005() {
   $link->save();
   return 'Added "Teach at MakeHaven" link (id ' . $link->id() . ') to menu-member-menu.';
 }
+
+/**
+ * Create the /video-instructor orientation landing page (idempotent).
+ *
+ * This is the page new instructors are routed to after signing the master
+ * agreement. It currently re-uses the same orientation video members watch
+ * (`/orientation-video`, node 2698) so instructors complete the standard
+ * door-badge prerequisite flow. Eventually we may swap in an instructor-
+ * specific video; the URL stays stable so other code can keep linking to it.
+ */
+function instructor_companion_update_9006() {
+  $alias_storage = \Drupal::entityTypeManager()->getStorage('path_alias');
+  $existing_alias = $alias_storage->loadByProperties(['alias' => '/video-instructor']);
+  if (!empty($existing_alias)) {
+    return '/video-instructor alias already exists; nothing to add.';
+  }
+
+  $body = <<<'HTML'
+<h3>Welcome — let's get you set up to teach.</h3>
+<p>Before you can teach in the building, you need door access. The fastest way to get it is to do exactly what every Makehaven member does: watch the orientation video below, then take the short door-badge quiz.</p>
+<p><em>Heads up — this is the same orientation video your future students will watch. It's worth knowing what they've been told about safety, etiquette, and how the space works.</em></p>
+<p><iframe allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen="" frameborder="0" height="550" scrolling="no" src="https://www.youtube.com/embed/qyOIsHnR3N8" width="100%"></iframe></p>
+<p class="text-align-center"><span style="font-size:26px;"><strong>Finished watching?</strong></span></p>
+<p class="text-align-center"><a href="/quiz/1/take/1"><strong><button class="btn btn-primary btn-lg" type="button">Take the door-badge quiz</button></strong></a></p>
+<p class="text-align-center">Once you pass, your door badge becomes active and you can let yourself in to teach.</p>
+HTML;
+
+  $node = \Drupal\node\Entity\Node::create([
+    'type' => 'page',
+    'title' => 'Instructor Orientation',
+    'body' => [
+      'value' => $body,
+      'format' => 'full_html',
+    ],
+    'status' => 1,
+    'uid' => 1,
+  ]);
+  $node->save();
+
+  $alias_storage->create([
+    'path' => '/node/' . $node->id(),
+    'alias' => '/video-instructor',
+    'langcode' => 'en',
+  ])->save();
+
+  return 'Created Instructor Orientation page (nid ' . $node->id() . ') at /video-instructor.';
+}
+
+/**
+ * Create the Instructor Orientation badge + quiz + questions (idempotent).
+ *
+ * Establishes the credential separation: the quiz issues a badge ("you've
+ * absorbed the orientation content"), and the agreement signing grants the
+ * role ("you've agreed to teach"). Members who already hold the door badge
+ * still take this quiz so they pick up the instructor-specific expectations
+ * (arrival time, cleanup, payment model) — the badge is new, the door badge
+ * is unaffected.
+ */
+function instructor_companion_update_9007() {
+  // 0. Look up the badge term first; if it exists, this hook already ran.
+  $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+  $existing = $term_storage->loadByProperties([
+    'vid' => 'badges',
+    'name' => 'Instructor Orientation',
+  ]);
+  if (!empty($existing)) {
+    return 'Instructor Orientation badge already exists; nothing to add.';
+  }
+
+  // 1. Create three truefalse questions covering instructor expectations.
+  $question_specs = [
+    [
+      'label' => 'Instructor — arrival time',
+      'body' => '<p>As an instructor, I will arrive at MakeHaven at least 15 minutes before my class start time so I have room to set up, greet students, and handle any last-minute issues.</p>',
+      'correct' => 1,
+      'feedback' => '<p>Right. Arriving 15 minutes early is the baseline; for hands-on classes with setup, give yourself more.</p>',
+    ],
+    [
+      'label' => 'Instructor — cleanup responsibility',
+      'body' => '<p>As an instructor, I am responsible for cleaning up the class space and returning all materials and tools to their proper place before I leave the building.</p>',
+      'correct' => 1,
+      'feedback' => '<p>Yes. The class space should leave the way you found it — the next user (or the morning facilitator) is counting on you.</p>',
+    ],
+    [
+      'label' => 'Instructor — broken tool reporting',
+      'body' => '<p>If a tool malfunctions or breaks during my class, I will report it in the Slack #facilities channel and not let students use it again until staff has cleared it.</p>',
+      'correct' => 1,
+      'feedback' => '<p>Correct. Silent breakage is the worst kind — staff needs to know fast so the next class isn\'t blindsided.</p>',
+    ],
+  ];
+
+  $question_storage = \Drupal::entityTypeManager()->getStorage('quiz_question');
+  $question_ids = [];
+  foreach ($question_specs as $spec) {
+    $q = $question_storage->create([
+      'type' => 'truefalse',
+      'title' => $spec['label'],
+      'body' => ['value' => $spec['body'], 'format' => 'full_html'],
+      'feedback' => ['value' => $spec['feedback'], 'format' => 'full_html'],
+      'truefalse_correct' => $spec['correct'],
+      'max_score' => 1,
+      'status' => 1,
+      'uid' => 1,
+    ]);
+    $q->save();
+    $question_ids[] = (int) $q->id();
+  }
+
+  // 2. Create the quiz entity. Use bundle 'quiz' to match Quiz 1's pattern
+  // (no facilitator-checkout scheduling needed for orientation content).
+  $quiz_storage = \Drupal::entityTypeManager()->getStorage('quiz');
+  $quiz = $quiz_storage->create([
+    'type' => 'quiz',
+    'title' => 'Instructor Orientation Quiz',
+    'pass_rate' => 100,
+    'allow_resume' => 1,
+    'allow_skipping' => 0,
+    'allow_change' => 1,
+    'backwards_navigation' => 1,
+    'randomization' => 0,
+    'review_options' => ['end' => ['choice' => 'choice', 'score' => 'score', 'answer_feedback' => 'answer_feedback', 'solution' => 'solution']],
+    'summary_pass' => ['value' => '<p>You passed the Instructor Orientation Quiz. The next step is to sign the Master Instructor Agreement.</p>', 'format' => 'full_html'],
+    'summary_default' => ['value' => '<p>You did not pass the Instructor Orientation Quiz. A score of 100% is required. Please review the orientation video and try again.</p>', 'format' => 'full_html'],
+    'status' => 1,
+    'uid' => 1,
+  ]);
+  $quiz->save();
+  $quiz_id = (int) $quiz->id();
+  $quiz_vid = (int) $quiz->getRevisionId();
+
+  // 3. Link questions to the quiz via quiz_question_relationship.
+  $database = \Drupal::database();
+  foreach ($question_ids as $weight => $qid) {
+    $question = $question_storage->load($qid);
+    $database->insert('quiz_question_relationship')
+      ->fields([
+        'quiz_id' => $quiz_id,
+        'quiz_vid' => $quiz_vid,
+        'question_id' => $qid,
+        'question_vid' => (int) $question->getRevisionId(),
+        'question_status' => 1,
+        'weight' => $weight + 1,
+        'max_score' => 1,
+        'auto_update_max_score' => 1,
+      ])
+      ->execute();
+  }
+
+  // 4. Create the badge term and link it to the quiz.
+  $badge = $term_storage->create([
+    'vid' => 'badges',
+    'name' => 'Instructor Orientation',
+    'description' => ['value' => 'Awarded after passing the Instructor Orientation Quiz. Indicates the holder has absorbed the safety basics and the instructor-specific expectations (arrival time, cleanup, broken-tool reporting). Required to sign the Master Instructor Agreement.'],
+    'field_badge_text_id' => 'instructor_orientation',
+    'field_badge_quiz_reference' => ['target_id' => $quiz_id],
+    'field_badge_access_control' => FALSE,
+    'field_badge_checkout_requirement' => 'no',
+    'field_badge_inactive' => 0,
+    'field_badge_unlisted' => 0,
+  ]);
+  $badge->save();
+
+  return sprintf(
+    'Created Instructor Orientation badge (tid %d), quiz (id %d), and %d questions.',
+    $badge->id(),
+    $quiz_id,
+    count($question_ids),
+  );
+}
+
+/**
+ * Repoint /video-instructor body at the Instructor Orientation Quiz.
+ *
+ * The original /video-instructor copy linked at /quiz/1/take/1 (the door-
+ * badge quiz) and framed the flow as "watch → quiz → door badge → sign
+ * agreement after." The new flow is "watch → instructor quiz → instructor
+ * orientation badge → sign agreement → instructor role." Update the copy
+ * to reflect that ordering and link to the new quiz.
+ */
+function instructor_companion_update_9008() {
+  $alias_storage = \Drupal::entityTypeManager()->getStorage('path_alias');
+  $aliases = $alias_storage->loadByProperties(['alias' => '/video-instructor']);
+  if (empty($aliases)) {
+    return '/video-instructor alias missing — run update_9006 first.';
+  }
+  $alias = reset($aliases);
+  $nid = (int) substr($alias->getPath(), strlen('/node/'));
+
+  $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+  $badges = $term_storage->loadByProperties(['vid' => 'badges', 'name' => 'Instructor Orientation']);
+  if (empty($badges)) {
+    return 'Instructor Orientation badge missing — run update_9007 first.';
+  }
+  $quiz_id = (int) reset($badges)->get('field_badge_quiz_reference')->target_id;
+
+  $node = \Drupal\node\Entity\Node::load($nid);
+  if (!$node) {
+    return "Page nid $nid not found; alias is broken.";
+  }
+
+  $body = <<<HTML
+<h3>Welcome — let's get you set up to teach.</h3>
+<p>Three short steps stand between you and your first class:</p>
+<ol>
+  <li><strong>Watch the orientation video</strong> below — the same one every Makehaven member watches, so you know what your students have already been told about safety, etiquette, and how the space works.</li>
+  <li><strong>Take the Instructor Orientation Quiz</strong> — three quick true/false questions covering the instructor-specific expectations on top of the basics.</li>
+  <li><strong>Sign the Master Instructor Agreement</strong> — once you've passed the quiz, the agreement form unlocks and signing it grants you the instructor role.</li>
+</ol>
+<p><iframe allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen="" frameborder="0" height="550" scrolling="no" src="https://www.youtube.com/embed/qyOIsHnR3N8" width="100%"></iframe></p>
+<p class="text-align-center"><span style="font-size:26px;"><strong>Finished watching?</strong></span></p>
+<p class="text-align-center"><a href="/quiz/$quiz_id/take/1"><strong><button class="btn btn-primary btn-lg" type="button">Take the Instructor Orientation Quiz</button></strong></a></p>
+<p class="text-align-center">Once you pass, you'll see a button to sign the Instructor Agreement.</p>
+HTML;
+
+  $node->set('body', ['value' => $body, 'format' => 'full_html']);
+  $node->save();
+
+  return "Updated /video-instructor (nid $nid) to link Instructor Orientation Quiz (id $quiz_id).";
+}
+
+/**
+ * Restore /video-instructor as the canonical alias for the orientation page.
+ *
+ * Pathauto auto-generated /instructor-orientation on the body update in
+ * update_9008 and clobbered the /video-instructor alias we created in 9006.
+ * Other code (CTAs, plan docs) references /video-instructor and we want a
+ * stable URL, so re-create the alias and clean up the auto-generated one.
+ * Disable pathauto on this node so future saves don't repeat the problem.
+ */
+function instructor_companion_update_9009() {
+  $alias_storage = \Drupal::entityTypeManager()->getStorage('path_alias');
+  $node_path = '/node/41511';
+
+  $existing = $alias_storage->loadByProperties(['path' => $node_path]);
+  $had_video_instructor = FALSE;
+  foreach ($existing as $alias) {
+    if ($alias->getAlias() === '/video-instructor') {
+      $had_video_instructor = TRUE;
+    }
+    else {
+      $alias->delete();
+    }
+  }
+
+  if (!$had_video_instructor) {
+    $alias_storage->create([
+      'path' => $node_path,
+      'alias' => '/video-instructor',
+      'langcode' => 'en',
+    ])->save();
+  }
+
+  // Disable pathauto on this node so future body edits don't clobber the
+  // alias again. The path module field stores `pathauto` as a property on
+  // the path field's first item.
+  $node = \Drupal\node\Entity\Node::load(41511);
+  if ($node && $node->hasField('path')) {
+    $path_value = $node->get('path')->getValue();
+    $path_value[0]['pathauto'] = 0;
+    $path_value[0]['alias'] = '/video-instructor';
+    $node->set('path', $path_value);
+    $node->save();
+  }
+
+  return 'Restored /video-instructor alias and disabled pathauto on the orientation page.';
+}

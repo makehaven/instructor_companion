@@ -205,6 +205,11 @@ class InstructorDashboardController extends ControllerBase {
       }
     }
 
+    $access_warning = $this->buildDoorAccessWarning((int) $current_user->id());
+    if ($access_warning) {
+      $build['door_access_warning'] = $access_warning;
+    }
+
     // 4. High Demand Workshops.
     $high_demand_rows = [];
     $demand_courses = $this->getHighDemandCourses((int) $current_user->id());
@@ -363,6 +368,70 @@ class InstructorDashboardController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Builds the door-access warning banner using the canonical access evaluator.
+   *
+   * Returns NULL when the user passes every gate (no banner shown). Mirrors
+   * the "Key Access Ready" block staff see on member profiles so this surface
+   * never drifts from the actual door-controller decision.
+   */
+  protected function buildDoorAccessWarning(int $uid): ?array {
+    $user = $this->entityTypeManager()->getStorage('user')->load($uid);
+    if (!$user) {
+      return NULL;
+    }
+
+    $status = \Drupal::service('access_control_api_logger.access_status_evaluator')->evaluate($user);
+    if (($status['summary']['state'] ?? 'ok') === 'ok') {
+      return NULL;
+    }
+
+    $blocking_items = array_values(array_filter(
+      $status['items'],
+      static fn(array $item): bool => !empty($item['blocks_access']),
+    ));
+    $reasons = array_map(
+      static fn(array $item): string => (string) $item['label'] . ': ' . (string) $item['message'],
+      $blocking_items,
+    );
+    $door_badge_blocking = (bool) array_filter(
+      $blocking_items,
+      static fn(array $item): bool => ($item['id'] ?? '') === 'door_badge',
+    );
+
+    $banner = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['messages', 'messages--warning']],
+      '#weight' => -90,
+      'heading' => [
+        '#markup' => '<strong>' . $this->t('Door access not yet active') . '</strong>',
+      ],
+      'body' => [
+        '#markup' => '<p>' . $this->t("You can keep proposing and browsing here, but you won't be able to let yourself into the building to teach until the items below are resolved.") . '</p>',
+      ],
+      'reasons' => [
+        '#theme' => 'item_list',
+        '#items' => $reasons,
+      ],
+    ];
+
+    if ($door_badge_blocking) {
+      $banner['cta'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Watch orientation and take the door-badge quiz'),
+        '#url' => Url::fromUserInput('/video-instructor'),
+        '#attributes' => ['class' => ['button', 'button--primary']],
+      ];
+    }
+    else {
+      $banner['cta_note'] = [
+        '#markup' => '<p>' . $this->t('These items typically need staff to resolve. Email <a href="mailto:education@makehaven.org">education@makehaven.org</a> if you need help.') . '</p>',
+      ];
+    }
+
+    return $banner;
   }
 
   /**

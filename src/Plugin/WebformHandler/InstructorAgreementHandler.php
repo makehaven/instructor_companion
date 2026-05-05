@@ -62,6 +62,18 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ]);
     }
 
+    // Grant the instructor role so the dashboard, toolkit, and proposal flow
+    // become accessible immediately. Signing is gated to logged-in users at
+    // the webform level (Phase 6 Sub-task 6.4-lite); the full token-gated
+    // invite-only model lands later in 6.4.
+    if (!$account->hasRole('instructor')) {
+      $account->addRole('instructor');
+      $account->save();
+      \Drupal::logger('instructor_companion')->notice('Granted instructor role to @name on agreement signing.', [
+        '@name' => $account->getDisplayName(),
+      ]);
+    }
+
     // Notify staff via the module mail system.
     $config = \Drupal::config('instructor_companion.settings');
     $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
