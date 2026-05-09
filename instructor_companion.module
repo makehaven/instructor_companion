@@ -100,6 +100,21 @@ function instructor_companion_user_register_notify($form, FormStateInterface $fo
   $params['user_link'] = $user->toUrl()->setAbsolute()->toString();
   $langcode = $user->getPreferredLangcode();
   $mailManager->mail($module, $key, $to, $langcode, $params, NULL, TRUE);
+
+  // Send the configurable welcome email to the instructor themselves, if
+  // enabled and an email is on file.
+  if ($config->get('instructor_welcome_enabled') && $user->getEmail()) {
+    $mailManager->mail(
+      $module,
+      'instructor_welcome',
+      $user->getEmail(),
+      $langcode,
+      ['user' => $user],
+      NULL,
+      TRUE,
+    );
+  }
+
   \Drupal::messenger()->addMessage(t('Your instructor application has been started. Please sign the instructor agreement on the next page so staff can review and follow up.'));
 }
 
@@ -116,6 +131,16 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
       $message['body'][] = t('Profile: @link', ['@link' => $params['user_link']]);
       $message['body'][] = t('Please review their application and assign the Instructor role if approved.');
+      break;
+
+    case 'instructor_welcome':
+      $config = \Drupal::config('instructor_companion.settings');
+      $token = \Drupal::token();
+      $data = ['user' => $params['user']];
+      $options = ['clear' => TRUE];
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = $token->replace($config->get('instructor_welcome_subject'), $data, $options);
+      $message['body'][] = $token->replace($config->get('instructor_welcome_body'), $data, $options);
       break;
 
     case 'new_proposal_submitted':

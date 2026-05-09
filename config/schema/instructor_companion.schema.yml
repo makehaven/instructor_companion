@@ -20,3 +20,12 @@ instructor_companion.settings:
     log_hours_url:
       type: string
       label: 'Log hours link'
+    instructor_welcome_enabled:
+      type: boolean
+      label: 'Send instructor welcome email'
+    instructor_welcome_subject:
+      type: string
+      label: 'Instructor welcome email subject'
+    instructor_welcome_body:
+      type: text
+      label: 'Instructor welcome email body'

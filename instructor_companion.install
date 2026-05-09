@@ -355,3 +355,28 @@ function instructor_companion_update_9009() {
 
   return 'Restored /video-instructor alias and disabled pathauto on the orientation page.';
 }
+
+/**
+ * Seed configurable instructor welcome email defaults.
+ *
+ * Existing sites get the new keys populated; fresh installs already have them
+ * from config/install/instructor_companion.settings.yml.
+ */
+function instructor_companion_update_9010() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  $defaults = [
+    'instructor_welcome_enabled' => TRUE,
+    'instructor_welcome_subject' => 'Welcome to MakeHaven Instructors',
+    'instructor_welcome_body' => "Hi [user:field_first_name],\n\nThanks for stepping forward to teach at MakeHaven. Your instructor account is set up.\n\nYou should have just been taken to the standard instructor agreement. If you didn't finish signing it, you can pick it back up here: [site:url]form/webform-5220\n\nOnce we have your signed agreement, our education team will follow up to talk through which workshops you'd like to lead, scheduling, and compensation.\n\nQuestions in the meantime? Write education@makehaven.org.\n\nThe MakeHaven Team\nwww.makehaven.org\n",
+  ];
+  $changed = FALSE;
+  foreach ($defaults as $key => $value) {
+    if ($config->get($key) === NULL) {
+      $config->set($key, $value);
+      $changed = TRUE;
+    }
+  }
+  if ($changed) {
+    $config->save();
+  }
+}

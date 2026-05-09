@@ -4,3 +4,18 @@ instructor_handbook_url: '/instructor-handbook'
 request_reimbursement_url: '/payback?account=6652'
 payment_status_url: '/my-requests'
 log_hours_url: '/timesheet?account=6566'
+instructor_welcome_enabled: true
+instructor_welcome_subject: 'Welcome to MakeHaven Instructors'
+instructor_welcome_body: |
+  Hi [user:field_first_name],
+
+  Thanks for stepping forward to teach at MakeHaven. Your instructor account is set up.
+
+  You should have just been taken to the standard instructor agreement. If you didn't finish signing it, you can pick it back up here: [site:url]form/webform-5220
+
+  Once we have your signed agreement, our education team will follow up to talk through which workshops you'd like to lead, scheduling, and compensation.
+
+  Questions in the meantime? Write education@makehaven.org.
+
+  The MakeHaven Team
+  www.makehaven.org

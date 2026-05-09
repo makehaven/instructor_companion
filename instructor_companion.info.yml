@@ -7,5 +7,6 @@ configure: instructor_companion.settings
 dependencies:
   - drupal:user
   - drupal:webform
+  - drupal:token
   - profile:profile
   - profile_registration

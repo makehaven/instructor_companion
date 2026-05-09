@@ -79,6 +79,48 @@ class SettingsForm extends ConfigFormBase {
       '#default_value' => $config->get('log_hours_url'),
     ];
 
+    $form['instructor_welcome'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Instructor welcome email'),
+      '#description' => $this->t('Sent to a new applicant after they register via the <code>?profile=instructor</code> path. Edit copy here without a code deploy.'),
+      '#open' => TRUE,
+    ];
+
+    $form['instructor_welcome']['instructor_welcome_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Send the instructor welcome email'),
+      '#default_value' => (bool) $config->get('instructor_welcome_enabled'),
+    ];
+
+    $form['instructor_welcome']['instructor_welcome_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subject'),
+      '#default_value' => $config->get('instructor_welcome_subject'),
+      '#maxlength' => 255,
+      '#states' => [
+        'required' => [':input[name="instructor_welcome_enabled"]' => ['checked' => TRUE]],
+      ],
+    ];
+
+    $form['instructor_welcome']['instructor_welcome_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Body'),
+      '#default_value' => $config->get('instructor_welcome_body'),
+      '#rows' => 14,
+      '#description' => $this->t('Plain text. Tokens like <code>[user:field_first_name]</code> and <code>[site:url]</code> are replaced before sending.'),
+      '#states' => [
+        'required' => [':input[name="instructor_welcome_enabled"]' => ['checked' => TRUE]],
+      ],
+    ];
+
+    if (\Drupal::moduleHandler()->moduleExists('token')) {
+      $form['instructor_welcome']['token_help'] = [
+        '#theme' => 'token_tree_link',
+        '#token_types' => ['user', 'site'],
+        '#show_restricted' => FALSE,
+      ];
+    }
+
     return parent::buildForm($form, $form_state);
   }
 
@@ -93,6 +135,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('request_reimbursement_url', $form_state->getValue('request_reimbursement_url'))
       ->set('payment_status_url', $form_state->getValue('payment_status_url'))
       ->set('log_hours_url', $form_state->getValue('log_hours_url'))
+      ->set('instructor_welcome_enabled', (bool) $form_state->getValue('instructor_welcome_enabled'))
+      ->set('instructor_welcome_subject', $form_state->getValue('instructor_welcome_subject'))
+      ->set('instructor_welcome_body', $form_state->getValue('instructor_welcome_body'))
       ->save();
 
     parent::submitForm($form, $form_state);
