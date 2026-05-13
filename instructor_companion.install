@@ -380,3 +380,68 @@ function instructor_companion_update_9010() {
     $config->save();
   }
 }
+
+/**
+ * Self-heal the /video-instructor alias by title-lookup, not hardcoded nid.
+ *
+ * update_9009 hardcoded /node/41511, which only matched the dev environment
+ * where the orientation page was first created. Other environments (Pantheon
+ * live, local DB pulls of live) assigned different nids when update_9006 ran,
+ * so the alias ended up pointing at whatever node happened to live at 41511 —
+ * a Pottery appointment on live, for example. Look up the canonical
+ * orientation page by title and bundle, then repoint the alias.
+ */
+function instructor_companion_update_9011() {
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+  $ids = $node_storage->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('type', 'page')
+    ->condition('title', 'Instructor Orientation')
+    ->condition('status', 1)
+    ->sort('nid', 'ASC')
+    ->range(0, 1)
+    ->execute();
+  if (empty($ids)) {
+    return 'No published "Instructor Orientation" page found; run update_9006 first or recreate it manually.';
+  }
+  $nid = (int) reset($ids);
+  $correct_path = '/node/' . $nid;
+
+  $alias_storage = \Drupal::entityTypeManager()->getStorage('path_alias');
+  $aliases = $alias_storage->loadByProperties(['alias' => '/video-instructor']);
+
+  $messages = [];
+  $had_correct = FALSE;
+  foreach ($aliases as $alias) {
+    if ($alias->getPath() === $correct_path) {
+      $had_correct = TRUE;
+    }
+    else {
+      $messages[] = 'Removed stale /video-instructor alias pointing at ' . $alias->getPath();
+      $alias->delete();
+    }
+  }
+
+  if (!$had_correct) {
+    $alias_storage->create([
+      'path' => $correct_path,
+      'alias' => '/video-instructor',
+      'langcode' => 'en',
+    ])->save();
+    $messages[] = 'Created /video-instructor → ' . $correct_path;
+  }
+
+  // Pin the alias on the node and disable pathauto so future body edits don't
+  // clobber it (same protection update_9009 attempted, but on the right nid).
+  $node = $node_storage->load($nid);
+  if ($node && $node->hasField('path')) {
+    $path_value = $node->get('path')->getValue();
+    $path_value[0]['pathauto'] = 0;
+    $path_value[0]['alias'] = '/video-instructor';
+    $node->set('path', $path_value);
+    $node->save();
+    $messages[] = 'Pinned alias on node ' . $nid . ' and disabled pathauto.';
+  }
+
+  return $messages ? implode(' ', $messages) : 'Alias /video-instructor already correctly points at ' . $correct_path . '.';
+}

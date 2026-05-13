@@ -150,7 +150,7 @@ class ProposalReviewController extends ControllerBase {
 
     if (!$event) {
       $this->messenger()->addError($this->t('Proposal not found.'));
-      return $this->redirect('instructor_companion.proposals_list');
+      return new \Symfony\Component\HttpFoundation\RedirectResponse(Url::fromUserInput('/admin/structure/proposals')->toString());
     }
 
     $event->set('is_active', 1);
@@ -181,7 +181,7 @@ class ProposalReviewController extends ControllerBase {
     }
 
     $this->messenger()->addStatus($this->t('Session "@title" approved and is now live.', ['@title' => $event->label()]));
-    return $this->redirect('instructor_companion.proposals_list');
+    return new \Symfony\Component\HttpFoundation\RedirectResponse(Url::fromUserInput('/admin/structure/proposals')->toString());
   }
 
 }

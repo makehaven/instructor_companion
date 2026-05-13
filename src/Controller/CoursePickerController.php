@@ -3,6 +3,7 @@
 namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -25,7 +26,14 @@ class CoursePickerController extends ControllerBase {
     $db = \Drupal::database();
     $entity_type_manager = $this->entityTypeManager();
 
-    // Determine if this user has signed the instructor agreement.
+    // Determine where this user is in the onboarding funnel. Three gates,
+    // each enforced elsewhere; we mirror them here so the action button
+    // labels match what the user actually sees on click.
+    //   1. Has watched orientation + passed quiz → Instructor Orientation badge
+    //   2. Has signed the master agreement → field_instructor_agreement_date set
+    //   3. Has the `instructor` role → can propose sessions
+    $has_orientation_badge = $this->userHasOrientationBadge((int) $current_user->id());
+
     $profile_storage = $entity_type_manager->getStorage('profile');
     $has_agreement = FALSE;
     $profiles = $profile_storage->loadByProperties([
@@ -39,12 +47,13 @@ class CoursePickerController extends ControllerBase {
 
     // Active filter: taxonomy term ID from query string.
     $filter_tid = (int) $request->query->get('expertise', 0);
-    $sort = $request->query->get('sort', 'interest');
+    $sort = $request->query->get('sort', 'opportunity');
 
-    // Load all area_of_interest terms for the filter dropdown.
+    // Load the area_of_interest hierarchy as a tree. Top-level (depth 0)
+    // terms are indicator-only group headings; leaf (depth 1) terms are the
+    // selectable filter values.
     $term_storage = $entity_type_manager->getStorage('taxonomy_term');
-    $expertise_terms = $term_storage->loadByProperties(['vid' => 'area_of_interest']);
-    usort($expertise_terms, fn($a, $b) => strcmp($a->label(), $b->label()));
+    $expertise_tree = $term_storage->loadTree('area_of_interest', 0, NULL, FALSE);
 
     // Build the course query.
     $query = $entity_type_manager->getStorage('node')->getQuery()
@@ -78,10 +87,47 @@ class CoursePickerController extends ControllerBase {
 
     $nodes = $nids ? $entity_type_manager->getStorage('node')->loadMultiple($nids) : [];
 
+    // Hide the dead-ends: courses that ran fewer than 2 times, have zero
+    // member interest, and have no upcoming sessions. They're rarely revival
+    // candidates and just pad the list. Set field_publicly_listed = 0 to
+    // suppress one explicitly; the auto-hide just trims noise.
+    $nodes = array_filter($nodes, function ($node) use ($interest_counts) {
+      $nid = (int) $node->id();
+      $interest = $interest_counts[$nid] ?? 0;
+      $runs = (int) $node->get('field_stat_runs')->value;
+      $upcoming = (int) $node->get('field_stat_upcoming')->value;
+      return ($interest > 0) || ($runs >= 2) || ($upcoming > 0);
+    });
+
+    // Compute an "opportunity" score per course. The intent: surface workshops
+    // a *new* instructor could pick up.
+    //   - Proven popular (more historical runs) → higher score
+    //   - Member interest signal → higher score (each flag is worth ~3 runs)
+    //   - Already has upcoming sessions → lower score (someone else covers it)
+    //   - Recency softly boosts revival candidates that ran in the last 3 yrs
+    $now = time();
+    $score_by_nid = [];
+    foreach ($nodes as $node) {
+      $nid = (int) $node->id();
+      $interest = $interest_counts[$nid] ?? 0;
+      $runs = (int) $node->get('field_stat_runs')->value;
+      $upcoming = (int) $node->get('field_stat_upcoming')->value;
+      $last_run_value = $node->get('field_stat_last_run')->value;
+      $months_since = $last_run_value ? max(0, ($now - strtotime($last_run_value)) / 2628000) : 60;
+      $recency_bonus = $months_since <= 36 ? (36 - $months_since) / 10 : 0;
+      $score_by_nid[$nid] = ($interest * 3) + $runs + $recency_bonus - ($upcoming * 4);
+    }
+
     // Sort.
-    uasort($nodes, function ($a, $b) use ($interest_counts, $sort) {
+    uasort($nodes, function ($a, $b) use ($interest_counts, $score_by_nid, $sort) {
       $nid_a = (int) $a->id();
       $nid_b = (int) $b->id();
+      if ($sort === 'opportunity') {
+        $diff = ($score_by_nid[$nid_b] ?? 0) <=> ($score_by_nid[$nid_a] ?? 0);
+        if ($diff !== 0) {
+          return $diff;
+        }
+      }
       if ($sort === 'interest') {
         $diff = ($interest_counts[$nid_b] ?? 0) <=> ($interest_counts[$nid_a] ?? 0);
         if ($diff !== 0) {
@@ -112,23 +158,26 @@ class CoursePickerController extends ControllerBase {
       'heading' => ['#markup' => '<h2>' . $this->t('Browse Existing Workshops to Teach') . '</h2>'],
       'body' => [
         '#markup' => '<p>' . $this->t(
-          'These are MakeHaven workshops that members are interested in.
-           You can propose to teach any of them — either as a returning run of an existing class
-           or as your first time leading it. After proposing a session, staff will review and
-           reach out to coordinate the details.'
+          "These are MakeHaven workshops with proven member interest or strong run history that could use another instructor. The top of the list highlights workshops that ran successfully in the past but aren't currently covered — that's where the biggest opportunity is. After proposing a session, staff will review and reach out to coordinate the details."
         ) . '</p>',
       ],
     ];
 
     if (!$has_agreement) {
+      if (!$has_orientation_badge) {
+        $notice = $this->t(
+          'Before you can propose a session, two quick steps: <strong>(1) watch the orientation video and pass the short quiz</strong>, then <strong>(2) sign the master instructor agreement</strong>. Browse courses now — the action button on each row will start you on whichever step is next. <a href="/video-instructor">Start with the orientation video</a>.'
+        );
+      }
+      else {
+        $notice = $this->t(
+          'You\'ve passed the orientation quiz. One last step before proposing: <strong>sign the master instructor agreement</strong>. <a href="/webform/webform_5220">Sign the agreement</a>.'
+        );
+      }
       $build['agreement_notice'] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['messages', 'messages--warning']],
-        '#markup' => '<p>' . $this->t(
-          'You need to sign the base instructor agreement before proposing a session.
-           You can browse courses now, but the "Propose to Teach" button will take you
-           to the agreement first. <a href="/webform/webform_5220">Sign the agreement</a>.'
-        ) . '</p>',
+        '#markup' => '<p>' . $notice . '</p>',
       ];
     }
 
@@ -136,14 +185,31 @@ class CoursePickerController extends ControllerBase {
     $filter_items = ['#markup' => ''];
     $base_url = Url::fromRoute('instructor_companion.course_picker')->toString();
 
+    // Build the topic dropdown with <optgroup> for parent categories.
+    // Parents (depth 0) become disabled group headings; children (depth 1)
+    // are the selectable options. Anything deeper (rare) is treated as a leaf
+    // under its nearest parent.
     $filter_options = '<option value=""' . ($filter_tid === 0 ? ' selected' : '') . '>' . $this->t('All topics') . '</option>';
-    foreach ($expertise_terms as $term) {
-      $selected = ((int) $term->id() === $filter_tid) ? ' selected' : '';
-      $filter_options .= '<option value="' . $term->id() . '"' . $selected . '>' . htmlspecialchars($term->label()) . '</option>';
+    $current_group_open = FALSE;
+    foreach ($expertise_tree as $term) {
+      if ((int) $term->depth === 0) {
+        if ($current_group_open) {
+          $filter_options .= '</optgroup>';
+        }
+        $filter_options .= '<optgroup label="' . htmlspecialchars($term->name) . '">';
+        $current_group_open = TRUE;
+        continue;
+      }
+      $selected = ((int) $term->tid === $filter_tid) ? ' selected' : '';
+      $filter_options .= '<option value="' . (int) $term->tid . '"' . $selected . '>' . htmlspecialchars($term->name) . '</option>';
+    }
+    if ($current_group_open) {
+      $filter_options .= '</optgroup>';
     }
 
     $sort_options = '';
     foreach ([
+      'opportunity' => $this->t('Best Opportunity'),
       'interest' => $this->t('Most Member Interest'),
       'runs' => $this->t('Most Offered'),
       'new' => $this->t('Newest'),
@@ -152,14 +218,15 @@ class CoursePickerController extends ControllerBase {
       $sort_options .= '<option value="' . $val . '"' . $selected . '>' . $label . '</option>';
     }
 
+    $filter_html = '<form method="get" action="' . $base_url . '" style="display:flex;gap:1em;align-items:center;flex-wrap:wrap;margin-bottom:1.5em;">'
+      . '<label>' . $this->t('Topic:') . ' <select name="expertise" onchange="this.form.submit()">' . $filter_options . '</select></label>'
+      . '<label>' . $this->t('Sort by:') . ' <select name="sort" onchange="this.form.submit()">' . $sort_options . '</select></label>'
+      . '<button type="submit" class="button button--small">' . $this->t('Filter') . '</button>'
+      . '</form>';
     $build['filters'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['course-picker-filters']],
-      '#markup' => '<form method="get" action="' . $base_url . '" style="display:flex;gap:1em;align-items:center;flex-wrap:wrap;margin-bottom:1.5em;">'
-        . '<label>' . $this->t('Topic:') . ' <select name="expertise" onchange="this.form.submit()">' . $filter_options . '</select></label>'
-        . '<label>' . $this->t('Sort by:') . ' <select name="sort" onchange="this.form.submit()">' . $sort_options . '</select></label>'
-        . '<noscript><button type="submit">' . $this->t('Filter') . '</button></noscript>'
-        . '</form>',
+      '#markup' => Markup::create($filter_html),
     ];
 
     // Build the course table rows.
@@ -181,7 +248,10 @@ class CoursePickerController extends ControllerBase {
         ? '<span style="color:#c0392b">' . $this->t('@n upcoming — another instructor is scheduled', ['@n' => $upcoming]) . '</span>'
         : '<span style="color:#27ae60">' . $this->t('No upcoming sessions') . '</span>';
 
-      // Action button — goes to agreement if not signed, proposal if signed.
+      // Action button reflects the next step in the funnel, not the destination
+      // it would *logically* go to. Otherwise users click "Sign Agreement"
+      // and land on /video-instructor without warning (the agreement form is
+      // gated by the orientation badge — see AgreementAccessSubscriber).
       if ($has_agreement) {
         $action_url = Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
           'query' => ['course_id' => $nid, 'propose' => 1],
@@ -189,9 +259,14 @@ class CoursePickerController extends ControllerBase {
         $action_title = $this->t('Propose to Teach');
         $action_class = 'button button--primary button--small';
       }
-      else {
-        $action_url = Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220']);
+      elseif ($has_orientation_badge) {
+        $action_url = Url::fromUserInput('/webform/webform_5220');
         $action_title = $this->t('Sign Agreement First');
+        $action_class = 'button button--small';
+      }
+      else {
+        $action_url = Url::fromUserInput('/video-instructor');
+        $action_title = $this->t('Watch Orientation First →');
         $action_class = 'button button--small';
       }
 
@@ -240,6 +315,42 @@ class CoursePickerController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Whether the user holds an active Instructor Orientation badge.
+   *
+   * Mirrors AgreementAccessSubscriber::userHasOrientationBadge so the picker's
+   * action button labels match what the agreement-access gate actually does.
+   * Anonymous returns FALSE; the route requires login so this is mostly a
+   * safety check.
+   */
+  private function userHasOrientationBadge(int $uid): bool {
+    if (!$uid) {
+      return FALSE;
+    }
+    $term_storage = $this->entityTypeManager()->getStorage('taxonomy_term');
+    $badges = $term_storage->loadByProperties([
+      'vid' => 'badges',
+      'field_badge_text_id' => 'instructor_orientation',
+    ]);
+    if (empty($badges)) {
+      // Badge term missing — install hook hasn't run. Fail open so we don't
+      // block users while the system catches up; the access subscriber on
+      // the agreement form will still gate them server-side.
+      return TRUE;
+    }
+    $badge = reset($badges);
+    $nids = $this->entityTypeManager()->getStorage('node')->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'badge_request')
+      ->condition('status', 1)
+      ->condition('field_member_to_badge.target_id', $uid)
+      ->condition('field_badge_requested.target_id', $badge->id())
+      ->condition('field_badge_status', 'active')
+      ->range(0, 1)
+      ->execute();
+    return !empty($nids);
   }
 
 }

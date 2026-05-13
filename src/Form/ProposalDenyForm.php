@@ -83,7 +83,7 @@ class ProposalDenyForm extends FormBase {
     $event = \Drupal::entityTypeManager()->getStorage('civicrm_event')->load($event_id);
     if (!$event) {
       $this->messenger()->addError($this->t('Proposal not found.'));
-      $form_state->setRedirect('instructor_companion.proposals_list');
+      $form_state->setRedirectUrl(Url::fromUserInput('/admin/structure/proposals'));
       return;
     }
 
@@ -113,7 +113,7 @@ class ProposalDenyForm extends FormBase {
     $event->delete();
 
     $this->messenger()->addStatus($this->t('Proposal "@title" denied. The instructor has been notified.', ['@title' => $event_title]));
-    $form_state->setRedirect('instructor_companion.proposals_list');
+    $form_state->setRedirectUrl(Url::fromUserInput('/admin/structure/proposals'));
   }
 
 }

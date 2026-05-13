@@ -118,6 +118,26 @@ class InstructorDashboardController extends ControllerBase {
       $build['satisfaction'] = $this->buildSatisfactionSection((int) $current_user->id(), $stats);
     }
 
+    // 1b. Primary "propose a session" CTA. The Hot Courses table below only
+    // shows workshops this instructor has previously taught, so without this
+    // banner a new instructor has no visible path to discover the catalog.
+    $build['propose_cta'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['instructor-propose-cta'], 'style' => 'background:#f5f9ff;border:1px solid #c8dcf7;padding:1em 1.25em;margin:1em 0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap;'],
+      '#weight' => -5,
+      'text' => [
+        '#markup' => '<div><strong>' . $this->t('Want to teach something?') . '</strong><br>'
+          . $this->t('Browse the workshops available and propose a date. Staff reviews every proposal before it goes live.')
+          . '</div>',
+      ],
+      'button' => [
+        '#type' => 'link',
+        '#title' => $this->t('Browse Workshops to Teach →'),
+        '#url' => Url::fromUserInput('/become-instructor/courses'),
+        '#attributes' => ['class' => ['button', 'button--primary']],
+      ],
+    ];
+
     // 2. Dashboard Toolkit
     $build['toolkit'] = [
       '#type' => 'details',
@@ -267,7 +287,7 @@ class InstructorDashboardController extends ControllerBase {
         'actions'  => $this->t('Actions'),
       ],
       '#rows'    => $high_demand_rows,
-      '#empty'   => $this->t('No high-demand workshops identified at this time.'),
+      '#empty'   => $this->t('Nothing here yet — once you teach a workshop, ones that members have expressed interest in will show up here so you can offer another session. In the meantime, browse the full catalog above.'),
       '#caption' => $this->t('Workshops with High Member Interest (Previously Taught by You)'),
       '#weight'  => 5,
     ];
@@ -329,20 +349,24 @@ class InstructorDashboardController extends ControllerBase {
       }
       $all_event_ids = array_unique(array_merge(array_keys($upcoming_events), array_keys($completed_events)));
       $payment_status_by_event = $this->getPaymentStatusSummaryByEvent((int) $current_user->id(), $all_event_ids);
+      $eval_submission_timestamps = $this->getEvalSubmissionTimestamps((int) $current_user->id());
 
       foreach ($upcoming_events as $event_id => $event) {
         $upcoming_rows[] = $this->buildEventRow(
           $event,
           $payment_status_by_event[$event_id] ?? $this->t('No requests logged'),
+          FALSE,
           FALSE
         );
       }
 
       foreach ($completed_events as $event_id => $event) {
+        $needs_eval = !$this->eventHasEvaluation($event, $eval_submission_timestamps);
         $completed_rows[] = $this->buildEventRow(
           $event,
           $payment_status_by_event[$event_id] ?? $this->t('No requests logged'),
-          TRUE
+          TRUE,
+          $needs_eval
         );
       }
     }
@@ -359,6 +383,11 @@ class InstructorDashboardController extends ControllerBase {
       '#caption' => $this->t('My Upcoming Classes'),
     ];
 
+    $build['completed_classes_note'] = [
+      '#markup' => '<p class="instructor-dashboard-note">'
+        . $this->t('After every workshop, please submit a Post-Workshop Evaluation. Sessions flagged with ⚠ are missing one — they help us restock supplies and catch tool issues quickly.')
+        . '</p>',
+    ];
     $build['completed_classes_table'] = [
       '#type' => 'table',
       '#header' => $header,
@@ -462,7 +491,7 @@ class InstructorDashboardController extends ControllerBase {
   /**
    * Builds a dashboard row for a class event.
    */
-  protected function buildEventRow($event, TranslatableMarkup|string $payment_status, bool $allow_feedback): array {
+  protected function buildEventRow($event, TranslatableMarkup|string $payment_status, bool $allow_feedback, bool $needs_eval = FALSE): array {
     $event_id = (int) $event->id();
     $database = \Drupal::database();
     $config = $this->config('instructor_companion.settings');
@@ -495,17 +524,25 @@ class InstructorDashboardController extends ControllerBase {
       'description' => $this->t('Reimbursement for @event', ['@event' => $event_context]),
     ]);
     $payment_status_url = $this->buildToolkitUrl($config->get('payment_status_url'));
-    $feedback_url = Url::fromUserInput('/form/instructor_feedback', [
-      'query' => [
-        'event_id' => $event_id,
-      ],
-    ]);
+    // Points at the existing post-workshop evaluation webform. When the
+    // structured per-event `instructor_feedback` webform lands (Phase 3.3),
+    // swap this to that path and start passing event_id via query string.
+    $feedback_url = Url::fromUserInput('/form/post-workshop-instructor-evaluat');
 
-    $links = [
-      'roster' => [
-        'title' => $this->t('Roster'),
-        'url' => $roster_url,
-      ],
+    $links = [];
+
+    // When a past event still needs an evaluation, promote the eval link to the
+    // primary dropbutton position so it shows as the visible default action.
+    if ($allow_feedback && $needs_eval) {
+      $links['feedback'] = [
+        'title' => $this->t('⚠ Submit Post-Workshop Evaluation'),
+        'url' => $feedback_url,
+      ];
+    }
+
+    $links['roster'] = [
+      'title' => $this->t('Roster'),
+      'url' => $roster_url,
     ];
     if ($payment_url) {
       $links['log_hours'] = [
@@ -525,10 +562,18 @@ class InstructorDashboardController extends ControllerBase {
         'url' => $payment_status_url,
       ];
     }
-    if ($allow_feedback) {
+    if ($allow_feedback && !$needs_eval) {
       $links['feedback'] = [
-        'title' => $this->t('Submit Feedback'),
+        'title' => $this->t('Submit Post-Workshop Evaluation'),
         'url' => $feedback_url,
+      ];
+    }
+
+    // Class Checkout — only for events that award badges, on past events.
+    if ($allow_feedback && $event->hasField('field_civi_event_badges') && !$event->get('field_civi_event_badges')->isEmpty()) {
+      $links['class_checkout'] = [
+        'title' => $this->t('Class Checkout'),
+        'url' => Url::fromRoute('instructor_companion.class_checkout', ['event_id' => $event_id]),
       ];
     }
 
@@ -606,6 +651,52 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     return $summary;
+  }
+
+  /**
+   * Returns timestamps of post-workshop-evaluation submissions by this user.
+   *
+   * Used as a best-effort soft-gate signal: when the structured
+   * `instructor_feedback` webform with `event_id` linkage lands (Phase 3.3),
+   * this can be replaced with an exact per-event lookup. Until then, we
+   * cross-reference timestamps to each event's start_date.
+   */
+  protected function getEvalSubmissionTimestamps(int $uid): array {
+    if (!$uid) {
+      return [];
+    }
+    return \Drupal::database()->select('webform_submission', 's')
+      ->fields('s', ['created'])
+      ->condition('s.webform_id', 'post_workshop_instructor_evaluat')
+      ->condition('s.uid', $uid)
+      ->execute()
+      ->fetchCol();
+  }
+
+  /**
+   * Whether a past event likely has an evaluation submission by this user.
+   *
+   * Heuristic: any eval submission landing between the event start and
+   * 30 days after counts. Best-effort until the structured form ties
+   * submissions to events directly.
+   */
+  protected function eventHasEvaluation($event, array $submission_timestamps): bool {
+    if (empty($submission_timestamps)) {
+      return FALSE;
+    }
+    $start = $event->get('start_date')->value;
+    if (!$start) {
+      return FALSE;
+    }
+    $event_ts = strtotime($start);
+    $window_end = $event_ts + (30 * 24 * 60 * 60);
+    foreach ($submission_timestamps as $ts) {
+      $ts = (int) $ts;
+      if ($ts >= $event_ts && $ts <= $window_end) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

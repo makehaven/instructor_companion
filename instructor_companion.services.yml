@@ -35,6 +35,14 @@ services:
     tags:
       - { name: event_subscriber }
 
+  instructor_companion.proposal_deactivate_subscriber:
+    class: Drupal\instructor_companion\EventSubscriber\ProposalDeactivateSubscriber
+    arguments:
+      - '@state'
+      - '@database'
+    tags:
+      - { name: event_subscriber }
+
   instructor_companion.quiz_result_cta_subscriber:
     class: Drupal\instructor_companion\EventSubscriber\QuizResultCtaSubscriber
     arguments:

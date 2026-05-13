@@ -40,8 +40,37 @@ function instructor_companion_entity_insert(EntityInterface $entity) {
  * Implements hook_civicrm_event_insert().
  */
 function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInterface $entity) {
-  // If this event was created as inactive, it's a proposal.
-  if (!$entity->get('is_active')->value) {
+  // Proposal-flow events (URL ?propose=1) get flipped to is_active=0 *after*
+  // this insert transaction commits — see the kernel.terminate subscriber in
+  // \Drupal\instructor_companion\EventSubscriber\ProposalDeactivateSubscriber.
+  // Trying to update the row from inside this hook deadlocks against the
+  // entity save's own transaction; CiviCRM Entity also re-syncs the field
+  // back to its own default.
+  $request = \Drupal::request();
+  if (($request->query->get('propose') ?? '') === '1'
+      && $entity->hasField('is_active')
+      && (int) $entity->get('is_active')->value === 1) {
+    \Drupal::state()->set(
+      'instructor_companion.proposal_deactivate_queue',
+      array_merge(
+        (array) \Drupal::state()->get('instructor_companion.proposal_deactivate_queue', []),
+        [(int) $entity->id()]
+      )
+    );
+  }
+
+  // A proposal is an inactive event saved by a user who cannot manage events
+  // themselves. Staff also save events as inactive (drafts), so `!is_active`
+  // alone is not a sufficient signal — it caused false "New Session Proposal"
+  // emails to Education when staff saved an event with Is Active = No.
+  // Use the broad CiviCRM `edit all events` permission: anyone who holds it
+  // (administrator / manager / event_management / special) is staff and not
+  // a proposer; absence of it indicates an instructor-class user.
+  $is_proposal = !$entity->get('is_active')->value
+    && !\Drupal::currentUser()->hasPermission('edit all events')
+    && $entity->hasField('field_parent_course')
+    && !$entity->get('field_parent_course')->isEmpty();
+  if ($is_proposal) {
     $mailManager = \Drupal::service('plugin.manager.mail');
     $module = 'instructor_companion';
     $key = 'new_proposal_submitted';
@@ -62,6 +91,31 @@ function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInt
     \Drupal::service('instructor_companion.stats_sync')->sync($nid);
     \Drupal::service('instructor_companion.badge_sync')->sync($nid);
   }
+}
+
+
+/**
+ * Implements hook_ENTITY_TYPE_create_access() for civicrm_event.
+ *
+ * Allows users in the `instructor` role to create a CiviCRM event only when
+ * they're coming through the proposal flow (?propose=1 in the URL). Without
+ * this, the "Propose to Teach" button on /become-instructor/courses 403s
+ * because instructors don't hold the broad `edit all events` permission.
+ * The form-alter at instructor_companion_form_civicrm_event_civicrm_event_add_form_alter
+ * still constrains what they can do (is_active forced off, instructor field
+ * defaulted to themselves, agreement checkbox required).
+ */
+function instructor_companion_civicrm_event_create_access(\Drupal\Core\Session\AccountInterface $account, array $context, $entity_bundle) {
+  if (!in_array('instructor', $account->getRoles(), TRUE)) {
+    return \Drupal\Core\Access\AccessResult::neutral();
+  }
+  $is_proposal = (\Drupal::request()->query->get('propose') ?? '') === '1';
+  if (!$is_proposal) {
+    return \Drupal\Core\Access\AccessResult::neutral();
+  }
+  return \Drupal\Core\Access\AccessResult::allowed()
+    ->cachePerUser()
+    ->addCacheContexts(['url.query_args:propose']);
 }
 
 /**
@@ -188,6 +242,20 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = $params['reason'];
       $message['body'][] = t('We encourage you to reach out if you have questions or would like to discuss other teaching opportunities. You can reply directly to this email or contact education@makehaven.org.');
       break;
+
+    case 'class_checkout_quiz_reminder':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Last step for your @badge badge: video + quiz', ['@badge' => $params['badge_label']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['student_name']]);
+      $message['body'][] = t('Thanks for completing the @event class. The instructor has signed off on your in-person portion.', [
+        '@event' => $params['event_label'],
+      ]);
+      $message['body'][] = t('Your @badge badge will become active once you have also watched the video and passed the quiz at 100%.', [
+        '@badge' => $params['badge_label'],
+      ]);
+      $message['body'][] = t('Take the quiz: @url', ['@url' => $params['quiz_url']]);
+      $message['body'][] = t('If you have any questions, reply to this email or contact education@makehaven.org.');
+      break;
   }
 }
 
@@ -229,7 +297,7 @@ function instructor_companion_node_view(array &$build, EntityInterface $entity, 
   if (!$display->getComponent('schedule_instance_button')) {
     return;
   }
-  if (!\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
+  if (!\Drupal::currentUser()->hasPermission('edit all events')) {
     return;
   }
 
@@ -354,27 +422,34 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
     }
     
     if ($course_node) {
-      // 1. Fetch and Display Past Instructors.
+      // 1. Fetch and Display Past Instructors. `users_field_data` doesn't
+      // carry a `display_name` column in this version; the display name is
+      // computed via the entity's getDisplayName(). Pull just `name` and the
+      // uid, then load the User entity to ask for the display name.
       $database = \Drupal::database();
       $q = $database->select('civicrm_event__field_civi_event_instructor', 'i');
       $q->join('civicrm_event__field_parent_course', 'f', 'i.entity_id = f.entity_id');
       $q->join('civicrm_event', 'e', 'e.id = i.entity_id');
       $q->join('users_field_data', 'u', 'u.uid = i.field_civi_event_instructor_target_id');
-      $q->fields('u', ['display_name', 'name']);
+      $q->fields('u', ['uid', 'name']);
       $q->addExpression('MAX(e.start_date)', 'last_taught');
       $q->condition('f.field_parent_course_target_id', $course_id);
       $q->condition('e.is_active', 1);
       $q->groupBy('u.uid');
-      $q->groupBy('u.display_name');
       $q->groupBy('u.name');
       $q->orderBy('last_taught', 'DESC');
       $instructors = $q->execute()->fetchAll();
 
       if (!empty($instructors)) {
         $instr_list = [];
+        $uids = array_map(fn($r) => (int) $r->uid, $instructors);
+        $user_storage = \Drupal::entityTypeManager()->getStorage('user');
+        $users = $user_storage->loadMultiple($uids);
         foreach ($instructors as $instr) {
+          $u = $users[(int) $instr->uid] ?? NULL;
+          $display = $u ? (string) $u->getDisplayName() : $instr->name;
           $date = date('M Y', strtotime($instr->last_taught));
-          $instr_list[] = "{$instr->display_name} (Last: $date)";
+          $instr_list[] = "{$display} (Last: $date)";
         }
         if (isset($form['field_civi_event_instructor'])) {
           $form['field_civi_event_instructor']['widget']['#description'] = Markup::create(
@@ -430,9 +505,21 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
           $form['is_active']['widget']['#default_value'] = 0;
           $form['is_active']['#access'] = FALSE;
         }
+        // is_active = 0 is also enforced at entity presave (see
+        // instructor_companion_civicrm_event_presave) by reading ?propose=1
+        // from the current request. That layer is the actual guard against
+        // bundles whose form display omits is_active entirely.
         $pay_type = $course_node->get('field_payment_type')->value;
         $pay_amt = $course_node->get('field_payment_amount')->value;
-        $pay_msg = ($pay_type === 'hourly') ? t('$@amt per hour', ['@amt' => $pay_amt]) : t('$@amt fixed total', ['@amt' => $pay_amt]);
+        if ($pay_amt === NULL || $pay_amt === '') {
+          $pay_msg = t('to be determined by staff');
+        }
+        elseif ($pay_type === 'hourly') {
+          $pay_msg = t('$@amt per hour', ['@amt' => $pay_amt]);
+        }
+        else {
+          $pay_msg = t('$@amt fixed total', ['@amt' => $pay_amt]);
+        }
         $form['agreement'] = [
           '#type' => 'fieldset',
           '#title' => t('Instructor Agreement'),
@@ -447,7 +534,11 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
           '#required' => TRUE,
         ];
         if (isset($form['field_civi_event_instructor'])) {
-           $form['field_civi_event_instructor']['widget'][0]['target_id']['#default_value'] = \Drupal::currentUser();
+          // EntityAutocomplete expects a User entity, not the AccountProxy.
+          $user_entity = \Drupal\user\Entity\User::load(\Drupal::currentUser()->id());
+          if ($user_entity) {
+            $form['field_civi_event_instructor']['widget'][0]['target_id']['#default_value'] = $user_entity;
+          }
         }
       }
 
@@ -501,6 +592,7 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
   }
 }
 
+
 /**
  * Implements hook_form_alter().
  *
@@ -516,6 +608,19 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
  * still works.
  */
 function instructor_companion_form_alter(array &$form, FormStateInterface $form_state, string $form_id) {
+  // Delegate to the dedicated CiviCRM event add-form alter for any event
+  // bundle. CiviCRM Entity creates a separate form id per bundle
+  // (`civicrm_event_ticketed_workshop_add_form`, `civicrm_event_meetup_add_form`,
+  // etc.). The named alter at the top of this file only catches
+  // `civicrm_event_civicrm_event_add_form`. Broaden the match here so the
+  // proposal-flow alter fires regardless of which bundle the instructor
+  // ends up on.
+  if (preg_match('/^civicrm_event_[a-z0-9_]+_add_form$/', $form_id)
+      && $form_id !== 'civicrm_event_civicrm_event_add_form') {
+    instructor_companion_form_civicrm_event_civicrm_event_add_form_alter($form, $form_state, $form_id);
+    return;
+  }
+
   if (!str_starts_with($form_id, 'webform_submission_webform_497_')
     || !str_ends_with($form_id, '_add_form')) {
     return;
@@ -727,7 +832,7 @@ function instructor_companion_preprocess_views_view_field(&$variables) {
 function instructor_companion_views_pre_view(\Drupal\views\ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() === 'course_library') {
     // Restrict access to authorized staff only.
-    if (!\Drupal::currentUser()->hasPermission('create civicrm_event entities')) {
+    if (!\Drupal::currentUser()->hasPermission('edit all events')) {
       $view->access = FALSE;
     }
   }

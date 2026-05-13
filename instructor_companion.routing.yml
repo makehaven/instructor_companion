@@ -13,6 +13,8 @@ instructor_companion.course_picker:
     _title: 'Workshops Available to Teach'
   requirements:
     _user_is_logged_in: 'TRUE'
+  options:
+    _admin_route: TRUE
 
 instructor_companion.prospective_instructors:
   path: '/admin/people/prospective-instructors'
@@ -35,21 +37,13 @@ instructor_companion.grant_instructor_role:
     _csrf_token: 'TRUE'
     user: \d+
 
-instructor_companion.proposals_list:
-  path: '/admin/structure/proposals'
-  defaults:
-    _controller: '\Drupal\Core\Controller\TitleResolver'
-    _title: 'Pending Proposals'
-  requirements:
-    _permission: 'create civicrm_event entities'
-
 instructor_companion.proposal_review:
   path: '/admin/structure/proposals/{event_id}/review'
   defaults:
     _controller: '\Drupal\instructor_companion\Controller\ProposalReviewController::build'
     _title: 'Review Proposal'
   requirements:
-    _permission: 'create civicrm_event entities'
+    _permission: 'edit all events'
     event_id: '\d+'
 
 instructor_companion.proposal_approve:
@@ -58,7 +52,8 @@ instructor_companion.proposal_approve:
     _controller: '\Drupal\instructor_companion\Controller\ProposalReviewController::approve'
     _title: 'Approve Proposal'
   requirements:
-    _permission: 'create civicrm_event entities'
+    _permission: 'edit all events'
+    _csrf_token: 'TRUE'
     event_id: '\d+'
 
 instructor_companion.proposal_deny:
@@ -67,7 +62,7 @@ instructor_companion.proposal_deny:
     _form: '\Drupal\instructor_companion\Form\ProposalDenyForm'
     _title: 'Deny Proposal'
   requirements:
-    _permission: 'create civicrm_event entities'
+    _permission: 'edit all events'
     event_id: '\d+'
 
 instructor_companion.dashboard:
@@ -77,6 +72,29 @@ instructor_companion.dashboard:
     _title: 'Instructor Dashboard'
   requirements:
     _permission: 'access instructor dashboard'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.class_checkout:
+  path: '/instructor/class-checkout/{event_id}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ClassCheckoutController::build'
+    _title: 'Class Checkout'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
+    event_id: '\d+'
+
+instructor_companion.class_checkout_mark:
+  path: '/instructor/class-checkout/{event_id}/mark/{user_id}/{badge_tid}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ClassCheckoutController::markComplete'
+    _title: 'Mark Class Complete'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
+    _csrf_token: 'TRUE'
+    event_id: '\d+'
+    user_id: '\d+'
+    badge_tid: '\d+'
 
 instructor_companion.settings:
   path: '/admin/config/makerspace/instructor-companion'
