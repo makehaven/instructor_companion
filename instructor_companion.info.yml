@@ -10,3 +10,4 @@ dependencies:
   - drupal:token
   - profile:profile
   - profile_registration
+  - makerspace_dashboard

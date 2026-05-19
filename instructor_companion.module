@@ -842,6 +842,11 @@ function instructor_companion_views_pre_view(\Drupal\views\ViewExecutable $view,
  * Implements hook_views_query_alter().
  */
 function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $view, \Drupal\views\Plugin\views\query\QueryPluginBase $query): void {
+  if ($view->id() === 'instructors') {
+    _instructor_companion_gate_instructors_directory($view, $query);
+    return;
+  }
+
   if ($view->id() !== 'public_course_catalog') {
     return;
   }
@@ -879,4 +884,51 @@ function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $vi
 
   // Deterministic third sort by title.
   $query->addOrderBy('node_field_data', 'title', 'ASC', 'workshop_title_sort');
+}
+
+/**
+ * Gates the public Instructors directory to instructors who actively taught.
+ *
+ * The directory used to be maintained by hand via the profile
+ * field_instructor_status flag. This swaps that manual gate for real
+ * teaching activity, reusing the exact same definition the BIPOC instructor
+ * KPI uses (Drupal `instructor` role + linked via field_civi_event_instructor
+ * + event type Ticketed Workshop/Program) so the public list and the KPI
+ * cannot drift. The view's own filters still require a published Instructor
+ * profile, so a qualifying instructor with no profile simply does not appear
+ * (decision: require both). Window is a rolling 24 months.
+ *
+ * @see \Drupal\makerspace_dashboard\Service\EventsMembershipDataService::getActiveInstructorDemographics()
+ */
+function _instructor_companion_gate_instructors_directory(\Drupal\views\ViewExecutable $view, \Drupal\views\Plugin\views\query\QueryPluginBase $query): void {
+  $end = new \DateTimeImmutable('now');
+  $start = $end->modify('-24 months');
+
+  /** @var \Drupal\makerspace_dashboard\Service\EventsMembershipDataService $service */
+  $service = \Drupal::service('makerspace_dashboard.events_membership_data');
+  $data = $service->getActiveInstructorDemographics($start, $end);
+
+  $uids = array_values(array_unique(array_filter(array_map(
+    static fn (array $row): int => (int) ($row['uid'] ?? 0),
+    $data['instructors'] ?? []
+  ))));
+
+  if ($uids) {
+    // profile.uid is the Instructor profile owner; the KPI service returns
+    // the Drupal uid linked as the event instructor — these are the same
+    // person's account.
+    $query->addWhere(0, 'profile.uid', $uids, 'IN');
+  }
+  else {
+    // No qualifying instructors in the window: show nothing rather than
+    // falling through to every published Instructor profile.
+    $query->addWhereExpression(0, '1 = 0');
+  }
+
+  // The qualifying set derives from CiviCRM event / Drupal user / CiviCRM
+  // contact data; invalidate the cached page when any of those change
+  // (mirrors the KPI service's own cache tags).
+  $view->element['#cache']['tags'][] = 'civicrm_event_list';
+  $view->element['#cache']['tags'][] = 'user_list';
+  $view->element['#cache']['tags'][] = 'civicrm_contact_list';
 }
