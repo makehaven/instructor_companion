@@ -19,6 +19,24 @@ This document tracks the remaining work for the instructor feedback loop and the
 
 ## 4. Webform Implementation (`instructor_feedback`)
 
+> **STATUS 2026-05-19 — Post-Event Flow shipped on branch
+> `feature/post-event-instructor-flow` (not yet deployed).** Built: the
+> `instructor_feedback` webform (config in the Pantheon repo at
+> `config/webform.webform.instructor_feedback.yml`), event_id/instructor_uid
+> prefill + no-event guard (`instructor_companion_webform_submission_form_alter`),
+> attendance prefill helper, the reorder+Slack bridge handler
+> (`InstructorFeedbackHandler` → `makerspace_material_store.reorder_request_creator`),
+> and a 301 redirect from the old path (`PostWorkshopRedirectSubscriber`).
+> Plus the wider flow: `PostEventStatusService` (4-step roll-up, replaces the
+> old 30-day eval heuristic), per-class hub at `/instructor/post-event/{event_id}`,
+> attendance screen at `/instructor/attendance/{event_id}`, dashboard
+> integration, and the +48h `PostEventReminderService` cron.
+> **Deliberately deferred** (need new fields/views + their own config deploy):
+> the `materials_class_supplies` entity-reference view, `field_class_supply`
+> on Material, `field_event_materials` on the event, and the structured
+> `low_supplies`/composite `tools_needing_maintenance` elements — Phase 1 uses
+> a direct material entity-reference + free-text tool field instead.
+
 > **Replaces `webform.webform.post_workshop_instructor_evaluat`** (Ashley's existing
 > "Post-Workshop Instructor Evaluation", 3 submissions on live as of 2026-05-01). That
 > form has free-text instructor name/email/date and no `event_id`, so submissions can't

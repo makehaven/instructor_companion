@@ -74,6 +74,17 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ]);
     }
 
+    // Provision a *pending* door badge so building access becomes a deliberate
+    // staff decision rather than an automatic side effect of signing. The
+    // service no-ops when the user already holds a door badge (every
+    // member-instructor does), so this only creates work for the non-member
+    // instructors who otherwise have no path to door access. Staff approve it
+    // at /admin/people/prospective-instructors; approval flips it to active
+    // and unifi_access_sync pushes them to UniFi.
+    $door_request = \Drupal::service('instructor_companion.door_access')
+      ->ensurePendingRequest((int) $account->id());
+    $needs_door_review = $door_request !== NULL;
+
     // Notify staff via the module mail system.
     $config = \Drupal::config('instructor_companion.settings');
     $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
@@ -81,6 +92,7 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       'user_name' => $account->getDisplayName(),
       'user_email' => $account->getEmail(),
       'user_link' => $account->toUrl()->setAbsolute()->toString(),
+      'needs_door_review' => $needs_door_review,
     ];
     \Drupal::service('plugin.manager.mail')->mail(
       'instructor_companion',

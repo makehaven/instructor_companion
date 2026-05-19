@@ -20,6 +20,8 @@ function instructor_companion_cron() {
   // Sync all course stats once a day or on a schedule.
   \Drupal::service('instructor_companion.stats_sync')->sync();
   \Drupal::service('instructor_companion.badge_sync')->sync();
+  // Nudge instructors who still have post-class tasks ~48h after the class.
+  \Drupal::service('instructor_companion.post_event_reminder')->run();
 }
 
 /**
@@ -214,6 +216,10 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
       $message['body'][] = t('User profile: @link', ['@link' => $params['user_link']]);
       $message['body'][] = t('Next step: review their background and assign the Instructor role when ready. Reply to this email or contact them directly to discuss their first class.');
+      if (!empty($params['needs_door_review'])) {
+        $queue_url = \Drupal\Core\Url::fromRoute('instructor_companion.prospective_instructors', [], ['absolute' => TRUE])->toString();
+        $message['body'][] = t('Door access: this instructor does NOT already have a building door badge. A pending request was created — review their background and approve building access at: @link', ['@link' => $queue_url]);
+      }
       break;
 
     case 'proposal_approved':
@@ -255,6 +261,21 @@ function instructor_companion_mail($key, &$message, $params) {
       ]);
       $message['body'][] = t('Take the quiz: @url', ['@url' => $params['quiz_url']]);
       $message['body'][] = t('If you have any questions, reply to this email or contact education@makehaven.org.');
+      break;
+
+    case 'post_event_reminder':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('A few wrap-up tasks left for @event', ['@event' => $params['event_label']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['instructor_name']]);
+      $message['body'][] = t('Thanks for teaching @event! A couple of post-class tasks are still open:', [
+        '@event' => $params['event_label'],
+      ]);
+      foreach ((array) $params['outstanding'] as $item) {
+        $message['body'][] = '  • ' . $item;
+      }
+      $message['body'][] = t('Knock them all out in one place here: @url', ['@url' => $params['hub_url']]);
+      $message['body'][] = t('This includes taking attendance, approving badges, submitting feedback and the materials you need reordered, and requesting payment for your hours.');
+      $message['body'][] = t('Questions? Reply to this email or contact education@makehaven.org.');
       break;
   }
 }
@@ -931,4 +952,85 @@ function _instructor_companion_gate_instructors_directory(\Drupal\views\ViewExec
   $view->element['#cache']['tags'][] = 'civicrm_event_list';
   $view->element['#cache']['tags'][] = 'user_list';
   $view->element['#cache']['tags'][] = 'civicrm_contact_list';
+}
+
+/**
+ * Implements hook_webform_submission_form_alter().
+ *
+ * The instructor_feedback webform is per-class: it is meaningless without an
+ * event context. event_id arrives via `?event_id=NID` (native prepopulate).
+ * Here we (a) hard-stop the form when no event is in context, (b) default
+ * instructor_uid to the logged-in user, and (c) prefill the actual-attendance
+ * textarea from the CiviCRM participant list so the instructor only has to
+ * correct walk-ins / no-shows. Direct-DB participant read mirrors
+ * xero_bills_sync_get_payee_event_options().
+ */
+function instructor_companion_webform_submission_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
+  $submission = $form_state->getFormObject()->getEntity();
+  if (!$submission instanceof WebformSubmissionInterface
+    || $submission->getWebform()->id() !== 'instructor_feedback') {
+    return;
+  }
+
+  // Resolve the event from the query, an already-set default, or saved data.
+  $event_id = (int) (\Drupal::request()->query->get('event_id')
+    ?: ($form['elements']['event_id']['#default_value'] ?? 0)
+    ?: $submission->getElementData('event_id'));
+
+  $event = $event_id
+    ? \Drupal::entityTypeManager()->getStorage('civicrm_event')->load($event_id)
+    : NULL;
+
+  if (!$event) {
+    // Unusable without a class context — replace the form with guidance
+    // rather than collecting an orphaned submission.
+    foreach (\Drupal\Core\Render\Element::children($form['elements']) as $key) {
+      $form['elements'][$key]['#access'] = FALSE;
+    }
+    $form['actions']['#access'] = FALSE;
+    $form['no_event'] = [
+      '#weight' => -100,
+      '#markup' => '<div class="messages messages--warning">'
+        . t('Open this feedback form from your <a href=":url">Instructor Dashboard</a> (the "Post-class tasks" button on a class) so it can be linked to the right class.', [
+          ':url' => \Drupal\Core\Url::fromRoute('instructor_companion.dashboard')->toString(),
+        ])
+        . '</div>',
+    ];
+    return;
+  }
+
+  $form['elements']['event_id']['#default_value'] = $event_id;
+
+  $account = \Drupal::currentUser();
+  if (!$account->isAnonymous() && empty($form['elements']['instructor_uid']['#default_value'])) {
+    $form['elements']['instructor_uid']['#default_value'] = (string) $account->id();
+  }
+
+  // Prefill actual attendance once (don't clobber an edit in progress).
+  $attendance =& $form['elements']['classsection']['attendance_list_actual'];
+  if (isset($attendance) && empty($attendance['#default_value']) && $submission->isNew()) {
+    $list = instructor_companion_event_attendance_list($event_id);
+    if ($list !== '') {
+      $attendance['#default_value'] = $list;
+    }
+  }
+}
+
+/**
+ * Returns one registered participant per line for an event.
+ *
+ * Counted, non-test participants joined to their contact display name.
+ * Direct DB query (same pattern as the rest of this module's CiviCRM reads).
+ */
+function instructor_companion_event_attendance_list(int $event_id): string {
+  $q = \Drupal::database()->select('civicrm_participant', 'p');
+  $q->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+  $q->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+  $q->addField('c', 'display_name', 'name');
+  $q->condition('p.event_id', $event_id);
+  $q->condition('p.is_test', 0);
+  $q->condition('pst.is_counted', 1);
+  $q->orderBy('c.display_name');
+  $names = $q->execute()->fetchCol();
+  return $names ? implode("\n", array_filter(array_map('trim', $names))) : '';
 }

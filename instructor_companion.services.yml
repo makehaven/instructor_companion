@@ -14,6 +14,39 @@ services:
     arguments:
       - '@entity_type.manager'
 
+  instructor_companion.door_access:
+    class: Drupal\instructor_companion\Service\InstructorDoorAccess
+    arguments:
+      - '@entity_type.manager'
+      - '@config.factory'
+      - '@logger.channel.instructor_companion'
+
+  instructor_companion.post_event_status:
+    class: Drupal\instructor_companion\Service\PostEventStatusService
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@state'
+      - '@config.factory'
+
+  instructor_companion.attendance_manager:
+    class: Drupal\instructor_companion\Service\AttendanceManager
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@logger.channel.instructor_companion'
+
+  instructor_companion.post_event_reminder:
+    class: Drupal\instructor_companion\Service\PostEventReminderService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@entity_type.manager'
+      - '@instructor_companion.post_event_status'
+      - '@plugin.manager.mail'
+      - '@config.factory'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.proposal_notifier:
     class: Drupal\instructor_companion\Service\ProposalNotifier
     arguments:
@@ -49,5 +82,10 @@ services:
       - '@current_route_match'
       - '@current_user'
       - '@entity_type.manager'
+    tags:
+      - { name: event_subscriber }
+
+  instructor_companion.post_workshop_redirect_subscriber:
+    class: Drupal\instructor_companion\EventSubscriber\PostWorkshopRedirectSubscriber
     tags:
       - { name: event_subscriber }

@@ -445,3 +445,50 @@ function instructor_companion_update_9011() {
 
   return $messages ? implode(' ', $messages) : 'Alias /video-instructor already correctly points at ' . $correct_path . '.';
 }
+
+/**
+ * Backfill pending door badges for instructors who signed before this flow.
+ *
+ * Instructors who signed the agreement before the door-badge provisioning
+ * landed got the instructor role but no door badge and no way to request one
+ * (the dashboard pointed them at a dead-end quiz). Create a *pending* request
+ * for every instructor-profile holder who signed the agreement and does not
+ * already hold an active or pending door badge. The service no-ops for the
+ * member-instructors who already have an active badge, so this only surfaces
+ * the genuinely-stuck non-member instructors into the staff approval queue.
+ * Nothing here grants access — staff still approve each one.
+ */
+function instructor_companion_update_9012() {
+  $door = \Drupal::service('instructor_companion.door_access');
+  if (!$door->getDoorTermId()) {
+    return 'Skipped: unifi_access_sync door_term_id is not configured.';
+  }
+
+  $db = \Drupal::database();
+  $query = $db->select('profile', 'p');
+  $query->join('profile__field_instructor_agreement_date', 'd', 'd.entity_id = p.profile_id AND d.deleted = 0');
+  $query->fields('p', ['uid']);
+  $query->condition('p.type', 'instructor');
+  $query->condition('p.status', 1);
+  $query->isNotNull('d.field_instructor_agreement_date_value');
+  $query->distinct();
+  $uids = $query->execute()->fetchCol();
+
+  $created = 0;
+  $skipped = 0;
+  foreach ($uids as $uid) {
+    if ($door->ensurePendingRequest((int) $uid)) {
+      $created++;
+    }
+    else {
+      $skipped++;
+    }
+  }
+
+  return sprintf(
+    'Instructor door-badge backfill: %d pending request(s) created, %d already had a door badge (skipped), %d signed instructors scanned.',
+    $created,
+    $skipped,
+    count($uids)
+  );
+}

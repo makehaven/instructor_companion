@@ -19,9 +19,177 @@ class ProspectiveInstructorsController extends ControllerBase {
    */
   public function build(): array {
     $build = [];
+    $build['awaiting_door'] = $this->buildAwaitingDoorAccessSection();
     $build['awaiting_role'] = $this->buildAwaitingRoleSection();
     $build['interest_section'] = $this->buildTeachingInterestSection();
     return $build;
+  }
+
+  /**
+   * Section: instructors with a pending door badge awaiting staff approval.
+   *
+   * This is the deliberate gate between "signed the agreement" and "can let
+   * themselves into the building". Approving flips the badge_request to
+   * active, which unifi_access_sync immediately pushes to UniFi Access.
+   */
+  protected function buildAwaitingDoorAccessSection(): array {
+    /** @var \Drupal\instructor_companion\Service\InstructorDoorAccess $door */
+    $door = \Drupal::service('instructor_companion.door_access');
+    $door_tid = $door->getDoorTermId();
+
+    $heading = ['#markup' => '<h2>' . $this->t('Awaiting Door Access Approval') . '</h2>'];
+
+    if (!$door_tid) {
+      return [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['awaiting-door-access-section']],
+        'heading' => $heading,
+        'warning' => ['#markup' => '<p><em>' . $this->t('Door badge term is not configured in unifi_access_sync settings — cannot list pending requests.') . '</em></p>'],
+      ];
+    }
+
+    $entity_type_manager = $this->entityTypeManager();
+    $node_storage = $entity_type_manager->getStorage('node');
+
+    $pending_nids = $node_storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'badge_request')
+      ->condition('status', 1)
+      ->condition('field_badge_requested.target_id', $door_tid)
+      ->condition('field_badge_status.value', 'pending')
+      ->sort('created', 'ASC')
+      ->execute();
+
+    if (empty($pending_nids)) {
+      return [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['awaiting-door-access-section']],
+        'heading' => $heading,
+        'empty' => ['#markup' => '<p><em>' . $this->t('No instructors are waiting for door access approval.') . '</em></p>'],
+      ];
+    }
+
+    $rows = [];
+    foreach ($node_storage->loadMultiple($pending_nids) as $request) {
+      $uid = (int) ($request->get('field_member_to_badge')->target_id ?? 0);
+      if (!$uid) {
+        continue;
+      }
+      $user = $entity_type_manager->getStorage('user')->load($uid);
+      if (!$user) {
+        continue;
+      }
+
+      $signed_date = '—';
+      $profiles = $entity_type_manager->getStorage('profile')->loadByProperties([
+        'uid' => $uid,
+        'type' => 'instructor',
+      ]);
+      if (!empty($profiles)) {
+        $profile = reset($profiles);
+        if ($profile->hasField('field_instructor_agreement_date') && !$profile->get('field_instructor_agreement_date')->isEmpty()) {
+          $signed_date = date('M j, Y', strtotime($profile->get('field_instructor_agreement_date')->value));
+        }
+      }
+
+      $grant_url = Url::fromRoute('instructor_companion.grant_door_access', ['user' => $uid]);
+      $token = \Drupal::csrfToken()->get($grant_url->getInternalPath());
+      $grant_url->setOption('query', ['token' => $token]);
+
+      $rows[] = [
+        'name' => [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $user->getDisplayName(),
+            '#url' => Url::fromRoute('entity.user.canonical', ['user' => $uid]),
+          ],
+        ],
+        'email' => $user->getEmail(),
+        'signed' => $signed_date,
+        'requested' => date('M j, Y', (int) $request->getCreatedTime()),
+        'has_role' => $user->hasRole('instructor') ? $this->t('Yes') : $this->t('No — grant role too'),
+        'actions' => [
+          'data' => [
+            '#type' => 'dropbutton',
+            '#links' => [
+              'grant' => [
+                'title' => $this->t('Grant Door Access'),
+                'url' => $grant_url,
+              ],
+              'profile' => [
+                'title' => $this->t('Open Profile'),
+                'url' => Url::fromRoute('entity.user.canonical', ['user' => $uid]),
+              ],
+            ],
+          ],
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['awaiting-door-access-section']],
+      'heading' => $heading,
+      'summary' => [
+        '#markup' => '<p>' . $this->t(
+          '<strong>@count instructor(s)</strong> have a pending door badge. Approving grants building access immediately (synced to UniFi). Review their background before approving.',
+          ['@count' => count($rows)]
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'name' => $this->t('Name'),
+          'email' => $this->t('Email'),
+          'signed' => $this->t('Agreement signed'),
+          'requested' => $this->t('Requested'),
+          'has_role' => $this->t('Instructor role'),
+          'actions' => $this->t('Actions'),
+        ],
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['awaiting-door-access-table']],
+      ],
+    ];
+  }
+
+  /**
+   * Approves a pending door badge: flips it to active.
+   *
+   * When this saves, the unifi_access_sync entity-update hook syncs the user
+   * to UniFi Access immediately, so building access takes effect at once.
+   */
+  public function grantDoorAccess(UserInterface $user) {
+    /** @var \Drupal\instructor_companion\Service\InstructorDoorAccess $door */
+    $door = \Drupal::service('instructor_companion.door_access');
+
+    if ($door->hasActiveDoorBadge((int) $user->id())) {
+      $this->messenger()->addWarning($this->t('@name already has active door access.', ['@name' => $user->getDisplayName()]));
+      return $this->redirect('instructor_companion.prospective_instructors');
+    }
+
+    $request = $door->loadDoorBadgeRequest((int) $user->id());
+    if (!$request || strcasecmp((string) $request->get('field_badge_status')->value, 'pending') !== 0) {
+      $this->messenger()->addError($this->t('No pending door badge request found for @name.', ['@name' => $user->getDisplayName()]));
+      return $this->redirect('instructor_companion.prospective_instructors');
+    }
+
+    $request->set('field_badge_status', 'active');
+    if ($request->getEntityType()->isRevisionable()) {
+      $request->setNewRevision(TRUE);
+      $request->setRevisionUserId((int) $this->currentUser()->id());
+      $request->setRevisionLogMessage((string) $this->t('Door access approved via prospective-instructors queue.'));
+    }
+    $request->save();
+
+    $this->messenger()->addStatus($this->t('Granted door access to @name. They are being synced to UniFi now.', ['@name' => $user->getDisplayName()]));
+    \Drupal::logger('instructor_companion')->notice('Door access approved for @name (uid @uid), badge_request @nid set active via prospective-instructors queue by uid @by.', [
+      '@name' => $user->getDisplayName(),
+      '@uid' => $user->id(),
+      '@nid' => $request->id(),
+      '@by' => $this->currentUser()->id(),
+    ]);
+
+    return $this->redirect('instructor_companion.prospective_instructors');
   }
 
   /**

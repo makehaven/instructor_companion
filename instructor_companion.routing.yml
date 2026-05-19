@@ -37,6 +37,19 @@ instructor_companion.grant_instructor_role:
     _csrf_token: 'TRUE'
     user: \d+
 
+instructor_companion.grant_door_access:
+  path: '/admin/people/prospective-instructors/grant-door/{user}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ProspectiveInstructorsController::grantDoorAccess'
+  options:
+    parameters:
+      user:
+        type: entity:user
+  requirements:
+    _permission: 'administer users'
+    _csrf_token: 'TRUE'
+    user: \d+
+
 instructor_companion.proposal_review:
   path: '/admin/structure/proposals/{event_id}/review'
   defaults:
@@ -95,6 +108,24 @@ instructor_companion.class_checkout_mark:
     event_id: '\d+'
     user_id: '\d+'
     badge_tid: '\d+'
+
+instructor_companion.post_event_hub:
+  path: '/instructor/post-event/{event_id}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\PostEventHubController::build'
+    _title: 'Post-Class Tasks'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
+    event_id: '\d+'
+
+instructor_companion.attendance:
+  path: '/instructor/attendance/{event_id}'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\AttendanceForm'
+    _title: 'Take Attendance'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
+    event_id: '\d+'
 
 instructor_companion.settings:
   path: '/admin/config/makerspace/instructor-companion'
