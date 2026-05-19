@@ -183,7 +183,71 @@ class InstructorDashboardController extends ControllerBase {
       ->condition('type', 'instructor')
       ->execute();
 
-    if (empty($profile_ids)) {
+    // 3a. Activity-aware public-listing nudge: same definition the public
+    // /instructors directory and the BIPOC instructor KPI use (taught a
+    // Ticketed Workshop/Program in the last 24mo via field_civi_event_instructor
+    // with the instructor role). If this user qualifies by activity but has
+    // no PUBLISHED Instructor profile, they don't appear on /instructors even
+    // though they've been teaching — surface that so they self-correct.
+    // @see \Drupal\makerspace_dashboard\Service\EventsMembershipDataService::getActiveInstructorDemographics()
+    $nudge_rendered = FALSE;
+    $has_published_profile = (int) $profile_storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('uid', $current_user->id())
+      ->condition('type', 'instructor')
+      ->condition('status', 1)
+      ->count()
+      ->execute() > 0;
+
+    if (!$has_published_profile) {
+      try {
+        $window_end = new \DateTimeImmutable('now');
+        $window_start = $window_end->modify('-24 months');
+        /** @var \Drupal\makerspace_dashboard\Service\EventsMembershipDataService $instructor_kpi */
+        $instructor_kpi = \Drupal::service('makerspace_dashboard.events_membership_data');
+        $kpi_data = $instructor_kpi->getActiveInstructorDemographics($window_start, $window_end);
+        $qualifying_count = 0;
+        foreach ($kpi_data['instructors'] ?? [] as $row) {
+          if ((int) ($row['uid'] ?? 0) === (int) $current_user->id()) {
+            $qualifying_count = (int) ($row['event_count'] ?? 0);
+            break;
+          }
+        }
+        if ($qualifying_count > 0) {
+          $body = $this->formatPlural(
+            $qualifying_count,
+            "You've taught 1 class in the last 24 months, but you don't have a public Instructor profile yet — so members browsing <a href=\"/instructors\">our instructor directory</a> can't find or remember you. Add a short bio, photo, and the topics you teach.",
+            "You've taught @count classes in the last 24 months, but you don't have a public Instructor profile yet — so members browsing <a href=\"/instructors\">our instructor directory</a> can't find or remember you. Add a short bio, photo, and the topics you teach."
+          );
+          $build['public_profile_nudge'] = [
+            '#type' => 'container',
+            '#weight' => -200,
+            '#attributes' => [
+              'class' => ['instructor-public-profile-nudge'],
+              'style' => 'background:#fff7e0;border:1px solid #e0b94a;padding:1em 1.25em;margin:1em 0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:1em;flex-wrap:wrap;',
+            ],
+            'text' => [
+              '#markup' => '<div><strong>' . $this->t("You're teaching but you're not yet on the public Instructors page.") . '</strong><br>' . $body . '</div>',
+            ],
+            'button' => [
+              '#type' => 'link',
+              '#title' => $this->t('Add Your Public Profile →'),
+              '#url' => Url::fromUserInput('/user/' . $current_user->id() . '/instructor'),
+              '#attributes' => ['class' => ['button', 'button--primary']],
+            ],
+          ];
+          $nudge_rendered = TRUE;
+        }
+      }
+      catch (\Throwable $e) {
+        // If the KPI service is unavailable for any reason, silently fall
+        // through to the existing generic warning rather than break the
+        // entire dashboard.
+        \Drupal::logger('instructor_companion')->warning('Public-profile nudge skipped: @msg', ['@msg' => $e->getMessage()]);
+      }
+    }
+
+    if (empty($profile_ids) && !$nudge_rendered) {
       $profile_link = Link::fromTextAndUrl(
         $this->t('Click here to create it.'),
         Url::fromUserInput('/user/' . $current_user->id() . '/instructor')
@@ -201,7 +265,7 @@ class InstructorDashboardController extends ControllerBase {
         ],
       ];
     }
-    else {
+    elseif (!empty($profile_ids)) {
       // Check for signed agreement.
       $profile = $profile_storage->load(reset($profile_ids));
       if ($profile->get('field_instructor_agreement_date')->isEmpty()) {
