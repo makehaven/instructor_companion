@@ -161,15 +161,34 @@ abstract class SubmissionQueueControllerBase extends ControllerBase {
 
     $age = $this->dateFormatter->formatTimeDiffSince($submission->getCreatedTime());
 
-    $review_link = [
-      '#type' => 'link',
-      '#title' => $this->t('Review'),
-      '#url' => Url::fromRoute('entity.webform_submission.canonical', [
+    $links = [];
+    $links['review'] = [
+      'title' => $this->t('Review Details'),
+      'url' => Url::fromRoute('entity.webform_submission.canonical', [
         'webform' => $submission->getWebform()->id(),
         'webform_submission' => $submission->id(),
       ]),
-      '#attributes' => ['class' => ['button', 'button--small']],
     ];
+
+    if ($this->statusElement()) {
+      $statuses = [
+        'approved' => $this->t('Approve'),
+        'reworking' => $this->t('Request Rework'),
+        'deferred' => $this->t('Defer'),
+        'denied' => $this->t('Deny'),
+      ];
+      foreach ($statuses as $status_key => $status_label) {
+        $links[$status_key] = [
+          'title' => $status_label,
+          'url' => Url::fromRoute('instructor_companion.submission_status', [
+            'submission' => $submission->id(),
+            'status' => $status_key,
+          ], [
+            'query' => \Drupal::destination()->getAsArray(),
+          ]),
+        ];
+      }
+    }
 
     $row = [
       'submitter' => $submitter,
@@ -179,7 +198,12 @@ abstract class SubmissionQueueControllerBase extends ControllerBase {
       $row[$key] = $cell;
     }
     $row['age'] = $age;
-    $row['actions'] = ['data' => $review_link];
+    $row['actions'] = [
+      'data' => [
+        '#type' => 'dropbutton',
+        '#links' => $links,
+      ],
+    ];
     return $row;
   }
 

@@ -19,3 +19,28 @@ instructor_welcome_body: |
 
   The MakeHaven Team
   www.makehaven.org
+interest_approval_enabled: true
+interest_approval_subject: 'Next steps to become a MakeHaven instructor'
+interest_approval_body: |
+  Hi [submission:name],
+
+  Thanks for telling us you'd like to teach at MakeHaven. We just reviewed your submission and would love to have you join our instructor community.
+
+  Here are the next three steps. None of them require a paid membership — anyone can become a MakeHaven instructor.
+
+  1. Watch the short instructor orientation video and complete the quiz:
+     [site:url]video-instructor
+
+  2. Sign the master instructor agreement (you'll be prompted after the quiz):
+     [site:url]form/webform-5220
+
+  3. Propose your first session. You can either pick from existing workshops that need an instructor, or propose a brand-new workshop of your own:
+     [site:url]become-instructor/courses
+
+  If you don't already have a MakeHaven account, you'll be prompted to create a free one on your first click.
+
+  Questions? Reply to this email or write education@makehaven.org.
+
+  Looking forward to working with you,
+  The MakeHaven Education Team
+  www.makehaven.org

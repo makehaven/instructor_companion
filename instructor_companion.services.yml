@@ -14,6 +14,11 @@ services:
     arguments:
       - '@entity_type.manager'
 
+  instructor_companion.approval_gate:
+    class: Drupal\instructor_companion\Service\InstructorApprovalGate
+    arguments:
+      - '@entity_type.manager'
+
   instructor_companion.door_access:
     class: Drupal\instructor_companion\Service\InstructorDoorAccess
     arguments:
@@ -53,6 +58,17 @@ services:
       - '@config.factory'
       - '@http_client'
       - '@logger.channel.instructor_companion'
+
+  instructor_companion.proposal_processor:
+    class: Drupal\instructor_companion\Service\ProposalProcessor
+    arguments:
+      - '@entity_type.manager'
+      - '@messenger'
+      - '@logger.channel.instructor_companion'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@token'
+
   logger.channel.instructor_companion:
     parent: logger.channel_base
     arguments:

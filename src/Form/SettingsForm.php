@@ -121,6 +121,40 @@ class SettingsForm extends ConfigFormBase {
       ];
     }
 
+    $form['interest_approval'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Instructor Interest approval email'),
+      '#description' => $this->t('Sent to the submitter when staff click <strong>Approve</strong> on a webform_14366 submission in the Instructor Interest queue. Used to walk prospective instructors through the orientation → agreement → propose-a-session funnel without requiring them to have a Drupal account yet. Edit copy here without a code deploy.'),
+      '#open' => TRUE,
+    ];
+
+    $form['interest_approval']['interest_approval_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Send the Instructor Interest approval email'),
+      '#default_value' => (bool) $config->get('interest_approval_enabled'),
+    ];
+
+    $form['interest_approval']['interest_approval_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subject'),
+      '#default_value' => $config->get('interest_approval_subject'),
+      '#maxlength' => 255,
+      '#states' => [
+        'required' => [':input[name="interest_approval_enabled"]' => ['checked' => TRUE]],
+      ],
+    ];
+
+    $form['interest_approval']['interest_approval_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Body'),
+      '#default_value' => $config->get('interest_approval_body'),
+      '#rows' => 18,
+      '#description' => $this->t('Plain text. Tokens like <code>[submission:name]</code>, <code>[submission:email]</code>, and <code>[site:url]</code> are replaced before sending. The submitter may not have a Drupal account yet, so avoid <code>[user:*]</code> tokens here.'),
+      '#states' => [
+        'required' => [':input[name="interest_approval_enabled"]' => ['checked' => TRUE]],
+      ],
+    ];
+
     return parent::buildForm($form, $form_state);
   }
 
@@ -138,6 +172,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('instructor_welcome_enabled', (bool) $form_state->getValue('instructor_welcome_enabled'))
       ->set('instructor_welcome_subject', $form_state->getValue('instructor_welcome_subject'))
       ->set('instructor_welcome_body', $form_state->getValue('instructor_welcome_body'))
+      ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
+      ->set('interest_approval_subject', $form_state->getValue('interest_approval_subject'))
+      ->set('interest_approval_body', $form_state->getValue('interest_approval_body'))
       ->save();
 
     parent::submitForm($form, $form_state);

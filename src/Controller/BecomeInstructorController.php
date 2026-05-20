@@ -149,7 +149,9 @@ class BecomeInstructorController extends ControllerBase {
       'button' => [
         '#type' => 'link',
         '#title' => $this->t('Browse Workshops Available to Teach'),
-        '#url' => Url::fromRoute('instructor_companion.course_picker'),
+        '#url' => $is_member || !$is_anonymous
+          ? Url::fromRoute('instructor_companion.course_picker')
+          : Url::fromUserInput('/workshops'),
         '#attributes' => ['class' => ['button', 'button--secondary']],
       ],
     ];

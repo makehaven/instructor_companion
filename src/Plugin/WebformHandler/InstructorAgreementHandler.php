@@ -41,6 +41,9 @@ class InstructorAgreementHandler extends WebformHandlerBase {
     if (!empty($profiles)) {
       $profile = reset($profiles);
       $profile->set('field_instructor_agreement_date', $now);
+      if ($profile->hasField('field_instructor_status') && $profile->get('field_instructor_status')->isEmpty()) {
+        $profile->set('field_instructor_status', 'inactive');
+      }
       $profile->save();
       \Drupal::logger('instructor_companion')->notice('Instructor agreement signed by @name. Profile @id updated.', [
         '@name' => $account->getDisplayName(),
@@ -55,6 +58,7 @@ class InstructorAgreementHandler extends WebformHandlerBase {
         'type' => 'instructor',
         'status' => 1,
         'field_instructor_agreement_date' => $now,
+        'field_instructor_status' => 'inactive',
       ]);
       $profile->save();
       \Drupal::logger('instructor_companion')->notice('Instructor profile created and agreement signed for @name.', [
@@ -62,10 +66,9 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ]);
     }
 
-    // Grant the instructor role so the dashboard, toolkit, and proposal flow
-    // become accessible immediately. Signing is gated to logged-in users at
-    // the webform level (Phase 6 Sub-task 6.4-lite); the full token-gated
-    // invite-only model lands later in 6.4.
+    // Grant the instructor role so the dashboard and profile tools become
+    // accessible immediately. Staff approval still gates actual teaching via
+    // field_instructor_status on the profile.
     if (!$account->hasRole('instructor')) {
       $account->addRole('instructor');
       $account->save();

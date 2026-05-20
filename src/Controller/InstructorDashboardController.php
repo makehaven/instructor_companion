@@ -287,6 +287,22 @@ class InstructorDashboardController extends ControllerBase {
           '#weight' => -100,
         ];
       }
+      elseif ($profile->hasField('field_instructor_status')
+        && strtolower((string) $profile->get('field_instructor_status')->value) !== 'active') {
+        $approval_message = new FormattableMarkup(
+          'Your onboarding is complete, but staff approval is still required before you can propose or teach classes. You can finish your profile and browse workshops now. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.',
+          []
+        );
+        $build['approval_warning'] = [
+          '#type' => 'messagelist',
+          '#messages' => [
+            'warning' => [
+              $approval_message,
+            ],
+          ],
+          '#weight' => -95,
+        ];
+      }
     }
 
     $access_warning = $this->buildDoorAccessWarning((int) $current_user->id());
@@ -298,6 +314,9 @@ class InstructorDashboardController extends ControllerBase {
     $high_demand_rows = [];
     $demand_courses = $this->getHighDemandCourses((int) $current_user->id());
     $interest_counts = $this->getCourseInterestCounts(array_keys($demand_courses));
+    /** @var \Drupal\instructor_companion\Service\InstructorApprovalGate $approval_gate */
+    $approval_gate = \Drupal::service('instructor_companion.approval_gate');
+    $is_approved_instructor = $approval_gate->isApproved((int) $current_user->id());
     foreach ($demand_courses as $course) {
       $nid = (int) $course->id();
       $interest = $interest_counts[$nid] ?? 0;
@@ -328,13 +347,15 @@ class InstructorDashboardController extends ControllerBase {
         'actions' => [
           'data' => [
             '#type'       => 'link',
-            '#title'      => $this->t('Propose Session'),
-            '#url'        => Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
-              'query' => [
-                'course_id' => $nid,
-                'propose'   => 1,
-              ],
-            ]),
+            '#title'      => $is_approved_instructor ? $this->t('Propose Session') : $this->t('Awaiting Staff Approval'),
+            '#url'        => $is_approved_instructor
+              ? Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
+                'query' => [
+                  'course_id' => $nid,
+                  'propose' => 1,
+                ],
+              ])
+              : Url::fromRoute('instructor_companion.dashboard'),
             '#attributes' => ['class' => ['button', 'button--small']],
           ],
         ],

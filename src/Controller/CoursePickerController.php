@@ -5,6 +5,7 @@ namespace Drupal\instructor_companion\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
+use Drupal\instructor_companion\Service\InstructorApprovalGate;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -25,6 +26,8 @@ class CoursePickerController extends ControllerBase {
     $current_user = $this->currentUser();
     $db = \Drupal::database();
     $entity_type_manager = $this->entityTypeManager();
+    /** @var \Drupal\instructor_companion\Service\InstructorApprovalGate $approval_gate */
+    $approval_gate = \Drupal::service('instructor_companion.approval_gate');
 
     // Determine where this user is in the onboarding funnel. Three gates,
     // each enforced elsewhere; we mirror them here so the action button
@@ -33,6 +36,7 @@ class CoursePickerController extends ControllerBase {
     //   2. Has signed the master agreement → field_instructor_agreement_date set
     //   3. Has the `instructor` role → can propose sessions
     $has_orientation_badge = $this->userHasOrientationBadge((int) $current_user->id());
+    $is_approved = !$current_user->isAnonymous() && $approval_gate->isApproved((int) $current_user->id());
 
     $profile_storage = $entity_type_manager->getStorage('profile');
     $has_agreement = FALSE;
@@ -163,7 +167,30 @@ class CoursePickerController extends ControllerBase {
       ],
     ];
 
-    if (!$has_agreement) {
+    if ($current_user->isAnonymous()) {
+      $build['agreement_notice'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['messages', 'messages--warning']],
+        '#markup' => '<p>' . $this->t(
+          'You can browse workshops now. To propose teaching one, <a href=":login">log in</a> as a MakeHaven member or <a href=":interest">tell us you\'re interested</a> if you\'re not a member yet.',
+          [
+            ':login' => Url::fromRoute('user.login', [], ['query' => ['destination' => '/become-instructor/courses']])->toString(),
+            ':interest' => Url::fromUserInput('/instructor')->toString(),
+          ]
+        ) . '</p>',
+      ];
+    }
+    elseif (!$current_user->hasRole('member')) {
+      $build['agreement_notice'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['messages', 'messages--warning']],
+        '#markup' => '<p>' . $this->t(
+          'You can browse workshops now, but non-members need staff review before onboarding. <a href=":interest">Tell us what you want to teach</a> and education staff will follow up.',
+          [':interest' => Url::fromUserInput('/instructor')->toString()]
+        ) . '</p>',
+      ];
+    }
+    elseif (!$has_agreement) {
       if (!$has_orientation_badge) {
         $notice = $this->t(
           'Before you can propose a session, two quick steps: <strong>(1) watch the orientation video and pass the short quiz</strong>, then <strong>(2) sign the master instructor agreement</strong>. Browse courses now — the action button on each row will start you on whichever step is next. <a href="/video-instructor">Start with the orientation video</a>.'
@@ -178,6 +205,15 @@ class CoursePickerController extends ControllerBase {
         '#type' => 'container',
         '#attributes' => ['class' => ['messages', 'messages--warning']],
         '#markup' => '<p>' . $notice . '</p>',
+      ];
+    }
+    elseif (!$is_approved) {
+      $build['agreement_notice'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['messages', 'messages--warning']],
+        '#markup' => '<p>' . $this->t(
+          'You\'ve completed onboarding. Staff review is still required before you can propose or teach a class. In the meantime, browse the catalog and prepare your ideas. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.'
+        ) . '</p>',
       ];
     }
 
@@ -252,12 +288,29 @@ class CoursePickerController extends ControllerBase {
       // it would *logically* go to. Otherwise users click "Sign Agreement"
       // and land on /video-instructor without warning (the agreement form is
       // gated by the orientation badge — see AgreementAccessSubscriber).
-      if ($has_agreement) {
+      if ($current_user->isAnonymous()) {
+        $action_url = Url::fromRoute('user.login', [], [
+          'query' => ['destination' => '/become-instructor/courses'],
+        ]);
+        $action_title = $this->t('Log In to Start');
+        $action_class = 'button button--small';
+      }
+      elseif (!$current_user->hasRole('member')) {
+        $action_url = Url::fromUserInput('/instructor');
+        $action_title = $this->t('Tell Us You\'re Interested');
+        $action_class = 'button button--small';
+      }
+      elseif ($has_agreement && $is_approved) {
         $action_url = Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
           'query' => ['course_id' => $nid, 'propose' => 1],
         ]);
         $action_title = $this->t('Propose to Teach');
         $action_class = 'button button--primary button--small';
+      }
+      elseif ($has_agreement) {
+        $action_url = Url::fromRoute('instructor_companion.dashboard');
+        $action_title = $this->t('Awaiting Staff Approval');
+        $action_class = 'button button--small';
       }
       elseif ($has_orientation_badge) {
         $action_url = Url::fromUserInput('/webform/webform_5220');

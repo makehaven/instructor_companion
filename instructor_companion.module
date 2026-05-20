@@ -115,6 +115,12 @@ function instructor_companion_civicrm_event_create_access(\Drupal\Core\Session\A
   if (!$is_proposal) {
     return \Drupal\Core\Access\AccessResult::neutral();
   }
+  $approved = \Drupal::service('instructor_companion.approval_gate')->isApproved((int) $account->id());
+  if (!$approved) {
+    return \Drupal\Core\Access\AccessResult::forbidden()
+      ->cachePerUser()
+      ->addCacheContexts(['url.query_args:propose']);
+  }
   return \Drupal\Core\Access\AccessResult::allowed()
     ->cachePerUser()
     ->addCacheContexts(['url.query_args:propose']);
@@ -197,6 +203,16 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = $token->replace($config->get('instructor_welcome_subject'), $data, $options);
       $message['body'][] = $token->replace($config->get('instructor_welcome_body'), $data, $options);
+      break;
+
+    case 'interest_approval':
+      // Subject and body are passed in pre-rendered by ProposalProcessor
+      // (token replacement happens there because the submitter may not be a
+      // Drupal user, so [user:*] tokens don't apply and we use direct
+      // [submission:*] substitution).
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['body'];
       break;
 
     case 'new_proposal_submitted':
@@ -518,6 +534,9 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
             'event' => 'change',
           ];
         }
+        if ($is_proposal) {
+          $form['#validate'][] = 'instructor_companion_validate_proposal_asset_conflicts';
+        }
       }
 
       if ($is_proposal) {
@@ -756,6 +775,65 @@ function instructor_companion_check_conflicts_ajax(array &$form, FormStateInterf
     $output = '<div class="messages messages--status">No tool conflicts detected for the selected time.</div>';
   }
   return $response->addCommand(new HtmlCommand('#asset-conflict-warning', $output));
+}
+
+/**
+ * Validates proposal asset conflicts before an instructor can submit.
+ *
+ * The AJAX callback is helpful for early feedback, but staff should not have to
+ * catch collisions manually after the fact. On the instructor proposal path we
+ * hard-block submission when required course assets already have conflicting
+ * reservations in the requested time slot.
+ */
+function instructor_companion_validate_proposal_asset_conflicts(array &$form, FormStateInterface $form_state): void {
+  $start = $form_state->getValue(['start_date', 0, 'value']);
+  $end = $form_state->getValue(['end_date', 0, 'value']);
+  $asset_ids_str = (string) $form_state->getValue('required_asset_ids');
+  if ($start === NULL || $end === NULL || $asset_ids_str === '') {
+    return;
+  }
+
+  $start_ts = strtotime($start . ' UTC');
+  $end_ts = strtotime($end . ' UTC');
+  if (!$start_ts || !$end_ts || $end_ts <= $start_ts) {
+    return;
+  }
+
+  $checker = \Drupal::service('makerspace_reservations.conflict_checker');
+  $asset_ids = array_filter(array_map('intval', explode(',', $asset_ids_str)));
+  $messages = [];
+
+  foreach ($asset_ids as $nid) {
+    $result = $checker->checkConflicts($nid, $start_ts, $end_ts);
+    if (!$result->hasBlockingConflicts(FALSE)) {
+      continue;
+    }
+    $asset = Node::load($nid);
+    $asset_label = $asset ? $asset->label() : "Asset $nid";
+
+    foreach ($result->getDirectConflicts() as $conflict) {
+      if (!$conflict->isInformational()) {
+        $messages[] = $checker->formatConflictMessage($conflict, 'direct', $asset_label);
+      }
+    }
+    foreach ($result->getAncestorConflicts() as $conflict) {
+      if (!$conflict->isInformational()) {
+        $messages[] = $checker->formatConflictMessage($conflict, 'ancestor', $asset_label);
+      }
+    }
+    foreach ($result->getDescendantConflicts() as $conflict) {
+      if (!$conflict->isInformational()) {
+        $messages[] = $checker->formatConflictMessage($conflict, 'descendant', $asset_label);
+      }
+    }
+  }
+
+  if ($messages) {
+    $form_state->setErrorByName('start_date][0][value', t('This proposed class conflicts with existing reservations on required tools or areas. Adjust the date/time before submitting.'));
+    foreach (array_unique($messages) as $message) {
+      \Drupal::messenger()->addError(Markup::create($message));
+    }
+  }
 }
 
 /**
@@ -1033,4 +1111,46 @@ function instructor_companion_event_attendance_list(int $event_id): string {
   $q->orderBy('c.display_name');
   $names = $q->execute()->fetchCol();
   return $names ? implode("\n", array_filter(array_map('trim', $names))) : '';
+}
+
+/**
+ * Webforms whose unreviewed→approved transition triggers ProposalProcessor.
+ * Each form's "Approve" action does a different downstream thing — see
+ * ProposalProcessor::processApproval() for the dispatch.
+ */
+const INSTRUCTOR_COMPANION_APPROVAL_WEBFORMS = ['webform_497', 'webform_14366'];
+
+/**
+ * Implements hook_webform_submission_update().
+ *
+ * Detects the unreviewed→approved transition and hands off to
+ * ProposalProcessor.
+ */
+function instructor_companion_webform_submission_update(\Drupal\webform\WebformSubmissionInterface $submission) {
+  if (!in_array($submission->getWebform()->id(), INSTRUCTOR_COMPANION_APPROVAL_WEBFORMS, TRUE)) {
+    return;
+  }
+  $previous = $submission->original?->getData()['review_status_38'] ?? NULL;
+  $current = $submission->getData()['review_status_38'] ?? NULL;
+  if ($current === 'approved' && $previous !== 'approved') {
+    \Drupal::service('instructor_companion.proposal_processor')
+      ->processApproval($submission);
+  }
+}
+
+/**
+ * Implements hook_webform_submission_insert().
+ *
+ * Handles the rare case of a staffer creating an already-approved
+ * submission directly in the admin UI.
+ */
+function instructor_companion_webform_submission_insert(\Drupal\webform\WebformSubmissionInterface $submission) {
+  if (!in_array($submission->getWebform()->id(), INSTRUCTOR_COMPANION_APPROVAL_WEBFORMS, TRUE)) {
+    return;
+  }
+  $current = $submission->getData()['review_status_38'] ?? NULL;
+  if ($current === 'approved') {
+    \Drupal::service('instructor_companion.proposal_processor')
+      ->processApproval($submission);
+  }
 }

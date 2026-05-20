@@ -12,7 +12,7 @@ instructor_companion.course_picker:
     _controller: '\Drupal\instructor_companion\Controller\CoursePickerController::build'
     _title: 'Workshops Available to Teach'
   requirements:
-    _user_is_logged_in: 'TRUE'
+    _access: 'TRUE'
   options:
     _admin_route: TRUE
 
@@ -195,3 +195,17 @@ instructor_companion.schedule_instance:
     parameters:
       node:
         type: entity:node
+
+instructor_companion.submission_status:
+  path: '/admin/instructor-companion/submission/{submission}/status/{status}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\SubmissionStatusController::setStatus'
+  requirements:
+    _permission: 'administer webform submission'
+    _csrf_token: 'TRUE'
+    submission: '\d+'
+    status: '[a-z0-9_]+'
+  options:
+    parameters:
+      submission:
+        type: 'entity:webform_submission'
