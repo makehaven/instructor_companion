@@ -89,6 +89,26 @@ class CoursePickerController extends ControllerBase {
       }
     }
 
+    // Current user's own area-of-interest tids (from main profile). Used to
+    // rank topic-aligned workshops above the rest and visually mark matches.
+    $user_interest_tids = [];
+    if (!$current_user->isAnonymous()) {
+      $main_profiles = $profile_storage->loadByProperties([
+        'uid' => $current_user->id(),
+        'type' => 'main',
+      ]);
+      if ($main_profiles) {
+        $main_profile = reset($main_profiles);
+        if ($main_profile->hasField('field_member_interests')) {
+          foreach ($main_profile->get('field_member_interests') as $item) {
+            if ($item->target_id) {
+              $user_interest_tids[(int) $item->target_id] = TRUE;
+            }
+          }
+        }
+      }
+    }
+
     $nodes = $nids ? $entity_type_manager->getStorage('node')->loadMultiple($nids) : [];
 
     // Hide the dead-ends: courses that ran fewer than 2 times, have zero
@@ -103,31 +123,62 @@ class CoursePickerController extends ControllerBase {
       return ($interest > 0) || ($runs >= 2) || ($upcoming > 0);
     });
 
-    // Compute an "opportunity" score per course. The intent: surface workshops
-    // a *new* instructor could pick up.
-    //   - Proven popular (more historical runs) → higher score
-    //   - Member interest signal → higher score (each flag is worth ~3 runs)
-    //   - Already has upcoming sessions → lower score (someone else covers it)
-    //   - Recency softly boosts revival candidates that ran in the last 3 yrs
-    $now = time();
-    $score_by_nid = [];
+    // Tier-based opportunity ranking. The intent: surface workshops that
+    // NEED an instructor right now, ahead of ones already covered.
+    //   Tier 0 (top) — no upcoming sessions AND (member interest OR topic match)
+    //   Tier 1       — no upcoming sessions (revival pool: ran in the past, uncovered)
+    //   Tier 2 (bot) — already has upcoming sessions (someone else is teaching it)
+    // Within a tier: topic-match desc → interest desc → runs desc → title.
+    $tier_by_nid = [];
+    $topic_match_by_nid = [];
+    $course_expertise_tids = [];
     foreach ($nodes as $node) {
       $nid = (int) $node->id();
       $interest = $interest_counts[$nid] ?? 0;
-      $runs = (int) $node->get('field_stat_runs')->value;
       $upcoming = (int) $node->get('field_stat_upcoming')->value;
-      $last_run_value = $node->get('field_stat_last_run')->value;
-      $months_since = $last_run_value ? max(0, ($now - strtotime($last_run_value)) / 2628000) : 60;
-      $recency_bonus = $months_since <= 36 ? (36 - $months_since) / 10 : 0;
-      $score_by_nid[$nid] = ($interest * 3) + $runs + $recency_bonus - ($upcoming * 4);
+      $tids = [];
+      foreach ($node->get('field_instructor_expertise') as $item) {
+        if ($item->target_id) {
+          $tids[] = (int) $item->target_id;
+        }
+      }
+      $course_expertise_tids[$nid] = $tids;
+      $match = 0;
+      foreach ($tids as $tid) {
+        if (isset($user_interest_tids[$tid])) {
+          $match++;
+        }
+      }
+      $topic_match_by_nid[$nid] = $match;
+      if ($upcoming > 0) {
+        $tier_by_nid[$nid] = 2;
+      }
+      elseif ($interest > 0 || $match > 0) {
+        $tier_by_nid[$nid] = 0;
+      }
+      else {
+        $tier_by_nid[$nid] = 1;
+      }
     }
 
     // Sort.
-    uasort($nodes, function ($a, $b) use ($interest_counts, $score_by_nid, $sort) {
+    uasort($nodes, function ($a, $b) use ($interest_counts, $tier_by_nid, $topic_match_by_nid, $sort) {
       $nid_a = (int) $a->id();
       $nid_b = (int) $b->id();
       if ($sort === 'opportunity') {
-        $diff = ($score_by_nid[$nid_b] ?? 0) <=> ($score_by_nid[$nid_a] ?? 0);
+        $diff = ($tier_by_nid[$nid_a] ?? 2) <=> ($tier_by_nid[$nid_b] ?? 2);
+        if ($diff !== 0) {
+          return $diff;
+        }
+        $diff = ($topic_match_by_nid[$nid_b] ?? 0) <=> ($topic_match_by_nid[$nid_a] ?? 0);
+        if ($diff !== 0) {
+          return $diff;
+        }
+        $diff = ($interest_counts[$nid_b] ?? 0) <=> ($interest_counts[$nid_a] ?? 0);
+        if ($diff !== 0) {
+          return $diff;
+        }
+        $diff = (int) $b->get('field_stat_runs')->value <=> (int) $a->get('field_stat_runs')->value;
         if ($diff !== 0) {
           return $diff;
         }
@@ -323,10 +374,20 @@ class CoursePickerController extends ControllerBase {
         $action_class = 'button button--small';
       }
 
-      // Expertise tags.
+      // Expertise tags — matches against the current user's own interests
+      // are highlighted so the topic-alignment ranking is visible to the user.
       $expertise_tags = [];
-      foreach ($node->get('field_instructor_expertise')->referencedEntities() as $term) {
-        $expertise_tags[] = '<span class="tag">' . htmlspecialchars($term->label()) . '</span>';
+      foreach ($course_expertise_tids[$nid] ?? [] as $tid) {
+        $term = $term_storage->load($tid);
+        if (!$term) {
+          continue;
+        }
+        if (isset($user_interest_tids[$tid])) {
+          $expertise_tags[] = '<span class="tag tag--matches-me" style="background:#d4edda;color:#155724;font-weight:600;padding:2px 6px;border-radius:3px;margin-right:4px;display:inline-block">' . htmlspecialchars($term->label()) . '</span>';
+        }
+        else {
+          $expertise_tags[] = '<span class="tag" style="padding:2px 6px;border-radius:3px;margin-right:4px;display:inline-block;background:#f1f1f1">' . htmlspecialchars($term->label()) . '</span>';
+        }
       }
 
       $rows[] = [

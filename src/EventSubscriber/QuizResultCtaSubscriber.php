@@ -78,21 +78,35 @@ final class QuizResultCtaSubscriber implements EventSubscriberInterface {
       return;
     }
 
+    // Render the CTA as a banner at the very top of the result page, ahead
+    // of the per-question breakdown. Negative weight beats the default
+    // question-list weight of 0, and inline styles give it visible presence
+    // without requiring a theme library wired in for this single banner.
     $controller_result['instructor_companion_agreement_cta'] = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['instructor-agreement-cta']],
-      '#weight' => 50,
-      'heading' => [
-        '#markup' => '<h3>' . $this->t('Almost there — one more step.') . '</h3>',
+      '#attributes' => [
+        'class' => ['instructor-agreement-cta'],
+        'style' => 'background:#fff7e6;border:2px solid #d4923c;border-radius:8px;padding:1.25em 1.5em;margin:0 0 1.5em 0;display:flex;align-items:center;justify-content:space-between;gap:1.5em;flex-wrap:wrap',
       ],
-      'body' => [
-        '#markup' => '<p>' . $this->t('You passed the Instructor Orientation Quiz. Sign the Master Instructor Agreement and the instructor role activates immediately.') . '</p>',
+      '#weight' => -100,
+      'text' => [
+        '#type' => 'container',
+        '#attributes' => ['style' => 'flex:1 1 auto;min-width:280px'],
+        'heading' => [
+          '#markup' => '<h2 style="margin:0 0 0.25em 0;font-size:1.4em;color:#7a4300">' . $this->t('🎉 You passed — one more step to teach.') . '</h2>',
+        ],
+        'body' => [
+          '#markup' => '<p style="margin:0">' . $this->t('Sign the Master Instructor Agreement and the instructor role activates immediately. You can review your quiz answers below.') . '</p>',
+        ],
       ],
       'cta' => [
         '#type' => 'link',
-        '#title' => $this->t('Sign the Instructor Agreement'),
+        '#title' => $this->t('Sign the Instructor Agreement →'),
         '#url' => Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220']),
-        '#attributes' => ['class' => ['button', 'button--primary', 'button--action']],
+        '#attributes' => [
+          'class' => ['button', 'button--primary', 'button--action'],
+          'style' => 'font-size:1.1em;padding:0.75em 1.5em;flex:0 0 auto',
+        ],
       ],
     ];
 
