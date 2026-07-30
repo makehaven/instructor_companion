@@ -26,17 +26,14 @@ class CoursePickerController extends ControllerBase {
     $current_user = $this->currentUser();
     $db = \Drupal::database();
     $entity_type_manager = $this->entityTypeManager();
-    /** @var \Drupal\instructor_companion\Service\InstructorApprovalGate $approval_gate */
-    $approval_gate = \Drupal::service('instructor_companion.approval_gate');
 
-    // Determine where this user is in the onboarding funnel. Three gates,
-    // each enforced elsewhere; we mirror them here so the action button
-    // labels match what the user actually sees on click.
+    // Determine where this user is in the onboarding funnel. Onboarding no
+    // longer gates proposing (proposal-first funnel; ProposalHoldManager
+    // enforces it at publication instead) — the state here only drives the
+    // informational notice about which onboarding steps remain.
     //   1. Has watched orientation + passed quiz → Instructor Orientation badge
     //   2. Has signed the master agreement → field_instructor_agreement_date set
-    //   3. Has the `instructor` role → can propose sessions
     $has_orientation_badge = $this->userHasOrientationBadge((int) $current_user->id());
-    $is_approved = !$current_user->isAnonymous() && $approval_gate->isApproved((int) $current_user->id());
 
     $profile_storage = $entity_type_manager->getStorage('profile');
     $has_agreement = FALSE;
@@ -244,27 +241,18 @@ class CoursePickerController extends ControllerBase {
     elseif (!$has_agreement) {
       if (!$has_orientation_badge) {
         $notice = $this->t(
-          'Before you can propose a session, two quick steps: <strong>(1) watch the orientation video and pass the short quiz</strong>, then <strong>(2) sign the master instructor agreement</strong>. Browse courses now — the action button on each row will start you on whichever step is next. <a href="/video-instructor">Start with the orientation video</a>.'
+          'You can propose a session right away — staff review every proposal. If yours is approved, you\'ll finish two quick onboarding steps before it\'s published: <strong>(1) watch the orientation video and pass the short quiz</strong>, then <strong>(2) sign the master instructor agreement</strong>. Want to knock them out now? <a href="/video-instructor">Start with the orientation video</a>.'
         );
       }
       else {
         $notice = $this->t(
-          'You\'ve passed the orientation quiz. One last step before proposing: <strong>sign the master instructor agreement</strong>. <a href="/webform/webform_5220">Sign the agreement</a>.'
+          'You can propose a session right away. One onboarding step remains before an approved session is published: <strong>sign the master instructor agreement</strong>. <a href="/webform/webform_5220">Sign the agreement</a>.'
         );
       }
       $build['agreement_notice'] = [
         '#type' => 'container',
-        '#attributes' => ['class' => ['messages', 'messages--warning']],
+        '#attributes' => ['class' => ['messages', 'messages--status']],
         '#markup' => '<p>' . $notice . '</p>',
-      ];
-    }
-    elseif (!$is_approved) {
-      $build['agreement_notice'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['messages', 'messages--warning']],
-        '#markup' => '<p>' . $this->t(
-          'You\'ve completed onboarding. Staff review is still required before you can propose or teach a class. In the meantime, browse the catalog and prepare your ideas. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.'
-        ) . '</p>',
       ];
     }
 
@@ -335,10 +323,10 @@ class CoursePickerController extends ControllerBase {
         ? '<span style="color:#c0392b">' . $this->t('@n upcoming — another instructor is scheduled', ['@n' => $upcoming]) . '</span>'
         : '<span style="color:#27ae60">' . $this->t('No upcoming sessions') . '</span>';
 
-      // Action button reflects the next step in the funnel, not the destination
-      // it would *logically* go to. Otherwise users click "Sign Agreement"
-      // and land on /video-instructor without warning (the agreement form is
-      // gated by the orientation badge — see AgreementAccessSubscriber).
+      // Proposal-first funnel: any member can propose immediately. Staff
+      // review each proposal, and approval is held until onboarding (quiz +
+      // agreement) completes — see ProposalHoldManager. Non-members still go
+      // through staff vetting via the interest form.
       if ($current_user->isAnonymous()) {
         $action_url = Url::fromRoute('user.login', [], [
           'query' => ['destination' => '/become-instructor/courses'],
@@ -346,32 +334,17 @@ class CoursePickerController extends ControllerBase {
         $action_title = $this->t('Log In to Start');
         $action_class = 'button button--small';
       }
-      elseif (!$current_user->hasRole('member')) {
+      elseif (!$current_user->hasRole('member') && !$current_user->hasRole('instructor')) {
         $action_url = Url::fromUserInput('/instructor');
         $action_title = $this->t('Tell Us You\'re Interested');
         $action_class = 'button button--small';
       }
-      elseif ($has_agreement && $is_approved) {
+      else {
         $action_url = Url::fromRoute('entity.civicrm_event.add_form', ['bundle' => 'civicrm_event'], [
           'query' => ['course_id' => $nid, 'propose' => 1],
         ]);
         $action_title = $this->t('Propose to Teach');
         $action_class = 'button button--primary button--small';
-      }
-      elseif ($has_agreement) {
-        $action_url = Url::fromRoute('instructor_companion.dashboard');
-        $action_title = $this->t('Awaiting Staff Approval');
-        $action_class = 'button button--small';
-      }
-      elseif ($has_orientation_badge) {
-        $action_url = Url::fromUserInput('/webform/webform_5220');
-        $action_title = $this->t('Sign Agreement First');
-        $action_class = 'button button--small';
-      }
-      else {
-        $action_url = Url::fromUserInput('/video-instructor');
-        $action_title = $this->t('Watch Orientation First →');
-        $action_class = 'button button--small';
       }
 
       // Expertise tags — matches against the current user's own interests

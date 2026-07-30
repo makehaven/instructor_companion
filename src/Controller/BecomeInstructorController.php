@@ -58,10 +58,9 @@ class BecomeInstructorController extends ControllerBase {
         '#theme' => 'item_list',
         '#list_type' => 'ol',
         '#items' => [
-          $this->t('<strong>Watch the orientation video</strong> — the same one every Makehaven member watches, so you know what your students have already been told about safety, etiquette, and how the space works.'),
-          $this->t('<strong>Take the Instructor Orientation Quiz</strong> — three quick true/false questions covering the instructor-specific expectations on top of the basics.'),
-          $this->t('<strong>Sign the Master Instructor Agreement</strong> — covers conduct, IP, and independent contractor status. About 5 minutes.'),
-          $this->t('<strong>Propose your first session</strong> — pitch a new class or pick from existing workshops that need an instructor.'),
+          $this->t('<strong>Propose a session</strong> — pitch a new class or pick from existing workshops that need an instructor. This is the first step; no paperwork needed yet.'),
+          $this->t('<strong>Staff review</strong> — the education team reviews your proposal and coordinates date, capacity, and compensation with you.'),
+          $this->t('<strong>Complete onboarding</strong> — once approved: watch the orientation video, pass a short true/false quiz, and sign the Master Instructor Agreement (covers conduct, IP, and independent contractor status). About 10 minutes total, and your session is published automatically the moment you finish.'),
           $this->t('<strong>Teach &amp; get paid</strong> — we handle registration and marketing; you focus on a great experience.'),
         ],
       ],
@@ -90,16 +89,20 @@ class BecomeInstructorController extends ControllerBase {
         'heading' => ['#markup' => '<h2>' . $this->t('Ready to Get Started?') . '</h2>'],
         'body' => [
           '#markup' => '<p>' . $this->t(
-            'Since you\'re already a Makehaven member, you can start onboarding now —
-             watch the orientation video, take the short quiz, and sign the Instructor
-             Agreement. About 10 minutes total.'
+            'Since you\'re already a Makehaven member, you can propose a session right
+             now — browse workshops that need an instructor or pitch your own class.
+             Onboarding (orientation video, short quiz, instructor agreement) happens
+             after approval and takes about 10 minutes.'
           ) . '</p>',
         ],
         'button' => [
           '#type' => 'link',
-          '#title' => $this->t('Start instructor onboarding'),
-          '#url' => Url::fromUserInput('/video-instructor'),
+          '#title' => $this->t('Browse workshops & propose'),
+          '#url' => Url::fromUserInput('/become-instructor/courses'),
           '#attributes' => ['class' => ['button', 'button--primary', 'button--large']],
+        ],
+        'secondary' => [
+          '#markup' => '<p style="margin-top:.75em"><a href="/video-instructor">' . $this->t('Prefer to knock out onboarding first? Start with the orientation video →') . '</a></p>',
         ],
       ];
     }

@@ -33,9 +33,12 @@ class CivicrmEventCreateAccessTest extends UnitTestCase {
   }
 
   /**
-   * Tests that instructors are denied on propose flow until approved.
+   * Tests that not-yet-onboarded instructors may propose (proposal-first).
+   *
+   * Onboarding no longer gates proposing; ProposalHoldManager enforces it at
+   * publication time instead.
    */
-  public function testForbiddenForInactiveInstructor(): void {
+  public function testAllowedForNotYetOnboardedInstructor(): void {
     $gate = $this->createMock(InstructorApprovalGate::class);
     $gate->method('isApproved')->with(42)->willReturn(FALSE);
     $this->bootContainerWithRequest('/civicrm-event/add', ['propose' => '1'], $gate);
@@ -45,7 +48,7 @@ class CivicrmEventCreateAccessTest extends UnitTestCase {
     $account->method('id')->willReturn(42);
 
     $result = instructor_companion_civicrm_event_create_access($account, [], 'civicrm_event');
-    $this->assertTrue($result->isForbidden());
+    $this->assertTrue($result->isAllowed());
   }
 
   /**
@@ -59,6 +62,20 @@ class CivicrmEventCreateAccessTest extends UnitTestCase {
     $account = $this->createMock(AccountInterface::class);
     $account->method('getRoles')->willReturn(['instructor']);
     $account->method('id')->willReturn(84);
+
+    $result = instructor_companion_civicrm_event_create_access($account, [], 'civicrm_event');
+    $this->assertTrue($result->isAllowed());
+  }
+
+  /**
+   * Tests that plain members may propose without the instructor role.
+   */
+  public function testAllowedForMemberOnProposalFlow(): void {
+    $this->bootContainerWithRequest('/civicrm-event/add', ['propose' => '1']);
+
+    $account = $this->createMock(AccountInterface::class);
+    $account->method('getRoles')->willReturn(['authenticated', 'member']);
+    $account->method('id')->willReturn(7);
 
     $result = instructor_companion_civicrm_event_create_access($account, [], 'civicrm_event');
     $this->assertTrue($result->isAllowed());

@@ -22,6 +22,8 @@ function instructor_companion_cron() {
   \Drupal::service('instructor_companion.badge_sync')->sync();
   // Nudge instructors who still have post-class tasks ~48h after the class.
   \Drupal::service('instructor_companion.post_event_reminder')->run();
+  // Weekly digest to staff of interest/proposal submissions stuck unreviewed.
+  \Drupal::service('instructor_companion.stale_review_nudge')->run();
 }
 
 /**
@@ -35,6 +37,38 @@ function instructor_companion_entity_insert(EntityInterface $entity) {
   if ($entity instanceof WebformSubmissionInterface) {
     \Drupal::service('instructor_companion.proposal_notifier')
       ->notifyForSubmission($entity);
+  }
+  _instructor_companion_maybe_release_holds($entity);
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function instructor_companion_entity_update(EntityInterface $entity) {
+  _instructor_companion_maybe_release_holds($entity);
+}
+
+/**
+ * Releases held proposals when an orientation badge request becomes active.
+ *
+ * The other onboarding completion point (agreement signing) triggers its own
+ * release in InstructorAgreementHandler. ProposalHoldManager::releaseFor()
+ * no-ops cheaply unless the user actually has held events and is onboarded,
+ * so calling it for every active badge_request save is fine.
+ */
+function _instructor_companion_maybe_release_holds(EntityInterface $entity) {
+  if ($entity->getEntityTypeId() !== 'node' || $entity->bundle() !== 'badge_request') {
+    return;
+  }
+  if (!$entity->hasField('field_badge_status') || $entity->get('field_badge_status')->value !== 'active') {
+    return;
+  }
+  if (!$entity->hasField('field_member_to_badge') || $entity->get('field_member_to_badge')->isEmpty()) {
+    return;
+  }
+  $uid = (int) $entity->get('field_member_to_badge')->target_id;
+  if ($uid > 0) {
+    \Drupal::service('instructor_companion.proposal_hold_manager')->releaseFor($uid);
   }
 }
 
@@ -99,27 +133,26 @@ function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInt
 /**
  * Implements hook_ENTITY_TYPE_create_access() for civicrm_event.
  *
- * Allows users in the `instructor` role to create a CiviCRM event only when
- * they're coming through the proposal flow (?propose=1 in the URL). Without
- * this, the "Propose to Teach" button on /become-instructor/courses 403s
- * because instructors don't hold the broad `edit all events` permission.
- * The form-alter at instructor_companion_form_civicrm_event_civicrm_event_add_form_alter
- * still constrains what they can do (is_active forced off, instructor field
- * defaulted to themselves, agreement checkbox required).
+ * Allows members and instructors to create a CiviCRM event only when they're
+ * coming through the proposal flow (?propose=1 in the URL). Without this, the
+ * "Propose to Teach" button on /become-instructor/courses 403s because those
+ * roles don't hold the broad `edit all events` permission.
+ *
+ * Proposal-first funnel: proposing does NOT require onboarding or staff
+ * approval of the person — every proposal is individually staff-reviewed, and
+ * approval of a proposal from a not-yet-onboarded instructor is held until
+ * they finish onboarding (see ProposalHoldManager). The form-alter at
+ * instructor_companion_form_civicrm_event_civicrm_event_add_form_alter still
+ * constrains what proposers can do (is_active forced off, instructor field
+ * defaulted to themselves).
  */
 function instructor_companion_civicrm_event_create_access(\Drupal\Core\Session\AccountInterface $account, array $context, $entity_bundle) {
-  if (!in_array('instructor', $account->getRoles(), TRUE)) {
+  if (!array_intersect(['member', 'instructor'], $account->getRoles())) {
     return \Drupal\Core\Access\AccessResult::neutral();
   }
   $is_proposal = (\Drupal::request()->query->get('propose') ?? '') === '1';
   if (!$is_proposal) {
     return \Drupal\Core\Access\AccessResult::neutral();
-  }
-  $approved = \Drupal::service('instructor_companion.approval_gate')->isApproved((int) $account->id());
-  if (!$approved) {
-    return \Drupal\Core\Access\AccessResult::forbidden()
-      ->cachePerUser()
-      ->addCacheContexts(['url.query_args:propose']);
   }
   return \Drupal\Core\Access\AccessResult::allowed()
     ->cachePerUser()
@@ -252,6 +285,47 @@ function instructor_companion_mail($key, &$message, $params) {
       }
       $message['body'][] = t('Please log into your Instructor Dashboard to review enrollment, request payment, and submit post-class feedback. If you have any questions, reply to this email.');
       $message['body'][] = t('Thank you for teaching at MakeHaven!');
+      break;
+
+    case 'proposal_approved_pending_onboarding':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Approved! Two quick steps before "@title" goes live', ['@title' => $params['event_title']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['user_name']]);
+      $message['body'][] = t('Great news — staff approved your proposed session "@title".', ['@title' => $params['event_title']]);
+      if (!empty($params['start_date'])) {
+        $message['body'][] = t('Date: @date', ['@date' => $params['start_date']]);
+      }
+      $message['body'][] = t('Before it is published on the MakeHaven calendar, please finish instructor onboarding (about 10 minutes total):');
+      foreach ((array) $params['outstanding'] as $item) {
+        $message['body'][] = '  • ' . $item;
+      }
+      $message['body'][] = t('As soon as both are done, your session goes live automatically and we will email you a confirmation.');
+      $message['body'][] = t('Questions? Reply to this email or contact education@makehaven.org.');
+      break;
+
+    case 'held_proposal_released':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Held session(s) now live: @name completed onboarding', ['@name' => $params['user_name']]);
+      $message['body'][] = t('@name finished instructor onboarding (orientation quiz + signed agreement). Their approved session(s) were published automatically:', ['@name' => $params['user_name']]);
+      foreach ((array) $params['released_titles'] as $title) {
+        $message['body'][] = '  • ' . $title;
+      }
+      $message['body'][] = t('No action needed — this is a confirmation.');
+      break;
+
+    case 'stale_review_nudge':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('@n instructor submission(s) waiting on review', ['@n' => $params['total']]);
+      $message['body'][] = t('These submissions are more than a week old and have no Review Status yet. Setting a status in the queue is what triggers the automated follow-up (next-steps email, course creation) — replying to the original notification does not.');
+      foreach ((array) $params['sections'] as $section) {
+        $message['body'][] = '';
+        $message['body'][] = t('@label: @count unreviewed (oldest @oldest)', [
+          '@label' => $section['label'],
+          '@count' => $section['count'],
+          '@oldest' => $section['oldest'],
+        ]);
+        $message['body'][] = t('Review queue: @url', ['@url' => $section['queue_url']]);
+      }
       break;
 
     case 'proposal_denied':

@@ -58,4 +58,69 @@ class InstructorApprovalGate {
     return $status === self::STATUS_ACTIVE ? self::STATUS_ACTIVE : self::STATUS_INACTIVE;
   }
 
+  /**
+   * Returns whether the user has signed the master instructor agreement.
+   */
+  public function hasSignedAgreement(int $uid): bool {
+    $profile = $this->loadInstructorProfile($uid);
+    if (!$profile || !$profile->hasField('field_instructor_agreement_date')) {
+      return FALSE;
+    }
+    return !$profile->get('field_instructor_agreement_date')->isEmpty();
+  }
+
+  /**
+   * Returns the agreement sign date (ISO string) or NULL if unsigned.
+   */
+  public function agreementDate(int $uid): ?string {
+    $profile = $this->loadInstructorProfile($uid);
+    if (!$profile || !$profile->hasField('field_instructor_agreement_date') || $profile->get('field_instructor_agreement_date')->isEmpty()) {
+      return NULL;
+    }
+    return (string) $profile->get('field_instructor_agreement_date')->value;
+  }
+
+  /**
+   * Checks whether the user holds an active Instructor Orientation badge.
+   *
+   * Fails open when the badge term is missing (install hook not run yet) so
+   * a misconfigured environment degrades to the webform's own access checks
+   * rather than locking everyone out.
+   */
+  public function hasOrientationBadge(int $uid): bool {
+    $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
+    $badges = $term_storage->loadByProperties([
+      'vid' => 'badges',
+      'field_badge_text_id' => 'instructor_orientation',
+    ]);
+    if (empty($badges)) {
+      return TRUE;
+    }
+    $badge = reset($badges);
+
+    $node_storage = $this->entityTypeManager->getStorage('node');
+    $nids = $node_storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'badge_request')
+      ->condition('status', 1)
+      ->condition('field_member_to_badge.target_id', $uid)
+      ->condition('field_badge_requested.target_id', $badge->id())
+      ->condition('field_badge_status', 'active')
+      ->range(0, 1)
+      ->execute();
+
+    return !empty($nids);
+  }
+
+  /**
+   * Returns whether the user completed onboarding (quiz badge + agreement).
+   *
+   * The agreement form is itself gated behind the orientation badge, so for
+   * self-serve users a signed agreement implies the badge; the explicit
+   * double-check covers staff-created instructors who bypassed the gate.
+   */
+  public function isOnboarded(int $uid): bool {
+    return $this->hasSignedAgreement($uid) && $this->hasOrientationBadge($uid);
+  }
+
 }

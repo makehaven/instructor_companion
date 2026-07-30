@@ -79,10 +79,32 @@ class ProposalReviewController extends ControllerBase {
       '#markup' => '<p><a href="/admin/structure/proposals">← ' . $this->t('Back to Proposals') . '</a></p>',
     ];
 
+    // Onboarding state: shown to staff so they know whether approving will
+    // publish immediately or hold until the instructor finishes onboarding.
+    $onboarding_html = '—';
+    if ($instructor) {
+      /** @var \Drupal\instructor_companion\Service\InstructorApprovalGate $gate */
+      $gate = \Drupal::service('instructor_companion.approval_gate');
+      $uid = (int) $instructor->id();
+      $agreement_date = $gate->agreementDate($uid);
+      $parts = [];
+      $parts[] = $gate->hasOrientationBadge($uid)
+        ? '✓ ' . $this->t('Orientation quiz passed')
+        : '✗ ' . $this->t('Orientation quiz not passed');
+      $parts[] = $agreement_date
+        ? '✓ ' . $this->t('Agreement signed @date', ['@date' => date('M j, Y', strtotime($agreement_date))])
+        : '✗ ' . $this->t('Agreement not signed');
+      $onboarding_html = implode(' &nbsp;·&nbsp; ', $parts);
+      if (!$gate->isOnboarded($uid)) {
+        $onboarding_html .= '<br><em>' . $this->t('Approving now will hold publication until onboarding completes — the instructor is emailed the remaining steps and the session goes live automatically once they finish.') . '</em>';
+      }
+    }
+
     // Proposal details card.
     $details_rows = [
       [$this->t('Course'), $course_link ? '<a href="' . $course_link . '">' . htmlspecialchars($course_title) . '</a>' : htmlspecialchars($course_title)],
       [$this->t('Instructor'), htmlspecialchars($instructor_name) . ($instructor_email ? ' &lt;' . htmlspecialchars($instructor_email) . '&gt;' : '')],
+      [$this->t('Onboarding'), $onboarding_html],
       [$this->t('Proposed Date'), $formatted_start . ($formatted_end ? ' – ' . $formatted_end : '')],
       [$this->t('Capacity'), $max_participants],
       [$this->t('Compensation'), $pay_label],
@@ -143,7 +165,12 @@ class ProposalReviewController extends ControllerBase {
   }
 
   /**
-   * Approves a proposal: activates the event and notifies the instructor.
+   * Approves a proposal.
+   *
+   * If the instructor has completed onboarding the event goes live
+   * immediately. Otherwise the approval is recorded as a hold: the instructor
+   * is emailed the outstanding onboarding steps and ProposalHoldManager
+   * publishes the event automatically once they finish.
    */
   public function approve(int $event_id): \Symfony\Component\HttpFoundation\RedirectResponse {
     $event = $this->entityTypeManager()->getStorage('civicrm_event')->load($event_id);
@@ -153,14 +180,59 @@ class ProposalReviewController extends ControllerBase {
       return new \Symfony\Component\HttpFoundation\RedirectResponse(Url::fromUserInput('/admin/structure/proposals')->toString());
     }
 
+    $instructor_entities = $event->get('field_civi_event_instructor')->referencedEntities();
+    $instructor = !empty($instructor_entities) ? reset($instructor_entities) : NULL;
+
+    /** @var \Drupal\instructor_companion\Service\InstructorApprovalGate $gate */
+    $gate = \Drupal::service('instructor_companion.approval_gate');
+
+    // Hold path: approved, but the instructor still has onboarding to finish.
+    // No instructor assigned is treated as onboarded — nothing to hold on.
+    if ($instructor && !$gate->isOnboarded((int) $instructor->id())) {
+      \Drupal::service('instructor_companion.proposal_hold_manager')
+        ->hold($event_id, (int) $instructor->id());
+
+      $outstanding = [];
+      if (!$gate->hasOrientationBadge((int) $instructor->id())) {
+        $outstanding[] = t('Watch the orientation video and pass the short quiz: @url', [
+          '@url' => Url::fromUserInput('/video-instructor', ['absolute' => TRUE])->toString(),
+        ]);
+      }
+      if (!$gate->hasSignedAgreement((int) $instructor->id())) {
+        $outstanding[] = t('Sign the master instructor agreement: @url', [
+          '@url' => Url::fromUserInput('/form/webform-5220', ['absolute' => TRUE])->toString(),
+        ]);
+      }
+
+      \Drupal::service('plugin.manager.mail')->mail(
+        'instructor_companion',
+        'proposal_approved_pending_onboarding',
+        $instructor->getEmail(),
+        $instructor->getPreferredLangcode(),
+        [
+          'user_name'   => $instructor->getDisplayName(),
+          'event_title' => $event->label(),
+          'start_date'  => $event->get('start_date')->value
+            ? date('D, F j, Y \a\t g:ia', strtotime($event->get('start_date')->value))
+            : '',
+          'outstanding' => $outstanding,
+        ],
+        NULL,
+        TRUE
+      );
+
+      $this->messenger()->addStatus($this->t('Session "@title" approved — publication is held until @name finishes onboarding (they were emailed the remaining steps, and the session will go live automatically).', [
+        '@title' => $event->label(),
+        '@name' => $instructor->getDisplayName(),
+      ]));
+      return new \Symfony\Component\HttpFoundation\RedirectResponse(Url::fromUserInput('/admin/structure/proposals')->toString());
+    }
+
     $event->set('is_active', 1);
     $event->save();
 
     // Notify instructor.
-    $instructor_entities = $event->get('field_civi_event_instructor')->referencedEntities();
-    if (!empty($instructor_entities)) {
-      $instructor = reset($instructor_entities);
-      $config = $this->config('instructor_companion.settings');
+    if ($instructor) {
       $params = [
         'user_name'   => $instructor->getDisplayName(),
         'event_title' => $event->label(),

@@ -88,6 +88,18 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ->ensurePendingRequest((int) $account->id());
     $needs_door_review = $door_request !== NULL;
 
+    // Proposal-first funnel: signing is usually the last onboarding step, so
+    // publish any approved sessions that were held on this instructor's
+    // onboarding (no-op when there are none — see ProposalHoldManager).
+    $released = \Drupal::service('instructor_companion.proposal_hold_manager')
+      ->releaseFor((int) $account->id());
+    if ($released) {
+      \Drupal::messenger()->addStatus(t('Your approved session@plural now live on the MakeHaven calendar: @titles', [
+        '@plural' => count($released) > 1 ? 's are' : ' is',
+        '@titles' => implode(', ', $released),
+      ]));
+    }
+
     // Notify staff via the module mail system.
     $config = \Drupal::config('instructor_companion.settings');
     $to = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
