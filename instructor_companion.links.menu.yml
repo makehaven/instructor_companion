@@ -19,12 +19,27 @@ instructor_companion.dashboard_admin:
   parent: instructor_companion.settings
   weight: 10
 
+instructor_companion.education_console:
+  title: 'Education Console'
+  description: 'Instructor pipeline in one place: proposals, interest, workshop ideas, agreements.'
+  route_name: instructor_companion.education_console
+  parent: system.admin
+  weight: -7
+
 instructor_companion.staff_tools_group:
   title: 'Education'
   menu_name: staff-tools
   parent: slack_member_sync.staff_tab
-  url: 'internal:/admin/people/prospective-instructors'
+  url: 'internal:/admin/education'
   weight: 20
+
+instructor_companion.staff_tools_console:
+  title: 'Education Console'
+  description: 'Counts and one merged needs-attention list for the whole instructor pipeline.'
+  route_name: instructor_companion.education_console
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 5
 
 instructor_companion.staff_tools_prospective:
   title: 'Prospective Instructors'

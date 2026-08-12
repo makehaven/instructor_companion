@@ -5,6 +5,9 @@ instructor_companion.settings:
     notification_email:
       type: email
       label: 'Instructor notification email'
+    proposal_staff_contact_uid:
+      type: integer
+      label: 'Default staff contact user for member proposals'
     emergency_procedures_url:
       type: string
       label: 'Emergency procedures link'

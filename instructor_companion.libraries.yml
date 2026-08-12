@@ -5,3 +5,11 @@ dashboard:
       css/dashboard.css: {}
   dependencies:
     - core/drupal
+
+education_console:
+  version: 1.x
+  css:
+    theme:
+      css/education-console.css: {}
+  dependencies:
+    - core/drupal

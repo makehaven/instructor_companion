@@ -246,7 +246,7 @@ class CoursePickerController extends ControllerBase {
       }
       else {
         $notice = $this->t(
-          'You can propose a session right away. One onboarding step remains before an approved session is published: <strong>sign the master instructor agreement</strong>. <a href="/webform/webform_5220">Sign the agreement</a>.'
+          'You can propose a session right away. One onboarding step remains before an approved session is published: <strong>sign the master instructor agreement</strong>. <a href="/form/webform-5220">Sign the agreement</a>.'
         );
       }
       $build['agreement_notice'] = [

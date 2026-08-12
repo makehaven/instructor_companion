@@ -1,0 +1,91 @@
+/* Education console: count tiles + merged needs-attention list. */
+
+.education-console__intro {
+  max-width: 70ch;
+  color: var(--gin-color-text-light, #666);
+}
+
+.education-console__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 1.25rem 0 2rem;
+}
+
+a.education-console__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 18px;
+  border: 1px solid var(--gin-border-color, #d4d4d8);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--gin-bg-layer, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+a.education-console__tile:hover,
+a.education-console__tile:focus-visible {
+  border-color: var(--gin-color-primary, #8b1919);
+  text-decoration: none;
+}
+
+.education-console__tile-count {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--gin-color-primary, #8b1919);
+  font-variant-numeric: tabular-nums;
+}
+
+.education-console__tile--clear .education-console__tile-count {
+  color: var(--gin-color-green, #2e6b3a);
+}
+
+.education-console__tile-label {
+  font-weight: 600;
+}
+
+.education-console__tile-sub,
+.education-console__tile-age {
+  font-size: 0.8rem;
+  color: var(--gin-color-text-light, #666);
+}
+
+.education-console__tile-age {
+  font-weight: 600;
+}
+
+.ec-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ec-chip--proposal {
+  background: #f6e3e3;
+  color: #7a1616;
+}
+
+.ec-chip--interest {
+  background: #e2ecdf;
+  color: #2e5b38;
+}
+
+.ec-chip--idea {
+  background: #e3e9f2;
+  color: #2f4c72;
+}
+
+.education-console__truncated {
+  color: var(--gin-color-text-light, #666);
+  font-size: 0.85rem;
+}
+
+.education-console__links {
+  margin-top: 2rem;
+}

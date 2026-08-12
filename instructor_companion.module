@@ -654,6 +654,35 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
             $form['field_civi_event_instructor']['widget'][0]['target_id']['#default_value'] = $user_entity;
           }
         }
+        // "Primary Staff Contact For Event" is required by field config, but
+        // a proposing member has no way to know which staff user to enter —
+        // the 2026-08-11 walkthrough showed the form silently refusing to
+        // save. Default it (configured user, falling back to the account
+        // behind the notification email) and hide it from the proposer;
+        // staff can change it during review. With no resolvable default the
+        // field stays visible with an explanation instead of a dead end.
+        if (isset($form['field_civi_event_staff_contact'])) {
+          $staff_default = NULL;
+          $configured_uid = (int) \Drupal::config('instructor_companion.settings')->get('proposal_staff_contact_uid');
+          if ($configured_uid) {
+            $staff_default = \Drupal\user\Entity\User::load($configured_uid);
+          }
+          if (!$staff_default) {
+            $notification_email = \Drupal::config('instructor_companion.settings')->get('notification_email');
+            if ($notification_email) {
+              $staff_default = user_load_by_mail($notification_email) ?: NULL;
+            }
+          }
+          if ($staff_default) {
+            $form['field_civi_event_staff_contact']['widget'][0]['target_id']['#default_value'] = $staff_default;
+            $form['field_civi_event_staff_contact']['#access'] = FALSE;
+          }
+          else {
+            $form['field_civi_event_staff_contact']['widget'][0]['target_id']['#description'] = t(
+              'Not sure who to enter? Use the staff member who invited you to propose, or ask education@makehaven.org.'
+            );
+          }
+        }
       }
 
       if ($course_node->hasField('field_course_image') && !$course_node->get('field_course_image')->isEmpty()) {

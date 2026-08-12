@@ -2,6 +2,7 @@
 
 namespace Drupal\instructor_companion\Form;
 
+use Drupal\user\Entity\User;
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 
@@ -36,6 +37,15 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('Email address to notify when a new instructor application is submitted.'),
       '#default_value' => $config->get('notification_email'),
       '#required' => TRUE,
+    ];
+
+    $default_contact_uid = (int) $config->get('proposal_staff_contact_uid');
+    $form['proposal_staff_contact'] = [
+      '#type' => 'entity_autocomplete',
+      '#target_type' => 'user',
+      '#title' => $this->t('Default staff contact for member proposals'),
+      '#description' => $this->t('The proposal form hides "Primary Staff Contact For Event" from proposing members and fills in this user (staff can change it during review). If left empty, the account matching the notification email is used; if neither resolves, proposers see the field with guidance.'),
+      '#default_value' => $default_contact_uid ? User::load($default_contact_uid) : NULL,
     ];
 
     $form['toolkit_links'] = [
@@ -164,6 +174,7 @@ class SettingsForm extends ConfigFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $this->config('instructor_companion.settings')
       ->set('notification_email', $form_state->getValue('notification_email'))
+      ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
       ->set('emergency_procedures_url', $form_state->getValue('emergency_procedures_url'))
       ->set('instructor_handbook_url', $form_state->getValue('instructor_handbook_url'))
       ->set('request_reimbursement_url', $form_state->getValue('request_reimbursement_url'))
