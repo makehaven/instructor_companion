@@ -2,7 +2,9 @@
 
 namespace Drupal\instructor_companion\Controller;
 
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 
 /**
@@ -119,16 +121,31 @@ class ProposalReviewController extends ControllerBase {
     }
     $details_html .= '</table>';
 
-    if ($description) {
-      $details_html .= '<h3>' . $this->t('Session Description') . '</h3><div style="background:#fafafa;padding:1em;border:1px solid #eee;margin-bottom:1.5em">' . $description . '</div>';
-    }
-
     $build['details'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['proposal-review-card']],
       'heading' => ['#markup' => '<h2>' . $this->t('Proposal: @title', ['@title' => $event->label()]) . '</h2>'],
       'table'   => ['#markup' => $details_html],
     ];
+
+    if ($description) {
+      // The description is proposer-supplied and rendered to staff. Filter it
+      // through a minimal allowlist that keeps basic formatting but STRIPS
+      // links (a spammer's <a href> becomes inert text) — narrower than the
+      // admin-grade Xss::filterAdmin that plain #markup would apply. Wrap the
+      // controller chrome separately so only the untrusted value is filtered.
+      $safe_description = Xss::filter($description, ['p', 'br', 'strong', 'em', 'b', 'i', 'ul', 'ol', 'li']);
+      $build['description'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['proposal-review-card']],
+        'heading' => ['#markup' => '<h3>' . $this->t('Session Description') . '</h3>'],
+        'body' => [
+          '#prefix' => '<div style="background:#fafafa;padding:1em;border:1px solid #eee;margin-bottom:1.5em">',
+          '#markup' => Markup::create($safe_description),
+          '#suffix' => '</div>',
+        ],
+      ];
+    }
 
     // Action buttons.
     $approve_url = Url::fromRoute('instructor_companion.proposal_approve', ['event_id' => $event_id])->toString();
