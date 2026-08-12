@@ -57,7 +57,7 @@ class EducationConsoleController extends ControllerBase {
     $proposals = $this->pendingProposals();
     $interest = $this->unreviewedSubmissions('webform_14366', $now);
     $ideas = $this->unreviewedSubmissions('webform_497', $now);
-    $unsigned = $this->instructorsWithoutAgreement();
+    $signed = $this->agreementsSigned($now);
 
     $build = [
       '#type' => 'container',
@@ -77,6 +77,11 @@ class EducationConsoleController extends ControllerBase {
       ) . '</p>',
     ];
 
+    $oldest_line = function (array $timestamps) use ($now): ?string {
+      $age = $this->oldestAge($timestamps, $now);
+      return $age ? (string) $this->t('oldest: @age', ['@age' => $age]) : NULL;
+    };
+
     $build['tiles'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['education-console__tiles']],
@@ -85,28 +90,29 @@ class EducationConsoleController extends ControllerBase {
         count($proposals),
         $this->t('draft sessions awaiting approve / deny'),
         Url::fromUserInput('/admin/structure/proposals'),
-        $this->oldestAge(array_map(fn($p) => $p['created'], $proposals), $now)
+        $oldest_line(array_map(fn($p) => $p['created'], $proposals))
       ),
       'interest' => $this->tile(
         $this->t('Instructor interest'),
         count($interest),
         $this->t('unreviewed submissions (90 days)'),
         Url::fromRoute('instructor_companion.instructor_interest_queue'),
-        $this->oldestAge(array_column($interest, 'created'), $now)
+        $oldest_line(array_column($interest, 'created'))
       ),
       'ideas' => $this->tile(
         $this->t('Workshop ideas'),
         count($ideas),
         $this->t('unreviewed submissions (90 days)'),
         Url::fromRoute('instructor_companion.workshop_proposal_queue'),
-        $this->oldestAge(array_column($ideas, 'created'), $now)
+        $oldest_line(array_column($ideas, 'created'))
       ),
       'agreements' => $this->tile(
-        $this->t('Unsigned agreements'),
-        $unsigned,
-        $this->t('active instructors with no signed agreement'),
+        $this->t('Agreements signed'),
+        $signed['count'],
+        $this->t('in the last 90 days'),
         Url::fromUserInput('/admin/structure/webform/manage/webform_5220/results/submissions'),
-        NULL
+        $signed['newest'] ? (string) $this->t('newest: @age ago', ['@age' => $this->age($signed['newest'], $now)]) : NULL,
+        TRUE
       ),
     ];
 
@@ -128,14 +134,17 @@ class EducationConsoleController extends ControllerBase {
 
   /**
    * One count tile.
+   *
+   * Workload tiles read green at zero ("nothing waiting"); tiles where the
+   * count is the good news ($count_is_good) read green when positive.
    */
-  protected function tile($label, int $count, $sublabel, Url $url, ?string $oldest): array {
+  protected function tile($label, int $count, $sublabel, Url $url, ?string $age_line, bool $count_is_good = FALSE): array {
     $classes = ['education-console__tile'];
-    if ($count === 0) {
+    if ($count_is_good ? $count > 0 : $count === 0) {
       $classes[] = 'education-console__tile--clear';
     }
-    $oldest_markup = $oldest
-      ? '<span class="education-console__tile-age">' . $this->t('oldest: @age', ['@age' => $oldest]) . '</span>'
+    $oldest_markup = $age_line
+      ? '<span class="education-console__tile-age">' . $age_line . '</span>'
       : '';
     return [
       '#type' => 'link',
@@ -326,18 +335,27 @@ class EducationConsoleController extends ControllerBase {
   }
 
   /**
-   * Counts active instructors with no completed agreement submission.
+   * Recent agreement signings (webform_5220) within the recent horizon.
+   *
+   * The team tracks NEW signings, not the historical unsigned backlog —
+   * a backlog count would sit permanently alarming on the console.
+   *
+   * @return array
+   *   'count' of completed submissions and 'newest' created timestamp
+   *   (NULL when none).
    */
-  protected function instructorsWithoutAgreement(): int {
-    $query = $this->database->select('user__roles', 'ur');
-    $query->join('users_field_data', 'u', 'u.uid = ur.entity_id');
-    $query->leftJoin('webform_submission', 'ws', 'ws.uid = ur.entity_id AND ws.webform_id = :wid AND ws.in_draft = 0', [':wid' => 'webform_5220']);
-    $query->condition('ur.roles_target_id', 'instructor');
-    $query->condition('u.status', 1);
-    $query->isNull('ws.sid');
-    $query->addField('ur', 'entity_id');
-    $query->distinct();
-    return (int) $query->countQuery()->execute()->fetchField();
+  protected function agreementsSigned(int $now): array {
+    $query = $this->database->select('webform_submission', 'ws');
+    $query->condition('ws.webform_id', 'webform_5220');
+    $query->condition('ws.in_draft', 0);
+    $query->condition('ws.created', $now - self::RECENT_HORIZON, '>');
+    $query->addExpression('COUNT(ws.sid)', 'n');
+    $query->addExpression('MAX(ws.created)', 'newest');
+    $row = $query->execute()->fetchAssoc();
+    return [
+      'count' => (int) ($row['n'] ?? 0),
+      'newest' => $row['newest'] ? (int) $row['newest'] : NULL,
+    ];
   }
 
   /**
