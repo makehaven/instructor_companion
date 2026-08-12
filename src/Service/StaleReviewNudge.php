@@ -82,6 +82,7 @@ class StaleReviewNudge {
     $this->mailManager->mail('instructor_companion', 'stale_review_nudge', $to, 'en', [
       'total' => $total,
       'sections' => $sections,
+      'console_url' => Url::fromRoute('instructor_companion.education_console', [], ['absolute' => TRUE])->toString(),
     ], NULL, TRUE);
 
     $this->logger->notice('Stale-review nudge sent to @to: @n unreviewed submission(s).', [

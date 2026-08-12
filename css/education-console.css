@@ -81,6 +81,12 @@ a.education-console__tile:focus-visible {
   color: #2f4c72;
 }
 
+.education-console__held-note {
+  color: var(--gin-color-text-light, #666);
+  font-size: 0.85rem;
+  max-width: 70ch;
+}
+
 .education-console__truncated {
   color: var(--gin-color-text-light, #666);
   font-size: 0.85rem;

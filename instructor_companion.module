@@ -317,6 +317,9 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = t('@n instructor submission(s) waiting on review', ['@n' => $params['total']]);
       $message['body'][] = t('These submissions are more than a week old and have no Review Status yet. Setting a status in the queue is what triggers the automated follow-up (next-steps email, course creation) — replying to the original notification does not.');
+      if (!empty($params['console_url'])) {
+        $message['body'][] = t('Everything below (and the rest of the instructor pipeline) is on the Education Console: @url', ['@url' => $params['console_url']]);
+      }
       foreach ((array) $params['sections'] as $section) {
         $message['body'][] = '';
         $message['body'][] = t('@label: @count unreviewed (oldest @oldest)', [

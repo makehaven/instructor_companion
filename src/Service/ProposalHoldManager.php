@@ -53,6 +53,16 @@ class ProposalHoldManager {
   }
 
   /**
+   * Returns every active hold as [event_id => instructor_uid].
+   *
+   * Used by the Education console to separate approved-but-held proposals
+   * from those still awaiting a staff decision.
+   */
+  public function allHolds(): array {
+    return $this->state->get(self::STATE_KEY, []);
+  }
+
+  /**
    * Releases the user's held proposals if onboarding is now complete.
    *
    * Safe to call opportunistically (agreement signing, badge grants); no-ops
