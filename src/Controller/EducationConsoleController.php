@@ -314,12 +314,25 @@ class EducationConsoleController extends ControllerBase {
     $storage = $this->entityTypeManager()->getStorage('webform_submission');
     foreach ($storage->loadMultiple(array_keys($sids)) as $submission) {
       $data = $submission->getData();
-      $who = trim(implode(' ', array_filter([
-        $data['first_name'] ?? $data['name'] ?? '',
-        $data['last_name'] ?? '',
-      ])));
-      if ($who === '' && $submission->getOwner()) {
+      // Both forms are usually submitted logged-out, so the owner is
+      // "Anonymous" — the real name lives in a webform element whose key
+      // carries a per-form suffix (name_6 on 14366, your_name_25 on 497).
+      // Scan for name-shaped keys, then email-shaped ones, before falling
+      // back to an authenticated owner.
+      $who = '';
+      foreach (['/^(?:your_)?name(?:_\d+)?$/', '/^first_name(?:_\d+)?$/', '/^email(?:_\d+)?$/'] as $pattern) {
+        foreach ($data as $key => $value) {
+          if (is_string($value) && trim($value) !== '' && preg_match($pattern, $key)) {
+            $who = trim($value);
+            break 2;
+          }
+        }
+      }
+      if ($who === '' && $submission->getOwnerId() && $submission->getOwner()) {
         $who = $submission->getOwner()->getDisplayName();
+      }
+      if ($who === '') {
+        $who = (string) $this->t('—');
       }
       $title = $data['proposed_class_title'] ?? $data['proposed_class_title_26']
         ?? $data['areas_of_interest_skill'] ?? $data['areas_of_interest_skill_6']
