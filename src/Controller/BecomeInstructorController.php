@@ -101,8 +101,14 @@ class BecomeInstructorController extends ControllerBase {
           '#url' => Url::fromUserInput('/become-instructor/courses'),
           '#attributes' => ['class' => ['button', 'button--primary', 'button--large']],
         ],
+        // Deliberately NOT a shortcut into onboarding. This link used to read
+        // "Prefer to knock out onboarding first? Start with the orientation
+        // video" and let a member walk video -> quiz -> signed instructor
+        // agreement without ever speaking to the education team. Proposing is
+        // not the same as being approved to teach, so onboarding now waits for
+        // staff review. See docs/ops/2026-08-13-instructor-pages-rollback.md.
         'secondary' => [
-          '#markup' => '<p style="margin-top:.75em"><a href="/video-instructor">' . $this->t('Prefer to knock out onboarding first? Start with the orientation video →') . '</a></p>',
+          '#markup' => '<p style="margin-top:.75em"><a href="/teach-workshop">' . $this->t('What we look for in a workshop and an instructor →') . '</a></p>',
         ],
       ];
     }

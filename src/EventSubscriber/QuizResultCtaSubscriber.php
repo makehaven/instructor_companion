@@ -93,16 +93,22 @@ final class QuizResultCtaSubscriber implements EventSubscriberInterface {
         '#type' => 'container',
         '#attributes' => ['style' => 'flex:1 1 auto;min-width:280px'],
         'heading' => [
-          '#markup' => '<h2 style="margin:0 0 0.25em 0;font-size:1.4em;color:#7a4300">' . $this->t('🎉 You passed — one more step to teach.') . '</h2>',
+          '#markup' => '<h2 style="margin:0 0 0.25em 0;font-size:1.4em;color:#7a4300">' . $this->t('🎉 You passed the orientation quiz.') . '</h2>',
         ],
         'body' => [
-          '#markup' => '<p style="margin:0">' . $this->t('Sign the Master Instructor Agreement and the instructor role activates immediately. You can review your quiz answers below.') . '</p>',
+          // This panel used to link straight to the Master Instructor
+          // Agreement, which meant someone could go from stranger to signed
+          // legal agreement without the education team ever being involved.
+          // The agreement now comes after staff have reviewed a proposal and
+          // agreed terms with the person. See
+          // docs/ops/2026-08-13-instructor-pages-rollback.md.
+          '#markup' => '<p style="margin:0">' . $this->t('Nice work — the orientation badge is on your account. The education team handles the rest: once they have reviewed your proposed session and talked through scheduling and pay with you, they will send you the last bit of paperwork. You can review your quiz answers below.') . '</p>',
         ],
       ],
       'cta' => [
         '#type' => 'link',
-        '#title' => $this->t('Sign the Instructor Agreement →'),
-        '#url' => Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220']),
+        '#title' => $this->t('Browse workshops & propose →'),
+        '#url' => Url::fromUserInput('/become-instructor/courses'),
         '#attributes' => [
           'class' => ['button', 'button--primary', 'button--action'],
           'style' => 'font-size:1.1em;padding:0.75em 1.5em;flex:0 0 auto',

@@ -239,16 +239,16 @@ class CoursePickerController extends ControllerBase {
       ];
     }
     elseif (!$has_agreement) {
-      if (!$has_orientation_badge) {
-        $notice = $this->t(
-          'You can propose a session right away — staff review every proposal. If yours is approved, you\'ll finish two quick onboarding steps before it\'s published: <strong>(1) watch the orientation video and pass the short quiz</strong>, then <strong>(2) sign the master instructor agreement</strong>. Want to knock them out now? <a href="/video-instructor">Start with the orientation video</a>.'
-        );
-      }
-      else {
-        $notice = $this->t(
-          'You can propose a session right away. One onboarding step remains before an approved session is published: <strong>sign the master instructor agreement</strong>. <a href="/form/webform-5220">Sign the agreement</a>.'
-        );
-      }
+      // Onboarding (orientation video, quiz, agreement) is deliberately NOT
+      // offered here. It happens after the education team has reviewed the
+      // proposal and talked with the proposer about the class, scheduling and
+      // pay — proposing is not the same as being approved to teach, and asking
+      // someone to sign an agreement before that conversation misrepresents
+      // where they are in the process. See
+      // docs/ops/2026-08-13-instructor-pages-rollback.md.
+      $notice = $this->t(
+        "You can propose a session right away — no paperwork needed. The education team reviews every proposal and will get in touch to talk through the class, scheduling and pay. If it's a fit, they'll walk you through the last few onboarding steps then."
+      );
       $build['agreement_notice'] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['messages', 'messages--status']],
