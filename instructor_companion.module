@@ -380,6 +380,65 @@ function instructor_companion_mail($key, &$message, $params) {
  * the course content type. Admins can hide / reposition it via Manage
  * Display. Default-on so it's visible without any setup post-deploy.
  */
+/**
+ * Renders the "teach this workshop" call-to-action on a course page.
+ *
+ * A course page was a dead end for anyone who read it and thought they could
+ * run it: the sidebar offered "get notified when this is scheduled" and
+ * nothing else. The next step differs by reader, so the wording does too —
+ * a member can propose this exact course and land on a pre-filled form, while
+ * someone with no account has to start with the interest form.
+ */
+function _instructor_companion_teach_this_cta(array &$build, EntityInterface $entity, $display): void {
+  if (!$display->getComponent('teach_this_course')) {
+    return;
+  }
+
+  // Meetups are hosted, not taught for pay — offering to teach one is exactly
+  // the mix-up this module removed from the course picker.
+  if ($entity->hasField('field_course_type')
+    && $entity->get('field_course_type')->value === 'meetup') {
+    return;
+  }
+
+  $account = \Drupal::currentUser();
+  $roles = $account->getRoles();
+
+  if (in_array('instructor', $roles, TRUE) || in_array('member', $roles, TRUE)) {
+    $title = t('Propose to teach this');
+    $body = t('Pick a date and we will take it from there. Staff review every proposal.');
+    $url = \Drupal\Core\Url::fromUserInput('/civicrm-event/add', [
+      'query' => ['course_id' => $entity->id(), 'propose' => 1],
+    ]);
+  }
+  else {
+    $title = t('Could you teach this?');
+    $body = t('We are always looking for instructors. Tell us a bit about yourself and the education team will be in touch.');
+    $url = \Drupal\Core\Url::fromUserInput('/instructor');
+  }
+
+  $build['teach_this_course'] = [
+    '#type' => 'container',
+    '#attributes' => ['class' => ['course-teach-cta']],
+    'heading' => ['#markup' => '<h3>' . $title . '</h3>'],
+    'body' => ['#markup' => '<p>' . $body . '</p>'],
+    'link' => [
+      '#type' => 'link',
+      '#title' => in_array('member', $roles, TRUE) || in_array('instructor', $roles, TRUE)
+        ? t('Propose a date')
+        : t('Register your interest'),
+      '#url' => $url,
+      '#attributes' => ['class' => ['button', 'button--primary']],
+    ],
+    // Anonymous and member readers see different copy, so the render cache has
+    // to vary by role or the first visitor's version is served to everyone.
+    '#cache' => [
+      'contexts' => ['user.roles'],
+      'tags' => $entity->getCacheTags(),
+    ],
+  ];
+}
+
 function instructor_companion_entity_extra_field_info() {
   return [
     'node' => [
@@ -389,6 +448,12 @@ function instructor_companion_entity_extra_field_info() {
             'label' => t('Schedule new instance button'),
             'description' => t('Admin button for staff to clone the linked CiviCRM template into a new event.'),
             'weight' => -10,
+            'visible' => TRUE,
+          ],
+          'teach_this_course' => [
+            'label' => t('Teach this workshop call-to-action'),
+            'description' => t('Invites the reader to teach this workshop. Wording and destination depend on whether they are signed in and a member.'),
+            'weight' => -9,
             'visible' => TRUE,
           ],
         ],
@@ -408,6 +473,8 @@ function instructor_companion_node_view(array &$build, EntityInterface $entity, 
   if ($entity->bundle() !== 'course') {
     return;
   }
+
+  _instructor_companion_teach_this_cta($build, $entity, $display);
   if (!$display->getComponent('schedule_instance_button')) {
     return;
   }
