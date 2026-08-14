@@ -8,6 +8,9 @@ instructor_companion.settings:
     proposal_staff_contact_uid:
       type: integer
       label: 'Default staff contact user for member proposals'
+    orientation_step_enabled:
+      type: boolean
+      label: 'Require the orientation video and quiz as part of onboarding'
     emergency_procedures_url:
       type: string
       label: 'Emergency procedures link'

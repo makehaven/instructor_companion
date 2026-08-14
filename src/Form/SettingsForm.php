@@ -165,6 +165,13 @@ class SettingsForm extends ConfigFormBase {
       ],
     ];
 
+    $form['orientation_step_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Require the orientation video and quiz'),
+      '#default_value' => (bool) ($config->get('orientation_step_enabled') ?? FALSE),
+      '#description' => $this->t('Off while there is no orientation video to watch. Switching this on puts the video and quiz back into onboarding: proposers are told to complete them, staff see the pass/fail line on the review page, and an approved session stays unpublished until the badge is earned. Leave it off until there is a real video.'),
+    ];
+
     return parent::buildForm($form, $form_state);
   }
 
@@ -175,6 +182,7 @@ class SettingsForm extends ConfigFormBase {
     $this->config('instructor_companion.settings')
       ->set('notification_email', $form_state->getValue('notification_email'))
       ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
+      ->set('orientation_step_enabled', (bool) $form_state->getValue('orientation_step_enabled'))
       ->set('emergency_procedures_url', $form_state->getValue('emergency_procedures_url'))
       ->set('instructor_handbook_url', $form_state->getValue('instructor_handbook_url'))
       ->set('request_reimbursement_url', $form_state->getValue('request_reimbursement_url'))

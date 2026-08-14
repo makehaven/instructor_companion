@@ -2,6 +2,7 @@
 
 namespace Drupal\instructor_companion\Service;
 
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\profile\Entity\ProfileInterface;
 
@@ -19,7 +20,27 @@ class InstructorApprovalGate {
 
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
+    protected ?ConfigFactoryInterface $configFactory = NULL,
   ) {}
+
+  /**
+   * Whether the orientation video and quiz are part of onboarding right now.
+   *
+   * Off by default: the orientation video does not exist yet, so sending
+   * people to watch it is confusing (JR, 2026-08-14). The step is switched
+   * off rather than removed — the quiz, the badge it grants and every check
+   * around them stay in place, so turning `orientation_step_enabled` back on
+   * restores the full flow once there is a real video to watch.
+   *
+   * While it is off, the badge stops being part of onboarding entirely. That
+   * matters more than it looks: a held session only publishes once the
+   * proposer `isOnboarded()`, so leaving the badge as a requirement nobody
+   * can satisfy would strand every approved session from a new instructor.
+   */
+  public function isOrientationRequired(): bool {
+    $config = $this->configFactory ?? \Drupal::configFactory();
+    return (bool) ($config->get('instructor_companion.settings')->get('orientation_step_enabled') ?? FALSE);
+  }
 
   /**
    * Loads the user's instructor profile, if any.
@@ -113,14 +134,19 @@ class InstructorApprovalGate {
   }
 
   /**
-   * Returns whether the user completed onboarding (quiz badge + agreement).
+   * Returns whether the user completed onboarding.
    *
-   * The agreement form is itself gated behind the orientation badge, so for
-   * self-serve users a signed agreement implies the badge; the explicit
-   * double-check covers staff-created instructors who bypassed the gate.
+   * Onboarding is the signed agreement, plus the orientation badge when the
+   * orientation step is switched on. With it off, the agreement alone
+   * completes onboarding — which matches the published process on
+   * /teach-workshop: staff confirm dates and specifics, send the agreement for
+   * signature, and the event then goes live on the calendar.
    */
   public function isOnboarded(int $uid): bool {
-    return $this->hasSignedAgreement($uid) && $this->hasOrientationBadge($uid);
+    if (!$this->hasSignedAgreement($uid)) {
+      return FALSE;
+    }
+    return !$this->isOrientationRequired() || $this->hasOrientationBadge($uid);
   }
 
 }

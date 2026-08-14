@@ -90,9 +90,13 @@ class ProposalReviewController extends ControllerBase {
       $uid = (int) $instructor->id();
       $agreement_date = $gate->agreementDate($uid);
       $parts = [];
-      $parts[] = $gate->hasOrientationBadge($uid)
-        ? '✓ ' . $this->t('Orientation quiz passed')
-        : '✗ ' . $this->t('Orientation quiz not passed');
+      // Staff should not see a red cross against a step nobody is being asked
+      // to complete, so the orientation line only appears while it is on.
+      if ($gate->isOrientationRequired()) {
+        $parts[] = $gate->hasOrientationBadge($uid)
+          ? '✓ ' . $this->t('Orientation quiz passed')
+          : '✗ ' . $this->t('Orientation quiz not passed');
+      }
       $parts[] = $agreement_date
         ? '✓ ' . $this->t('Agreement signed @date', ['@date' => date('M j, Y', strtotime($agreement_date))])
         : '✗ ' . $this->t('Agreement not signed');
@@ -210,7 +214,8 @@ class ProposalReviewController extends ControllerBase {
         ->hold($event_id, (int) $instructor->id());
 
       $outstanding = [];
-      if (!$gate->hasOrientationBadge((int) $instructor->id())) {
+      // Only mention the orientation step while it is actually switched on.
+      if ($gate->isOrientationRequired() && !$gate->hasOrientationBadge((int) $instructor->id())) {
         $outstanding[] = t('Watch the orientation video and pass the short quiz: @url', [
           '@url' => Url::fromUserInput('/video-instructor', ['absolute' => TRUE])->toString(),
         ]);

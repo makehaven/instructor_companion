@@ -270,7 +270,7 @@ class EducationConsoleController extends ControllerBase {
     foreach ($held as $p) {
       $uid = (int) $holds[$p['id']];
       $missing = [];
-      if (!$this->approvalGate->hasOrientationBadge($uid)) {
+      if ($this->approvalGate->isOrientationRequired() && !$this->approvalGate->hasOrientationBadge($uid)) {
         $missing[] = $this->t('orientation quiz');
       }
       if (!$this->approvalGate->hasSignedAgreement($uid)) {

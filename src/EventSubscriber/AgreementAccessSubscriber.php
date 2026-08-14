@@ -70,6 +70,13 @@ final class AgreementAccessSubscriber implements EventSubscriberInterface {
       return;
     }
 
+    // With the orientation step switched off there is no video to watch and
+    // no quiz to pass, so bouncing people here would strand them on a page
+    // that cannot help. Staff send the agreement deliberately in that mode.
+    if (!\Drupal::service('instructor_companion.approval_gate')->isOrientationRequired()) {
+      return;
+    }
+
     if ($this->userHasOrientationBadge((int) $this->currentUser->id())) {
       return;
     }
