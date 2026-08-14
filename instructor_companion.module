@@ -529,6 +529,27 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
   $course_id = $query->get('course_id');
   $is_proposal = $query->get('propose');
 
+  // Proposing from the course picker arrives with course_id but no
+  // template_id, so the form opened almost empty — the proposer retyped a
+  // title, description and capacity that the course has run with nine times
+  // before. The copy-from-template machinery below already does exactly what
+  // is wanted; it just had nothing to copy from. Fall back to the course's
+  // most recent published session so the form opens pre-filled and the
+  // proposer edits rather than authors.
+  if (!$template_id && $course_id) {
+    $database = \Drupal::database();
+    if ($database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      $last = $database->select('civicrm_event__field_parent_course', 'f');
+      $last->join('civicrm_event', 'e', 'e.id = f.entity_id');
+      $last->fields('e', ['id']);
+      $last->condition('f.field_parent_course_target_id', $course_id);
+      $last->condition('e.is_active', 1);
+      $last->orderBy('e.start_date', 'DESC');
+      $last->range(0, 1);
+      $template_id = $last->execute()->fetchField() ?: NULL;
+    }
+  }
+
   if ($course_id) {
     $course_node = Node::load($course_id);
     if ($course_node && isset($form['field_parent_course'])) {
