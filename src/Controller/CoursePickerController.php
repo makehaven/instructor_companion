@@ -57,11 +57,23 @@ class CoursePickerController extends ControllerBase {
     $expertise_tree = $term_storage->loadTree('area_of_interest', 0, NULL, FALSE);
 
     // Build the course query.
+    // This page offers paid teaching work, so meetups must not appear on it.
+    // Meetups are community gatherings someone hosts, not classes MakeHaven
+    // pays an instructor to run — 73 of the 162 publicly listed courses are
+    // meetups (Quilt Club, Trivia Night, Sketchbook Social), and listing them
+    // here invited members to propose running them for payment.
+    // Excluding the meetup type rather than allowlisting workshop/program, so
+    // a future course type still surfaces as paid work unless it is explicitly
+    // a meetup.
     $query = $entity_type_manager->getStorage('node')->getQuery()
       ->accessCheck(TRUE)
       ->condition('type', 'course')
       ->condition('status', 1)
       ->condition('field_publicly_listed', 1);
+    $meetup_filter = $query->orConditionGroup()
+      ->condition('field_course_type', 'meetup', '<>')
+      ->notExists('field_course_type');
+    $query->condition($meetup_filter);
 
     if ($filter_tid > 0) {
       $query->condition('field_instructor_expertise', $filter_tid);
