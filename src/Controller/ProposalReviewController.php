@@ -176,7 +176,7 @@ class ProposalReviewController extends ControllerBase {
         '<a href="' . $approve_url . '" class="button button--primary" style="background:#27ae60;border-color:#219a52">'
           . $this->t('✓ Approve') . '</a> '
         . '<a href="' . $deny_url . '" class="button" style="background:#e74c3c;border-color:#c0392b;color:#fff">'
-          . $this->t('✗ Deny') . '</a> '
+          . $this->t('✗ Deny / Close') . '</a> '
         . $discuss_html
         . '<a href="' . $edit_url . '" class="button button--secondary">'
           . $this->t('Edit Full Record') . '</a>',

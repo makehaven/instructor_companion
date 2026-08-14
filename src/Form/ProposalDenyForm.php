@@ -41,25 +41,38 @@ class ProposalDenyForm extends FormBase {
 
     $form['intro'] = [
       '#markup' => '<p>' . $this->t(
-        'You are about to deny the proposal <strong>"@title"</strong> submitted by @instructor.
-         The proposal record will be removed. An email will be sent to the instructor with your reason.',
+        'You are about to close the proposal <strong>"@title"</strong> submitted by @instructor. The proposal record will be removed.',
         ['@title' => $event->label(), '@instructor' => $instructor_name]
       ) . '</p>',
     ];
 
+    // Much of the queue is old proposals that were settled by conversation
+    // months ago and never closed out. Emailing those people now would be
+    // confusing at best, so closing an item and telling someone about it are
+    // separate choices.
+    $form['notify'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Email the instructor a reason'),
+      '#default_value' => TRUE,
+      '#description' => $this->t('Leave this unticked to close the proposal quietly — nothing is sent. Use that for items already handled by conversation, so clearing the backlog does not reopen settled conversations.'),
+    ];
+
     $form['reason'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Reason for denial (sent to instructor)'),
-      '#description' => $this->t('Be specific and constructive. The instructor will receive this text in their notification email.'),
+      '#title' => $this->t('Reason'),
+      '#description' => $this->t('Sent to the instructor when the box above is ticked. Kept in the log either way.'),
       '#rows' => 5,
-      '#required' => TRUE,
+      '#states' => [
+        'visible' => [':input[name="notify"]' => ['checked' => TRUE]],
+        'required' => [':input[name="notify"]' => ['checked' => TRUE]],
+      ],
     ];
 
     $form['actions'] = [
       '#type' => 'actions',
       'submit' => [
         '#type' => 'submit',
-        '#value' => $this->t('Confirm Denial'),
+        '#value' => $this->t('Close proposal'),
         '#attributes' => ['style' => 'background:#e74c3c;border-color:#c0392b'],
       ],
       'cancel' => [
@@ -88,10 +101,11 @@ class ProposalDenyForm extends FormBase {
     }
 
     $event_title = $event->label();
+    $notify = (bool) $form_state->getValue('notify');
 
-    // Email the instructor.
+    // Email the instructor, unless staff chose to close this quietly.
     $instructor_entities = $event->get('field_civi_event_instructor')->referencedEntities();
-    if (!empty($instructor_entities)) {
+    if ($notify && !empty($instructor_entities)) {
       $instructor = reset($instructor_entities);
       $params = [
         'user_name'   => $instructor->getDisplayName(),
@@ -112,7 +126,16 @@ class ProposalDenyForm extends FormBase {
     // Remove the draft proposal.
     $event->delete();
 
-    $this->messenger()->addStatus($this->t('Proposal "@title" denied. The instructor has been notified.', ['@title' => $event_title]));
+    \Drupal::logger('instructor_companion')->notice('Proposal "@title" closed by @user. Instructor notified: @notified. Reason: @reason', [
+      '@title' => $event_title,
+      '@user' => \Drupal::currentUser()->getAccountName(),
+      '@notified' => $notify ? 'yes' : 'no',
+      '@reason' => $reason ?: '(none given)',
+    ]);
+
+    $this->messenger()->addStatus($notify
+      ? $this->t('Proposal "@title" closed. The instructor has been notified.', ['@title' => $event_title])
+      : $this->t('Proposal "@title" closed quietly. No email was sent.', ['@title' => $event_title]));
     $form_state->setRedirectUrl(Url::fromUserInput('/admin/structure/proposals'));
   }
 
