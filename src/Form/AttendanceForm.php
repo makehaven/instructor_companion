@@ -2,6 +2,7 @@
 
 namespace Drupal\instructor_companion\Form;
 
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountProxyInterface;
@@ -25,6 +26,7 @@ class AttendanceForm extends FormBase {
     protected AttendanceManager $attendance,
     protected PostEventStatusService $postEventStatus,
     protected AccountProxyInterface $currentUser,
+    protected EntityTypeManagerInterface $entityTypeManager,
   ) {}
 
   /**
@@ -35,6 +37,7 @@ class AttendanceForm extends FormBase {
       $container->get('instructor_companion.attendance_manager'),
       $container->get('instructor_companion.post_event_status'),
       $container->get('current_user'),
+      $container->get('entity_type.manager'),
     );
   }
 
@@ -51,7 +54,7 @@ class AttendanceForm extends FormBase {
   public function buildForm(array $form, FormStateInterface $form_state, $event_id = NULL): array {
     $event_id = (int) $event_id;
     $event = $event_id
-      ? $this->entityTypeManager()->getStorage('civicrm_event')->load($event_id)
+      ? $this->entityTypeManager->getStorage('civicrm_event')->load($event_id)
       : NULL;
     if (!$event) {
       throw new NotFoundHttpException();
