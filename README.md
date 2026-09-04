@@ -31,6 +31,16 @@ The **Instructor Companion** module is a custom solution designed to streamline 
 
 ---
 
+### 4. Class Checkout (instructor issues the badge)
+*   **Route:** `/instructor/class-checkout/{event_id}` — linked from the dashboard ("Approve badges") and the post-event hub, for past events whose `field_civi_event_badges` is set.
+*   **Model:** a class that lists a badge *includes* the badging session a facilitator would otherwise run, and the instructor is the badger. Their click is the checkout; no staff review and no training-documentation form are involved. (The badge page and `assign_badge_from_quiz` both treat a non-cancelled registration for such a class as satisfying the documentation gate.)
+*   **Complete class & issue badge:** stamps `field_class_completed_date` on the student's `badge_request` (creating a pending one if needed), flips their CiviCRM participant row to *Attended*, then:
+    *   quiz already passed at 100% (or badge has no quiz) → `field_badge_status` = `active` immediately;
+    *   quiz not passed → stays pending, student gets the `class_checkout_quiz_reminder` email; `assign_badge_from_quiz` activates the request automatically when the 100% pass lands on a class-stamped request.
+*   **Attended, did not pass:** rare. Marks *Attended*, clears any class stamp, records the pair in State (`instructor_companion.class_checkout_not_passed`, keyed `event:uid:badge`) so the row shows "Did not pass — must retake" and the post-event hub counts the student as handled, and sends the `class_checkout_not_passed` email telling them to retake the class. A later pass (same or another class) clears the record.
+*   **Staff-managed statuses** (`suspended`, `expired`) are never touched by either action.
+*   Decision logic is `ClassCheckoutController::resolveOutcome()` (pure, unit tested in `tests/src/Unit/ClassCheckoutOutcomeTest.php`).
+
 ## Deployment & Configuration Instructions
 
 Since this is a custom module involving configuration that is not automatically synced, **the following steps must be performed manually on the LIVE environment** after enabling the module.

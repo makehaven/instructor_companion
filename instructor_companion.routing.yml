@@ -109,6 +109,18 @@ instructor_companion.class_checkout_mark:
     user_id: '\d+'
     badge_tid: '\d+'
 
+instructor_companion.class_checkout_fail:
+  path: '/instructor/class-checkout/{event_id}/fail/{user_id}/{badge_tid}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\ClassCheckoutController::markNotPassed'
+    _title: 'Class Checkout Not Passed'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
+    _csrf_token: 'TRUE'
+    event_id: '\d+'
+    user_id: '\d+'
+    badge_tid: '\d+'
+
 instructor_companion.post_event_hub:
   path: '/instructor/post-event/{event_id}'
   defaults:

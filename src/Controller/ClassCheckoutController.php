@@ -19,10 +19,18 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * Class-end checkout UI for instructors.
  *
- * Mirrors the facilitator checkout pattern: instructor attests that a student
- * completed the in-person class portion. Creates or stamps a badge_request
- * with field_class_completed_date; final activation still flows through the
- * existing /badge-request/{node}/approve route.
+ * A class that lists a badge (field_civi_event_badges) includes the badging
+ * session a facilitator would otherwise run, and the instructor is the
+ * badger. So the instructor's "mark complete" click IS the checkout:
+ *  - stamps field_class_completed_date on the badge_request (creating a
+ *    pending one if needed),
+ *  - marks the CiviCRM participant Attended,
+ *  - activates the badge right away when the student has already passed the
+ *    quiz (or the badge has no quiz), or
+ *  - otherwise emails the quiz link; assign_badge_from_quiz activates the
+ *    badge automatically when the 100% pass lands on a class-stamped request.
+ *
+ * No staff step and no training-documentation form are involved.
  */
 class ClassCheckoutController extends ControllerBase {
 
@@ -53,7 +61,7 @@ class ClassCheckoutController extends ControllerBase {
         '#markup' => '<h2>' . $this->t('Class Checkout: @label', ['@label' => $event->label()]) . '</h2>',
       ],
       'help' => [
-        '#markup' => '<p>' . $this->t('Mark each student as having completed the in-person portion. They still need to pass the video + quiz at 100% before the badge becomes usable. The final activation is done by the badge issuer.') . '</p>',
+        '#markup' => '<p>' . $this->t('Mark each student who completed the class. This is their badge checkout: the badge becomes active immediately if they have already passed the quiz, otherwise the moment they pass it (they get an email with the quiz link). No staff review or documentation form is needed.') . '</p>',
       ],
     ];
 
@@ -125,20 +133,68 @@ class ClassCheckoutController extends ControllerBase {
     }
 
     $messenger = $this->messenger();
-    $messenger->addStatus($this->t('@student: class checkout recorded for @badge.', [
-      '@student' => $student->getDisplayName(),
-      '@badge' => $badge_term->getName(),
-    ]));
+    $student_name = $student->getDisplayName();
+    $badge_name = $badge_term->getName();
 
-    // If they haven't passed the quiz yet, nudge them by email.
+    // Attendance: the instructor just attested they were in the room.
+    $this->markParticipantAttended($event_id, $user_id);
+    // A pass supersedes any earlier "did not pass" for this class.
+    $this->setNotPassed($event_id, $user_id, $badge_tid, FALSE);
+
     $quiz_id = $badge_term->hasField('field_badge_quiz_reference')
       ? (int) ($badge_term->get('field_badge_quiz_reference')->target_id ?? 0)
       : 0;
-    if ($quiz_id > 0 && !$this->userHasPassedQuiz($user_id, $quiz_id)) {
-      $this->sendQuizReminderEmail($student, $badge_term, $quiz_id, $event);
-      $messenger->addWarning($this->t('@student has not passed the quiz yet. A reminder email was sent.', [
-        '@student' => $student->getDisplayName(),
-      ]));
+    $quiz_passed = $quiz_id > 0 && $this->userHasPassedQuiz($user_id, $quiz_id);
+    $current_status = (string) ($badge_request->get('field_badge_status')->value ?? '');
+    $outcome = self::resolveOutcome($current_status, $quiz_id > 0, $quiz_passed);
+
+    switch ($outcome) {
+      case self::OUTCOME_ACTIVATE:
+        $badge_request->set('field_badge_status', 'active');
+        $badge_request->setNewRevision(TRUE);
+        $badge_request->setRevisionUserId((int) $this->currentUser()->id());
+        $badge_request->setRevisionLogMessage('Activated by instructor class checkout from event #' . $event_id . '.');
+        $badge_request->save();
+        $messenger->addStatus($this->t('@student: @badge badge is now active.', [
+          '@student' => $student_name,
+          '@badge' => $badge_name,
+        ]));
+        \Drupal::logger('instructor_companion')->notice(
+          'Class checkout activated badge_request @nid for uid @uid badge @badge (tid @tid) from event @event by instructor @inst.',
+          [
+            '@nid' => $badge_request->id(),
+            '@uid' => $user_id,
+            '@badge' => $badge_name,
+            '@tid' => $badge_tid,
+            '@event' => $event_id,
+            '@inst' => $this->currentUser()->id(),
+          ]
+        );
+        break;
+
+      case self::OUTCOME_AWAIT_QUIZ:
+        $this->sendQuizReminderEmail($student, $badge_term, $quiz_id, $event);
+        $messenger->addWarning($this->t('@student: class checkout recorded for @badge. They have not passed the quiz yet — the badge activates automatically when they do, and a reminder email with the quiz link was sent.', [
+          '@student' => $student_name,
+          '@badge' => $badge_name,
+        ]));
+        break;
+
+      case self::OUTCOME_ALREADY_ACTIVE:
+        $messenger->addStatus($this->t('@student: class date recorded. Their @badge badge was already active.', [
+          '@student' => $student_name,
+          '@badge' => $badge_name,
+        ]));
+        break;
+
+      default:
+        // Suspended / expired / other: leave staff-managed statuses alone.
+        $messenger->addWarning($this->t('@student: class date recorded, but their @badge badge is "@status" and was left unchanged. Contact staff if it should be reactivated.', [
+          '@student' => $student_name,
+          '@badge' => $badge_name,
+          '@status' => $current_status,
+        ]));
+        break;
     }
 
     if ($is_new) {
@@ -147,7 +203,7 @@ class ClassCheckoutController extends ControllerBase {
         [
           '@nid' => $badge_request->id(),
           '@uid' => $user_id,
-          '@badge' => $badge_term->getName(),
+          '@badge' => $badge_name,
           '@tid' => $badge_tid,
           '@event' => $event_id,
           '@inst' => $this->currentUser()->id(),
@@ -156,6 +212,187 @@ class ClassCheckoutController extends ControllerBase {
     }
 
     return new RedirectResponse(Url::fromRoute('instructor_companion.class_checkout', ['event_id' => $event_id])->toString());
+  }
+
+  /**
+   * State key: "{event_id}:{uid}:{badge_tid}" => ['time' => int, 'instructor' => int].
+   *
+   * Records students who attended but did not pass the in-class checkout,
+   * so the class-checkout page and the post-event hub can treat them as
+   * handled (they need to retake) instead of as forgotten.
+   */
+  public const NOT_PASSED_STATE_KEY = 'instructor_companion.class_checkout_not_passed';
+
+  public static function notPassedKey(int $event_id, int $uid, int $badge_tid): string {
+    return $event_id . ':' . $uid . ':' . $badge_tid;
+  }
+
+  protected function getNotPassed(int $event_id, int $uid, int $badge_tid): ?array {
+    $map = (array) \Drupal::state()->get(self::NOT_PASSED_STATE_KEY, []);
+    $entry = $map[self::notPassedKey($event_id, $uid, $badge_tid)] ?? NULL;
+    return is_array($entry) ? $entry : NULL;
+  }
+
+  protected function setNotPassed(int $event_id, int $uid, int $badge_tid, bool $failed): void {
+    $state = \Drupal::state();
+    $map = (array) $state->get(self::NOT_PASSED_STATE_KEY, []);
+    $key = self::notPassedKey($event_id, $uid, $badge_tid);
+    if ($failed) {
+      $map[$key] = ['time' => \Drupal::time()->getRequestTime(), 'instructor' => (int) $this->currentUser()->id()];
+    }
+    else {
+      unset($map[$key]);
+    }
+    $state->set(self::NOT_PASSED_STATE_KEY, $map);
+  }
+
+  /**
+   * Instructor attests the student attended but did NOT pass the checkout.
+   *
+   * Rare but real: attendance is recorded, the badge is left unissued (a
+   * class stamp from an earlier mis-click is cleared), and the student is
+   * emailed that they need to retake the class to earn the badge.
+   */
+  public function markNotPassed(int $event_id, int $user_id, int $badge_tid): RedirectResponse {
+    $event = $this->loadEvent($event_id);
+    $badge_term = $this->entityTypeManager()->getStorage('taxonomy_term')->load($badge_tid);
+    $student = $this->entityTypeManager()->getStorage('user')->load($user_id);
+
+    if (!$event || !$badge_term instanceof TermInterface || !$student) {
+      throw new NotFoundHttpException();
+    }
+    if (!in_array($badge_tid, $this->getEventBadgeTids($event), TRUE)) {
+      throw new AccessDeniedHttpException('Badge not associated with this class.');
+    }
+    if (!in_array($user_id, array_keys($this->getParticipantUids($event_id)), TRUE)) {
+      throw new AccessDeniedHttpException('User is not a counted participant on this class.');
+    }
+
+    $messenger = $this->messenger();
+    $student_name = $student->getDisplayName();
+    $badge_name = $badge_term->getName();
+
+    $this->markParticipantAttended($event_id, $user_id);
+
+    $badge_request = $this->loadExistingBadgeRequest($user_id, $badge_tid);
+    $status = $badge_request ? strtolower(trim((string) ($badge_request->get('field_badge_status')->value ?? ''))) : '';
+    if ($badge_request && $status === 'active') {
+      $messenger->addError($this->t('@student already holds an active @badge badge, so nothing was changed. If it should be revoked, contact staff to suspend it.', [
+        '@student' => $student_name,
+        '@badge' => $badge_name,
+      ]));
+      return new RedirectResponse(Url::fromRoute('instructor_companion.class_checkout', ['event_id' => $event_id])->toString());
+    }
+    if ($badge_request && !$badge_request->get('field_class_completed_date')->isEmpty()) {
+      // Undo an earlier "complete" click for this student.
+      $badge_request->set('field_class_completed_date', NULL);
+      $badge_request->setNewRevision(TRUE);
+      $badge_request->setRevisionUserId((int) $this->currentUser()->id());
+      $badge_request->setRevisionLogMessage('Class checkout NOT passed at event #' . $event_id . '; class-completed stamp cleared.');
+      $badge_request->save();
+    }
+
+    $this->setNotPassed($event_id, $user_id, $badge_tid, TRUE);
+    $this->sendNotPassedEmail($student, $badge_term, $event);
+
+    \Drupal::logger('instructor_companion')->notice(
+      'Class checkout NOT passed for uid @uid badge @badge (tid @tid) at event @event by instructor @inst.',
+      [
+        '@uid' => $user_id,
+        '@badge' => $badge_name,
+        '@tid' => $badge_tid,
+        '@event' => $event_id,
+        '@inst' => $this->currentUser()->id(),
+      ]
+    );
+    $messenger->addWarning($this->t('@student: recorded as attended but not passed for @badge. No badge issued; they were emailed that they need to retake the class.', [
+      '@student' => $student_name,
+      '@badge' => $badge_name,
+    ]));
+
+    return new RedirectResponse(Url::fromRoute('instructor_companion.class_checkout', ['event_id' => $event_id])->toString());
+  }
+
+  protected function sendNotPassedEmail($student, TermInterface $badge_term, $event): void {
+    $mail = $student->getEmail();
+    if (!$mail) {
+      return;
+    }
+    try {
+      $badge_url = $badge_term->toUrl('canonical', ['absolute' => TRUE])->toString();
+    }
+    catch (\Throwable) {
+      $badge_url = '';
+    }
+    \Drupal::service('plugin.manager.mail')->mail(
+      'instructor_companion',
+      'class_checkout_not_passed',
+      $mail,
+      $student->getPreferredLangcode(),
+      [
+        'badge_label' => $badge_term->getName(),
+        'badge_url' => $badge_url,
+        'event_label' => $event->label(),
+        'student_name' => $student->getDisplayName(),
+      ]
+    );
+  }
+
+  public const OUTCOME_ACTIVATE = 'activate';
+  public const OUTCOME_AWAIT_QUIZ = 'await_quiz';
+  public const OUTCOME_ALREADY_ACTIVE = 'already_active';
+  public const OUTCOME_LEAVE = 'leave';
+
+  /**
+   * Decides what a class checkout does to the badge_request. Pure; unit tested.
+   *
+   * @param string $current_status
+   *   The badge_request's field_badge_status ('' counts as pending).
+   * @param bool $has_quiz
+   *   Whether the badge references a quiz at all.
+   * @param bool $quiz_passed
+   *   Whether the student has a 100% pass on that quiz.
+   */
+  public static function resolveOutcome(string $current_status, bool $has_quiz, bool $quiz_passed): string {
+    $status = strtolower(trim($current_status));
+    if ($status === 'active') {
+      return self::OUTCOME_ALREADY_ACTIVE;
+    }
+    if ($status !== '' && $status !== 'pending') {
+      return self::OUTCOME_LEAVE;
+    }
+    if ($has_quiz && !$quiz_passed) {
+      return self::OUTCOME_AWAIT_QUIZ;
+    }
+    return self::OUTCOME_ACTIVATE;
+  }
+
+  /**
+   * Flips the student's CiviCRM participant row to Attended (idempotent).
+   *
+   * Best effort: a failure here must not block the badge, so it only logs.
+   */
+  protected function markParticipantAttended(int $event_id, int $user_id): void {
+    if (!\Drupal::hasService('instructor_companion.attendance_manager')) {
+      return;
+    }
+    try {
+      $contact_id = (int) \Drupal::database()->select('civicrm_uf_match', 'm')
+        ->fields('m', ['contact_id'])
+        ->condition('m.uf_id', $user_id)
+        ->execute()
+        ->fetchField();
+      if ($contact_id > 0) {
+        \Drupal::service('instructor_companion.attendance_manager')->addWalkIn($event_id, $contact_id);
+      }
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('instructor_companion')->warning('Class checkout could not mark uid @uid attended on event @event: @m', [
+        '@uid' => $user_id,
+        '@event' => $event_id,
+        '@m' => $e->getMessage(),
+      ]);
+    }
   }
 
   /**
@@ -190,34 +427,66 @@ class ClassCheckoutController extends ControllerBase {
     $class_done = $badge_request && !$badge_request->get('field_class_completed_date')->isEmpty();
     $badge_status = $badge_request ? (string) $badge_request->get('field_badge_status')->value : '—';
 
+    $not_passed = $class_done ? NULL : $this->getNotPassed($event_id, $uid, (int) $badge_term->id());
+    $is_active = strtolower($badge_status) === 'active';
+
     if ($class_done) {
       $date_str = $badge_request->get('field_class_completed_date')->value;
-      $action_label = $this->t('Re-stamp class date');
+      $action_label = $is_active ? $this->t('Re-run checkout') : $this->t('Re-run checkout (activates if quiz passed)');
+    }
+    elseif ($not_passed) {
+      $action_label = $this->t('Passed after all — issue badge');
+    }
+    elseif ($is_active) {
+      $action_label = $this->t('Record class date (badge already active)');
     }
     else {
-      $action_label = $this->t('Mark class complete');
+      $action_label = $this->t('Complete class & issue badge');
     }
 
-    $token_key = 'instructor/class-checkout/' . $event_id . '/mark/' . $uid . '/' . $badge_term->id();
-    $mark_url = Url::fromRoute('instructor_companion.class_checkout_mark', [
-      'event_id' => $event_id,
-      'user_id' => $uid,
-      'badge_tid' => $badge_term->id(),
-    ], ['query' => ['token' => \Drupal::csrfToken()->get($token_key)]]);
+    $route_params = ['event_id' => $event_id, 'user_id' => $uid, 'badge_tid' => $badge_term->id()];
+    $mark_url = Url::fromRoute('instructor_companion.class_checkout_mark', $route_params, [
+      'query' => ['token' => \Drupal::csrfToken()->get('instructor/class-checkout/' . $event_id . '/mark/' . $uid . '/' . $badge_term->id())],
+    ]);
+    $fail_url = Url::fromRoute('instructor_companion.class_checkout_fail', $route_params, [
+      'query' => ['token' => \Drupal::csrfToken()->get('instructor/class-checkout/' . $event_id . '/fail/' . $uid . '/' . $badge_term->id())],
+    ]);
+
+    $actions = [
+      'mark' => [
+        '#type' => 'link',
+        '#title' => $action_label,
+        '#url' => $mark_url,
+        '#attributes' => ['class' => ['button', 'button--small', 'button--primary']],
+      ],
+    ];
+    if (!$is_active && !$not_passed) {
+      $actions['fail'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Attended, did not pass'),
+        '#url' => $fail_url,
+        '#attributes' => ['class' => ['button', 'button--small', 'button--danger']],
+      ];
+    }
+
+    if ($class_done) {
+      $class_cell = $date_str ?? $this->t('✓');
+    }
+    elseif ($not_passed) {
+      $class_cell = $this->t('Did not pass (@date) — must retake', [
+        '@date' => \Drupal::service('date.formatter')->format((int) ($not_passed['time'] ?? 0), 'custom', 'M j'),
+      ]);
+    }
+    else {
+      $class_cell = $this->t('—');
+    }
 
     return [
       'student' => $participant_name,
       'quiz' => $quiz_passed ? $this->t('✓') : $this->t('—'),
-      'class' => $class_done ? ($date_str ?? $this->t('✓')) : $this->t('—'),
+      'class' => $class_cell,
       'status' => ucfirst($badge_status),
-      'action' => [
-        'data' => [
-          '#type' => 'link',
-          '#title' => $action_label,
-          '#url' => $mark_url,
-          '#attributes' => ['class' => ['button', 'button--small']],
-        ],
-      ],
+      'action' => ['data' => $actions],
     ];
   }
 

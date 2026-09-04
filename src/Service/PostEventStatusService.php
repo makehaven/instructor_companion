@@ -6,6 +6,7 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\State\StateInterface;
+use Drupal\instructor_companion\Controller\ClassCheckoutController;
 
 /**
  * Single source of truth for an instructor's post-event task completion.
@@ -200,7 +201,8 @@ class PostEventStatusService {
       'attendance_confirmed' => $this->isAttendanceConfirmed($event_id),
       'badges_applicable' => $badge_tids !== [],
       'badges_total_pairs' => count($participant_uids) * count($badge_tids),
-      'badges_done_pairs' => $this->countCheckedOutPairs($participant_uids, $badge_tids),
+      'badges_done_pairs' => $this->countCheckedOutPairs($participant_uids, $badge_tids)
+      + $this->countNotPassedPairs($event_id, $participant_uids, $badge_tids),
       'feedback_submitted' => $this->hasFeedbackSubmission($event_id),
       'payment_done' => $payment['done'],
       'payment_detail' => $payment['detail'],
@@ -266,6 +268,33 @@ class PostEventStatusService {
     $q->condition('b.field_badge_requested_target_id', $badge_tids, 'IN');
     $q->isNotNull('c.field_class_completed_date_value');
     return (int) $q->execute()->fetchField();
+  }
+
+  /**
+   * Counts (attendee, badge) pairs the instructor marked "attended, did not
+   * pass" for this event. Handled from the instructor's point of view — the
+   * student has to retake — so they must not keep the badges step open.
+   *
+   * Only pairs WITHOUT a class stamp are counted, so a later pass (which
+   * clears the record anyway) is never double-counted.
+   */
+  protected function countNotPassedPairs(int $event_id, array $uids, array $badge_tids): int {
+    if (!$uids || !$badge_tids) {
+      return 0;
+    }
+    $map = (array) $this->state->get(ClassCheckoutController::NOT_PASSED_STATE_KEY, []);
+    if (!$map) {
+      return 0;
+    }
+    $count = 0;
+    foreach ($uids as $uid) {
+      foreach ($badge_tids as $tid) {
+        if (isset($map[ClassCheckoutController::notPassedKey($event_id, (int) $uid, (int) $tid)])) {
+          $count++;
+        }
+      }
+    }
+    return $count;
   }
 
   /**

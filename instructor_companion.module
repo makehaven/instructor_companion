@@ -349,11 +349,23 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Thanks for completing the @event class. The instructor has signed off on your in-person portion.', [
         '@event' => $params['event_label'],
       ]);
-      $message['body'][] = t('Your @badge badge will become active once you have also watched the video and passed the quiz at 100%.', [
+      $message['body'][] = t('Your @badge badge will become active automatically the moment you watch the video and pass the quiz at 100%. Nothing else to submit and no staff review needed.', [
         '@badge' => $params['badge_label'],
       ]);
       $message['body'][] = t('Take the quiz: @url', ['@url' => $params['quiz_url']]);
       $message['body'][] = t('If you have any questions, reply to this email or contact education@makehaven.org.');
+      break;
+
+    case 'class_checkout_not_passed':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Your @badge checkout: not passed yet', ['@badge' => $params['badge_label']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['student_name']]);
+      $message['body'][] = t('Thanks for attending @event. Your instructor was not able to sign off on the @badge checkout this time, so the badge has not been issued.', [
+        '@event' => $params['event_label'],
+        '@badge' => $params['badge_label'],
+      ]);
+      $message['body'][] = t('To earn it, retake the class — upcoming sessions are listed on the badge page: @url', ['@url' => $params['badge_url']]);
+      $message['body'][] = t('If you think this was recorded in error, reply to this email or contact education@makehaven.org.');
       break;
 
     case 'post_event_reminder':
