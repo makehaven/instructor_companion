@@ -222,7 +222,10 @@ class ProposalReviewController extends ControllerBase {
       }
       if (!$gate->hasSignedAgreement((int) $instructor->id())) {
         $outstanding[] = t('Sign the master instructor agreement: @url', [
-          '@url' => Url::fromUserInput('/form/webform-5220', ['absolute' => TRUE])->toString(),
+          // Resolved from the webform's route, not a hardcoded path: the
+          // agreement's alias moved once already (2026-08-14) and the stale
+          // '/form/webform-5220' survived only as a redirect entity.
+          '@url' => Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220'], ['absolute' => TRUE])->toString(),
         ]);
       }
 

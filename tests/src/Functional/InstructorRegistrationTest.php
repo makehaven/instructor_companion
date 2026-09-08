@@ -53,7 +53,7 @@ class InstructorRegistrationTest extends BrowserTestBase {
     $this->registerInstructor('test_instructor', 'instructor_test@example.com');
 
     // Verify the success message from the custom submit handler.
-    $this->assertSession()->pageTextContains('Your instructor application has been started. Please sign the instructor agreement on the next page so staff can review and follow up.');
+    $this->assertSession()->pageTextContains('Your instructor account is set up and staff have been notified.');
 
     // Verify that the user was created.
     $user = user_load_by_name('test_instructor');

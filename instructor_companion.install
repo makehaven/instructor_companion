@@ -361,6 +361,11 @@ function instructor_companion_update_9009() {
  *
  * Existing sites get the new keys populated; fresh installs already have them
  * from config/install/instructor_companion.settings.yml.
+ *
+ * The body seeded below is historical copy from the agreement-first flow and
+ * is deliberately left as-is: the hook has already run everywhere and only
+ * writes keys that are still NULL. Current copy lives in config/install and in
+ * each site's active config.
  */
 function instructor_companion_update_9010() {
   $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');

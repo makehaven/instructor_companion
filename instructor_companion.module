@@ -210,7 +210,10 @@ function instructor_companion_user_register_notify($form, FormStateInterface $fo
     );
   }
 
-  \Drupal::messenger()->addMessage(t('Your instructor application has been started. Please sign the instructor agreement on the next page so staff can review and follow up.'));
+  // Not "sign the agreement on the next page" any more — signing happens after
+  // the education team has reviewed a proposal and talked to the person. See
+  // docs/ops/2026-08-13-instructor-pages-rollback.md.
+  \Drupal::messenger()->addMessage(t('Your instructor account is set up and staff have been notified. Next, tell us what you would like to teach — the education team will follow up to talk through the class, scheduling and pay.'));
 }
 
 /**
