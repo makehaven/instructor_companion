@@ -45,8 +45,8 @@ class InviteInstructorForm extends FormBase {
          creates their instructor profile, grants the Instructor role, opens
          their dashboard, and (for non-members) queues building access for
          your approval. The link works for 14 days; you can resend it from
-         <a href=":prospective">Prospective Instructors</a>.',
-        [':prospective' => Url::fromRoute('instructor_companion.prospective_instructors')->toString()]
+         the <a href=":console">Education console</a>.',
+        [':console' => Url::fromRoute('instructor_companion.education_console')->toString()]
       ) . '</p>',
     ];
 
@@ -96,7 +96,7 @@ class InviteInstructorForm extends FormBase {
     $user = $result['user'];
     $name = $user->getDisplayName();
     if (!$result['sent']) {
-      $this->messenger()->addError($this->t('The invite for @name could not be emailed. The account exists; try Resend from Prospective Instructors, and check the mail log.', ['@name' => $name]));
+      $this->messenger()->addError($this->t('The invite for @name could not be emailed. The account exists; try Resend from the Education console, and check the mail log.', ['@name' => $name]));
     }
     elseif ($result['created']) {
       $this->messenger()->addStatus($this->t('Invite sent to @mail. A new account was created for @name; they will hold the Instructor role as soon as they sign.', [
@@ -111,7 +111,11 @@ class InviteInstructorForm extends FormBase {
       ]));
     }
 
-    $form_state->setRedirect('instructor_companion.prospective_instructors');
+    // Core honours ?destination on the response; without one, the console is
+    // where the invitee now shows up.
+    if (!$this->getRequest()->query->has('destination')) {
+      $form_state->setRedirect('instructor_companion.education_console');
+    }
   }
 
 }

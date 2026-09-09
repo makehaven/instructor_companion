@@ -27,19 +27,47 @@ class ProspectiveInstructorsController extends ControllerBase {
   }
 
   /**
+   * The three "onboarding in progress" sections, for embedding elsewhere.
+   *
+   * The Education console renders these so staff have one screen; the action
+   * links carry ?destination so they land back where they clicked.
+   *
+   * @param string|null $destination
+   *   Internal path to return to after an action, or NULL for this page.
+   */
+  public function onboardingSections(?string $destination = NULL): array {
+    return [
+      'invited' => $this->buildInvitedSection($destination),
+      'awaiting_door' => $this->buildAwaitingDoorAccessSection($destination),
+      'awaiting_role' => $this->buildAwaitingRoleSection($destination),
+    ];
+  }
+
+  /**
+   * Query for a CSRF-protected action link, plus the return path when given.
+   */
+  protected function actionQuery(Url $url, ?string $destination): array {
+    $query = ['token' => \Drupal::csrfToken()->get($url->getInternalPath())];
+    if ($destination) {
+      $query['destination'] = $destination;
+    }
+    return $query;
+  }
+
+  /**
    * Section: people staff invited to sign the agreement who have not yet.
    *
    * Fed by the Invite an Instructor form. A row disappears the moment the
    * person signs (they then show under door access / role as usual).
    */
-  protected function buildInvitedSection(): array {
+  protected function buildInvitedSection(?string $destination = NULL): array {
     /** @var \Drupal\instructor_companion\Service\InstructorInviteManager $invites */
     $invites = \Drupal::service('instructor_companion.invite');
     $pending = $invites->pending();
     $invite_link = [
       '#type' => 'link',
       '#title' => $this->t('Invite an instructor'),
-      '#url' => Url::fromRoute('instructor_companion.invite_form'),
+      '#url' => Url::fromRoute('instructor_companion.invite_form', [], $destination ? ['query' => ['destination' => $destination]] : []),
       '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
     ];
     $heading = ['#markup' => '<h2>' . $this->t('Invited — Awaiting Signature') . '</h2>'];
@@ -64,7 +92,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       $expired = !\Drupal\instructor_companion\Service\InstructorInviteManager::isWithinTtl($sent, \Drupal::time()->getRequestTime());
 
       $resend_url = Url::fromRoute('instructor_companion.invite_resend', ['user' => $uid]);
-      $resend_url->setOption('query', ['token' => \Drupal::csrfToken()->get($resend_url->getInternalPath())]);
+      $resend_url->setOption('query', $this->actionQuery($resend_url, $destination));
 
       $status = $expired
         ? $this->t('Link expired')
@@ -130,7 +158,7 @@ class ProspectiveInstructorsController extends ControllerBase {
    * themselves into the building". Approving flips the badge_request to
    * active, which unifi_access_sync immediately pushes to UniFi Access.
    */
-  protected function buildAwaitingDoorAccessSection(): array {
+  protected function buildAwaitingDoorAccessSection(?string $destination = NULL): array {
     /** @var \Drupal\instructor_companion\Service\InstructorDoorAccess $door */
     $door = \Drupal::service('instructor_companion.door_access');
     $door_tid = $door->getDoorTermId();
@@ -191,8 +219,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       }
 
       $grant_url = Url::fromRoute('instructor_companion.grant_door_access', ['user' => $uid]);
-      $token = \Drupal::csrfToken()->get($grant_url->getInternalPath());
-      $grant_url->setOption('query', ['token' => $token]);
+      $grant_url->setOption('query', $this->actionQuery($grant_url, $destination));
 
       $rows[] = [
         'name' => [
@@ -293,7 +320,7 @@ class ProspectiveInstructorsController extends ControllerBase {
   /**
    * Section: signed agreement, no instructor role yet — staff action needed.
    */
-  protected function buildAwaitingRoleSection(): array {
+  protected function buildAwaitingRoleSection(?string $destination = NULL): array {
     $db = \Drupal::database();
     $entity_type_manager = $this->entityTypeManager();
 
@@ -350,8 +377,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       }
 
       $grant_url = Url::fromRoute('instructor_companion.grant_instructor_role', ['user' => $uid]);
-      $token = \Drupal::csrfToken()->get($grant_url->getInternalPath());
-      $grant_url->setOption('query', ['token' => $token]);
+      $grant_url->setOption('query', $this->actionQuery($grant_url, $destination));
 
       $rows[] = [
         'name' => [

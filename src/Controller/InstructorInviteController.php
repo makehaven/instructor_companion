@@ -82,7 +82,8 @@ class InstructorInviteController extends ControllerBase {
     else {
       $this->messenger()->addError($this->t('@name has no invite on record to resend — send a new one.', ['@name' => $user->getDisplayName()]));
     }
-    return $this->redirect('instructor_companion.prospective_instructors');
+    // ?destination (set by the console's action links) overrides this.
+    return $this->redirect('instructor_companion.education_console');
   }
 
 }

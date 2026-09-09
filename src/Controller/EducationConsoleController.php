@@ -70,6 +70,7 @@ class EducationConsoleController extends ControllerBase {
     $interest = $this->unreviewedSubmissions('webform_14366', $now);
     $ideas = $this->unreviewedSubmissions('webform_497', $now);
     $signed = $this->agreementsSigned($now);
+    $invited = \Drupal::service('instructor_companion.invite')->pending();
 
     $build = [
       '#type' => 'container',
@@ -89,6 +90,25 @@ class EducationConsoleController extends ControllerBase {
          digest emails the education inbox about anything unreviewed for more
          than 7 days.'
       ) . '</p>',
+    ];
+
+    // The one action that starts with staff rather than with a form: bringing
+    // in someone they have already met. Everything below it is reactive.
+    $build['invite_cta'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__cta']],
+      'button' => [
+        '#type' => 'link',
+        '#title' => $this->t('Invite an instructor'),
+        '#url' => Url::fromRoute('instructor_companion.invite_form', [], ['query' => ['destination' => '/admin/education']]),
+        '#attributes' => ['class' => ['button', 'button--primary']],
+      ],
+      'hint' => [
+        '#markup' => '<span class="education-console__cta-hint">' . $this->t(
+          'For someone you have already talked to: one email, a link that signs
+           them in and opens the agreement, role and dashboard on signing.'
+        ) . '</span>',
+      ],
     ];
 
     $oldest_line = function (array $timestamps) use ($now): ?string {
@@ -120,6 +140,13 @@ class EducationConsoleController extends ControllerBase {
         Url::fromRoute('instructor_companion.workshop_proposal_queue'),
         $oldest_line(array_column($ideas, 'created'))
       ),
+      'invited' => $this->tile(
+        $this->t('Invited, not yet signed'),
+        count($invited),
+        $this->t('agreement invites out (14-day links)'),
+        Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'onboarding']),
+        $invited ? (string) $this->t('oldest: @age', ['@age' => $this->age(min(array_map(fn($r) => (int) ($r['last_sent'] ?? $now), $invited)), $now)]) : NULL
+      ),
       'agreements' => $this->tile(
         $this->t('Agreements signed'),
         $signed['count'],
@@ -132,6 +159,21 @@ class EducationConsoleController extends ControllerBase {
 
     $build['attention'] = $this->needsAttentionTable($proposals, $interest, $ideas, $now);
 
+    // Onboarding in progress — the same three lists as Prospective
+    // Instructors, rendered here so nobody has to know a second page exists.
+    $build['onboarding'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__onboarding'], 'id' => 'onboarding'],
+      'heading' => ['#markup' => '<h2>' . $this->t('Instructor onboarding in progress') . '</h2>'],
+      'note' => [
+        '#markup' => '<p class="education-console__held-note">' . $this->t(
+          'Invited people until they sign; then door access to approve (non-members
+           only) and, for anyone signed before the role became automatic, the
+           role to grant.'
+        ) . '</p>',
+      ],
+    ] + ProspectiveInstructorsController::create(\Drupal::getContainer())->onboardingSections('/admin/education');
+
     if ($held) {
       $build['held'] = $this->heldTable($held, $holds);
     }
@@ -141,8 +183,7 @@ class EducationConsoleController extends ControllerBase {
       '#title' => $this->t('More'),
       '#attributes' => ['class' => ['education-console__links']],
       '#items' => [
-        $this->link($this->t('Invite an instructor (send someone you have vetted the agreement)'), Url::fromRoute('instructor_companion.invite_form')),
-        $this->link($this->t('Prospective instructors (invites out, grant role / door access)'), Url::fromRoute('instructor_companion.prospective_instructors')),
+        $this->link($this->t('Prospective instructors (the onboarding lists above, plus members who said they would teach)'), Url::fromRoute('instructor_companion.prospective_instructors')),
         $this->link($this->t('Instructor dashboard (what instructors see)'), Url::fromRoute('instructor_companion.dashboard')),
         $this->link($this->t('Notification & email settings'), Url::fromRoute('instructor_companion.settings')),
       ],

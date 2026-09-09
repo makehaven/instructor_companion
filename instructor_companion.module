@@ -431,8 +431,18 @@ function _instructor_companion_teach_this_cta(array &$build, EntityInterface $en
 
   // Meetups are hosted, not taught for pay — offering to teach one is exactly
   // the mix-up this module removed from the course picker.
+  //
+  // Programs are excluded for a different reason. A program is a cohort with
+  // a coach the education team has already chosen and trained; it is not
+  // something an individual proposes a date for, and the offer sat above the
+  // cohort dates and price that visitors came to the page for. Reported by
+  // the education manager, 2026-08-31: "Remove the option for someone to
+  // propose teaching a program, this is not how things work nor how I want
+  // them to work." Workshops keep the CTA — that funnel works and is the one
+  // this module was built for.
+  $skip_types = ['meetup', 'program'];
   if ($entity->hasField('field_course_type')
-    && $entity->get('field_course_type')->value === 'meetup') {
+    && in_array($entity->get('field_course_type')->value, $skip_types, TRUE)) {
     return;
   }
 

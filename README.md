@@ -20,8 +20,10 @@ the site salt and the account's password hash (so setting a password retires
 any outstanding link, the same way core's one-time login links behave). Signing
 does everything it does on the self-serve path — instructor profile, `instructor`
 role, pending door badge for non-members, staff email, dashboard. Outstanding
-invites are listed under **Invited — Awaiting Signature** on
-`/admin/people/prospective-instructors` with a Resend action; records live in
+invites are listed under **Invited — Awaiting Signature** on the Education
+console (`/admin/education`, which also carries the door-access and role
+queues, so staff work one screen) and on
+`/admin/people/prospective-instructors`, with a Resend action; records live in
 the `instructor_companion.invites` key/value collection. Email copy is
 editable at the module settings page (`invite_subject` / `invite_body`,
 placeholders `[invite:link]`, `[invite:sender]`, `[invite:note]`). The

@@ -95,3 +95,27 @@ a.education-console__tile:focus-visible {
 .education-console__links {
   margin-top: 2rem;
 }
+
+/* Staff-initiated action row: the invite button and its one-line hint. */
+.education-console__cta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 1.5rem;
+}
+.education-console__cta .button {
+  margin: 0;
+}
+.education-console__cta-hint {
+  color: var(--mh-color-text-muted, #555);
+  max-width: 48rem;
+}
+.education-console__onboarding h2 {
+  margin-top: 2rem;
+}
+.education-console__onboarding .invited-instructors-section,
+.education-console__onboarding .awaiting-door-access-section,
+.education-console__onboarding .awaiting-instructor-role-section {
+  margin-bottom: 1.5rem;
+}
