@@ -748,6 +748,13 @@ class InstructorDashboardController extends ControllerBase {
     $q->condition('e.is_active', 1);
     $q->condition('e.is_template', 0);
     $q->where('e.start_date BETWEEN :lo AND :hi', [':lo' => $window_start, ':hi' => date('Y-m-d H:i:s', $now)]);
+    // Same scope as the at-start email and the console: a meetup is hosted,
+    // not taught, and a program's first session is not the moment to take
+    // attendance for the cohort.
+    $types = \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes();
+    if ($types) {
+      $q->condition('e.event_type_id', $types, 'IN');
+    }
     $q->orderBy('e.start_date', 'DESC');
     $q->range(0, 1);
     $row = $q->execute()->fetchObject();

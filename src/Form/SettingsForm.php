@@ -222,7 +222,7 @@ class SettingsForm extends ConfigFormBase {
         '#title' => $this->t('Event types that owe wrap-up'),
         '#options' => $types,
         '#default_value' => \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes(),
-        '#description' => $this->t('Leave Meetup unticked — a meetup is hosted, not taught, so its host owes no badges or payment. Leave Program unticked too: a program is a multi-week cohort and its first session is not the end of anything. Unticking a type stops both the console listing and the reminder email.'),
+        '#description' => $this->t('Leave Meetup unticked — a meetup is hosted, not taught, so its host owes no badges or payment. Leave Program unticked too: a program is a multi-week cohort and its first session is not the end of anything. Unticking a type stops the console listing, the post-class reminder, the at-start attendance email and the dashboard\'s "Happening now" prompt.'),
       ];
     }
 

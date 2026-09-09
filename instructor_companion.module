@@ -287,6 +287,14 @@ function instructor_companion_mail($key, &$message, $params) {
         $subject_tpl = $subject_tpl ?: (string) ($defaults['invite_subject'] ?? 'Your MakeHaven instructor agreement');
         $body_tpl = $body_tpl ?: (string) ($defaults['invite_body'] ?? "Hi,\n\nSign your MakeHaven instructor agreement here:\n[invite:link]\n");
       }
+      // An existing account invited by email may have no first name on file;
+      // the token would clear to nothing and the email would open "Hi ,".
+      /** @var \Drupal\user\UserInterface $invitee */
+      $invitee = $params['user'];
+      $first = $invitee->hasField('field_first_name') ? trim((string) $invitee->get('field_first_name')->value) : '';
+      if ($first === '') {
+        $replacements['[user:field_first_name]'] = $invitee->getDisplayName();
+      }
       $body = strtr($body_tpl, $replacements);
       // Collapse the blank lines an empty note leaves behind.
       $body = preg_replace("/\n{3,}/", "\n\n", $body);
