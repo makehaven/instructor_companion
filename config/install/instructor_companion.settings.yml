@@ -9,11 +9,10 @@ instructor_welcome_subject: 'Welcome to MakeHaven Instructors'
 instructor_welcome_body: |
   Hi [user:field_first_name],
 
-  Thanks for stepping forward to teach at MakeHaven. Your instructor account is set up.
+  Thanks for stepping forward to teach at MakeHaven. Your account is set up.
 
-  Your dashboard is here — it's where you'll find your upcoming sessions, class checkout, attendance and post-class tasks: [site:url]instructor/dashboard
-
-  Someone from the education team will be in touch about which workshops you'd like to lead, scheduling, and compensation, along with anything still outstanding on the paperwork side.
+  Next, tell us what you'd like to teach. If you're a member you can propose a session right away; if not, the short interest form is the place to start and the education team will follow up to talk through the class, scheduling and pay:
+  [site:url]become-instructor
 
   Questions in the meantime? Write education@makehaven.org.
 
@@ -42,5 +41,23 @@ interest_approval_body: |
 
   Looking forward to working with you,
   The MakeHaven Education Team
+  www.makehaven.org
+invite_subject: 'Your MakeHaven instructor agreement'
+invite_body: |
+  Hi [user:field_first_name],
+
+  Great to have you teaching at MakeHaven. The last step before your first class is the instructor agreement — it takes about five minutes to read and sign.
+
+  Sign it here (this link is yours alone and works for 14 days):
+  [invite:link]
+
+  [invite:note]
+
+  Once you've signed, your instructor dashboard opens automatically — that's where your sessions, class checkout and post-class tasks live. If you're not already a MakeHaven member, we'll set up your building access after you sign.
+
+  Questions? Reply to this email or write education@makehaven.org.
+
+  [invite:sender]
+  MakeHaven Education Team
   www.makehaven.org
 proposal_staff_contact_uid: 0

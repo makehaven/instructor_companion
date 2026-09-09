@@ -41,6 +41,14 @@ instructor_companion.staff_tools_console:
   parent: instructor_companion.staff_tools_group
   weight: 5
 
+instructor_companion.staff_tools_invite:
+  title: 'Invite an Instructor'
+  description: 'Send someone you have vetted a link straight into the instructor agreement.'
+  route_name: instructor_companion.invite_form
+  menu_name: staff-tools
+  parent: instructor_companion.staff_tools_group
+  weight: 7
+
 instructor_companion.staff_tools_prospective:
   title: 'Prospective Instructors'
   description: 'Members who indicated teaching interest but are not yet instructors.'

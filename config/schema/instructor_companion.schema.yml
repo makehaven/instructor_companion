@@ -35,3 +35,9 @@ instructor_companion.settings:
     instructor_welcome_body:
       type: text
       label: 'Instructor welcome email body'
+    invite_subject:
+      type: string
+      label: 'Instructor agreement invite email subject'
+    invite_body:
+      type: text
+      label: 'Instructor agreement invite email body'

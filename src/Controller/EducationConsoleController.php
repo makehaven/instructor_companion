@@ -141,7 +141,8 @@ class EducationConsoleController extends ControllerBase {
       '#title' => $this->t('More'),
       '#attributes' => ['class' => ['education-console__links']],
       '#items' => [
-        $this->link($this->t('Prospective instructors (grant role / door access)'), Url::fromRoute('instructor_companion.prospective_instructors')),
+        $this->link($this->t('Invite an instructor (send someone you have vetted the agreement)'), Url::fromRoute('instructor_companion.invite_form')),
+        $this->link($this->t('Prospective instructors (invites out, grant role / door access)'), Url::fromRoute('instructor_companion.prospective_instructors')),
         $this->link($this->t('Instructor dashboard (what instructors see)'), Url::fromRoute('instructor_companion.dashboard')),
         $this->link($this->t('Notification & email settings'), Url::fromRoute('instructor_companion.settings')),
       ],

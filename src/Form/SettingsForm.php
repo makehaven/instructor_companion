@@ -2,8 +2,9 @@
 
 namespace Drupal\instructor_companion\Form;
 
-use Drupal\user\Entity\User;
 use Drupal\Core\Form\ConfigFormBase;
+use Drupal\Core\Url;
+use Drupal\user\Entity\User;
 use Drupal\Core\Form\FormStateInterface;
 
 /**
@@ -131,6 +132,30 @@ class SettingsForm extends ConfigFormBase {
       ];
     }
 
+    $form['invite'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Instructor agreement invite email'),
+      '#description' => $this->t('Sent when staff use <a href=":url">Invite an instructor</a>. The link signs the person in and opens the agreement; it is valid for 14 days. Edit copy here without a code deploy.', [':url' => Url::fromRoute('instructor_companion.invite_form')->toString()]),
+      '#open' => TRUE,
+    ];
+
+    $form['invite']['invite_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subject'),
+      '#default_value' => $config->get('invite_subject'),
+      '#maxlength' => 255,
+      '#required' => TRUE,
+    ];
+
+    $form['invite']['invite_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Body'),
+      '#default_value' => $config->get('invite_body'),
+      '#rows' => 16,
+      '#required' => TRUE,
+      '#description' => $this->t('Plain text. <code>[invite:link]</code> is the personal link and must appear; <code>[invite:sender]</code> is the staff member sending it; <code>[invite:note]</code> is their optional note (blank when none). <code>[user:*]</code> and <code>[site:*]</code> tokens also work.'),
+    ];
+
     $form['interest_approval'] = [
       '#type' => 'details',
       '#title' => $this->t('Instructor Interest approval email'),
@@ -178,6 +203,16 @@ class SettingsForm extends ConfigFormBase {
   /**
    * {@inheritdoc}
    */
+  public function validateForm(array &$form, FormStateInterface $form_state) {
+    parent::validateForm($form, $form_state);
+    if (!str_contains((string) $form_state->getValue('invite_body'), '[invite:link]')) {
+      $form_state->setErrorByName('invite_body', $this->t('The invite body must contain [invite:link] — without it the email has no way in.'));
+    }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $this->config('instructor_companion.settings')
       ->set('notification_email', $form_state->getValue('notification_email'))
@@ -191,6 +226,8 @@ class SettingsForm extends ConfigFormBase {
       ->set('instructor_welcome_enabled', (bool) $form_state->getValue('instructor_welcome_enabled'))
       ->set('instructor_welcome_subject', $form_state->getValue('instructor_welcome_subject'))
       ->set('instructor_welcome_body', $form_state->getValue('instructor_welcome_body'))
+      ->set('invite_subject', $form_state->getValue('invite_subject'))
+      ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
       ->set('interest_approval_subject', $form_state->getValue('interest_approval_subject'))
       ->set('interest_approval_body', $form_state->getValue('interest_approval_body'))

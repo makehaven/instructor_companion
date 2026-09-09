@@ -19,10 +19,108 @@ class ProspectiveInstructorsController extends ControllerBase {
    */
   public function build(): array {
     $build = [];
+    $build['invited'] = $this->buildInvitedSection();
     $build['awaiting_door'] = $this->buildAwaitingDoorAccessSection();
     $build['awaiting_role'] = $this->buildAwaitingRoleSection();
     $build['interest_section'] = $this->buildTeachingInterestSection();
     return $build;
+  }
+
+  /**
+   * Section: people staff invited to sign the agreement who have not yet.
+   *
+   * Fed by the Invite an Instructor form. A row disappears the moment the
+   * person signs (they then show under door access / role as usual).
+   */
+  protected function buildInvitedSection(): array {
+    /** @var \Drupal\instructor_companion\Service\InstructorInviteManager $invites */
+    $invites = \Drupal::service('instructor_companion.invite');
+    $pending = $invites->pending();
+    $invite_link = [
+      '#type' => 'link',
+      '#title' => $this->t('Invite an instructor'),
+      '#url' => Url::fromRoute('instructor_companion.invite_form'),
+      '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
+    ];
+    $heading = ['#markup' => '<h2>' . $this->t('Invited — Awaiting Signature') . '</h2>'];
+
+    if (!$pending) {
+      return [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['invited-instructors-section']],
+        'heading' => $heading,
+        'empty' => ['#markup' => '<p><em>' . $this->t('Nobody is waiting on an invite right now.') . '</em></p>'],
+        'invite' => $invite_link,
+      ];
+    }
+
+    $user_storage = $this->entityTypeManager()->getStorage('user');
+    $rows = [];
+    foreach ($pending as $uid => $record) {
+      /** @var \Drupal\user\UserInterface $user */
+      $user = $record['user'];
+      $by = $user_storage->load($record['last_sent_by'] ?? $record['invited_by'] ?? 0);
+      $sent = (int) ($record['last_sent'] ?? 0);
+      $expired = !\Drupal\instructor_companion\Service\InstructorInviteManager::isWithinTtl($sent, \Drupal::time()->getRequestTime());
+
+      $resend_url = Url::fromRoute('instructor_companion.invite_resend', ['user' => $uid]);
+      $resend_url->setOption('query', ['token' => \Drupal::csrfToken()->get($resend_url->getInternalPath())]);
+
+      $status = $expired
+        ? $this->t('Link expired')
+        : (!empty($record['accepted_at']) ? $this->t('Opened the link, not signed yet') : $this->t('Sent, not opened'));
+
+      $rows[] = [
+        'name' => [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $record['name'] ?: $user->getDisplayName(),
+            '#url' => Url::fromRoute('entity.user.canonical', ['user' => $uid]),
+          ],
+        ],
+        'email' => $user->getEmail(),
+        'sent' => $this->t('@when by @who@again', [
+          '@when' => $sent ? date('M j', $sent) : '—',
+          '@who' => $by ? $by->getDisplayName() : $this->t('staff'),
+          '@again' => ($record['count'] ?? 1) > 1 ? ' (×' . $record['count'] . ')' : '',
+        ]),
+        'status' => $status,
+        'actions' => [
+          'data' => [
+            '#type' => 'dropbutton',
+            '#links' => [
+              'resend' => ['title' => $this->t('Resend invite'), 'url' => $resend_url],
+              'profile' => ['title' => $this->t('Open account'), 'url' => Url::fromRoute('entity.user.canonical', ['user' => $uid])],
+            ],
+          ],
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['invited-instructors-section']],
+      'heading' => $heading,
+      'summary' => [
+        '#markup' => '<p>' . $this->t(
+          '<strong>@count</strong> invited to sign the instructor agreement and not signed yet. Links last 14 days; resend if one has gone stale.',
+          ['@count' => count($rows)]
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'name' => $this->t('Name'),
+          'email' => $this->t('Email'),
+          'sent' => $this->t('Invite sent'),
+          'status' => $this->t('Status'),
+          'actions' => $this->t('Actions'),
+        ],
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['invited-instructors-table']],
+      ],
+      'invite' => $invite_link,
+    ];
   }
 
   /**

@@ -241,6 +241,26 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = $token->replace($config->get('instructor_welcome_body'), $data, $options);
       break;
 
+    case 'instructor_invite':
+      // Staff-sent link into the agreement (InstructorInviteManager). Copy is
+      // configurable; [invite:*] placeholders are ours, the rest are tokens.
+      $config = \Drupal::config('instructor_companion.settings');
+      $data = ['user' => $params['user']];
+      $options = ['clear' => TRUE];
+      $note = trim((string) ($params['note'] ?? ''));
+      $replacements = [
+        '[invite:link]' => $params['link'],
+        '[invite:sender]' => $params['sender'],
+        '[invite:note]' => $note === '' ? '' : (string) t('A note from @sender: @note', ['@sender' => $params['sender'], '@note' => $note]),
+      ];
+      $body = strtr((string) $config->get('invite_body'), $replacements);
+      // Collapse the blank lines an empty note leaves behind.
+      $body = preg_replace("/\n{3,}/", "\n\n", $body);
+      $message['from'] = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
+      $message['subject'] = \Drupal::token()->replace((string) $config->get('invite_subject'), $data, $options);
+      $message['body'][] = \Drupal::token()->replace($body, $data, $options);
+      break;
+
     case 'interest_approval':
       // Subject and body are passed in pre-rendered by ProposalProcessor
       // (token replacement happens there because the submitter may not be a
@@ -263,11 +283,11 @@ function instructor_companion_mail($key, &$message, $params) {
     case 'instructor_agreement_signed':
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = t('Instructor Agreement Signed: @name', ['@name' => $params['user_name']]);
-      $message['body'][] = t('A member has signed the base instructor agreement and is awaiting approval.');
+      $message['body'][] = t('The instructor agreement has been signed. Their instructor profile is created and the Instructor role is granted, so the dashboard is open to them now.');
       $message['body'][] = t('Name: @name', ['@name' => $params['user_name']]);
       $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
       $message['body'][] = t('User profile: @link', ['@link' => $params['user_link']]);
-      $message['body'][] = t('Next step: review their background and assign the Instructor role when ready. Reply to this email or contact them directly to discuss their first class.');
+      $message['body'][] = t('Next step: reply to this email or contact them directly about their first session — nothing else is needed on the site unless door access is mentioned below.');
       if (!empty($params['needs_door_review'])) {
         $queue_url = \Drupal\Core\Url::fromRoute('instructor_companion.prospective_instructors', [], ['absolute' => TRUE])->toString();
         $message['body'][] = t('Door access: this instructor does NOT already have a building door badge. A pending request was created — review their background and approve building access at: @link', ['@link' => $queue_url]);

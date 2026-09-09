@@ -8,13 +8,35 @@ The **Instructor Companion** module is a custom solution designed to streamline 
 
 ## Features & Architecture
 
-### 1. Registration Logic
-*   **Trigger:** Uses the existing user registration form with a query parameter: `/user/register?profile=instructor`.
-*   **Security:** 
-    *   Intercepts the `profile_registration` logic to ensuring the `member` role is **NOT** assigned.
-    *   Does **NOT** automatically assign the `instructor` role (requires staff vetting).
-    *   Redirects to the specific "Instructor Profile" form (`/user/{uid}/instructor`) instead of the Main profile.
-*   **Notifications:** Automatically emails `education@makehaven.org` when a new instructor application is submitted.
+### 1. Getting someone in: two doors
+
+**Staff-sent invite (the normal way for someone staff have already met).**
+`/admin/education/invite` — "Invite an Instructor" in the staff-tools Education
+group. Staff enter name, email and an optional note; `InstructorInviteManager`
+finds the account by email or creates one (no roles, no password), and emails a
+personal link `/instructor/invite/{uid}/{timestamp}/{hash}`. The link signs the
+person in and opens the agreement; it lasts **14 days** and is HMAC-signed with
+the site salt and the account's password hash (so setting a password retires
+any outstanding link, the same way core's one-time login links behave). Signing
+does everything it does on the self-serve path — instructor profile, `instructor`
+role, pending door badge for non-members, staff email, dashboard. Outstanding
+invites are listed under **Invited — Awaiting Signature** on
+`/admin/people/prospective-instructors` with a Resend action; records live in
+the `instructor_companion.invites` key/value collection. Email copy is
+editable at the module settings page (`invite_subject` / `invite_body`,
+placeholders `[invite:link]`, `[invite:sender]`, `[invite:note]`). The
+dashboard warns an invite-created account that it has no password yet.
+
+This is the only route by which someone who has not talked to staff can reach
+the agreement — the ordering the 2026-08-13 rollback established.
+
+**Self-registration (`/user/register?profile=instructor`).** Still exists for
+links in the wild. The account is created with no roles, staff at
+`notification_email` are told, the applicant gets the welcome email, and they
+land on `/become-instructor`, which routes them by who they are (a member can
+propose a session; anyone else is pointed at the interest form). It does **not**
+lead to the agreement. The old `/register/instructor` redirect points at
+`/become-instructor` since `update_9013`.
 
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)

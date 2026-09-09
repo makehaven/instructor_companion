@@ -497,3 +497,44 @@ function instructor_companion_update_9012() {
     count($uids)
   );
 }
+
+/**
+ * Seed the instructor-invite email copy; retire the /register/instructor link.
+ *
+ * The invite keys are only written where still NULL (fresh installs have them
+ * from config/install; existing sites also get them from config sync — this is
+ * the belt for sites that import code before config).
+ *
+ * `/register/instructor` (redirect entity, source path only) used to be the
+ * staff way to "onboard an instructor": it dropped the person on the
+ * self-registration form and, since 2026-08-14, on a 404 after it. The invite
+ * form replaces that job, so the old link now goes to /become-instructor,
+ * which routes whoever follows it by who they are.
+ */
+function instructor_companion_update_9013() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  $seed_from = \Drupal::service('extension.list.module')->getPath('instructor_companion') . '/config/install/instructor_companion.settings.yml';
+  $defaults = file_exists($seed_from) ? (\Drupal\Core\Serialization\Yaml::decode(file_get_contents($seed_from)) ?: []) : [];
+  $changed = FALSE;
+  foreach (['invite_subject', 'invite_body'] as $key) {
+    if ($config->get($key) === NULL && isset($defaults[$key])) {
+      $config->set($key, $defaults[$key]);
+      $changed = TRUE;
+    }
+  }
+  if ($changed) {
+    $config->save();
+  }
+
+  $messages = [];
+  if (\Drupal::moduleHandler()->moduleExists('redirect')) {
+    $storage = \Drupal::entityTypeManager()->getStorage('redirect');
+    foreach ($storage->loadByProperties(['redirect_source__path' => 'register/instructor']) as $redirect) {
+      $redirect->setRedirect('/become-instructor');
+      $redirect->save();
+      $messages[] = 'Repointed redirect ' . $redirect->id() . ' (/register/instructor) at /become-instructor.';
+    }
+  }
+  $messages[] = $changed ? 'Seeded invite email copy.' : 'Invite email copy already present.';
+  return implode(' ', $messages);
+}

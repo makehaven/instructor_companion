@@ -48,6 +48,16 @@ class InstructorDashboardController extends ControllerBase {
 
     $build['#attached']['library'][] = 'instructor_companion/dashboard';
 
+    // Accounts created by a staff invite have no password: the invite link was
+    // the credential. Say so once they are here, or their next visit ends at
+    // the login form with nothing to type.
+    $account_entity = $this->entityTypeManager()->getStorage('user')->load($current_user->id());
+    if ($account_entity && (string) $account_entity->getPassword() === '') {
+      $this->messenger()->addWarning($this->t('Your account has no password yet. <a href=":url">Set one now</a> so you can sign in next time.', [
+        ':url' => Url::fromRoute('entity.user.edit_form', ['user' => $current_user->id()])->toString(),
+      ]));
+    }
+
     // 1. Dashboard Header / Stats & Profile.
     $build['header_container'] = [
       '#type' => 'container',

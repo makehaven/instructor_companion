@@ -231,3 +231,40 @@ instructor_companion.submission_status:
     parameters:
       submission:
         type: 'entity:webform_submission'
+
+instructor_companion.invite_form:
+  path: '/admin/education/invite'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\InviteInstructorForm'
+    _title: 'Invite an instructor'
+  requirements:
+    _permission: 'administer webform submission'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.invite_resend:
+  path: '/admin/education/invite/{user}/resend'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorInviteController::resend'
+  options:
+    parameters:
+      user:
+        type: entity:user
+  requirements:
+    _permission: 'administer webform submission'
+    _csrf_token: 'TRUE'
+    user: \d+
+
+instructor_companion.invite_accept:
+  path: '/instructor/invite/{user}/{timestamp}/{hash}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorInviteController::accept'
+  options:
+    parameters:
+      user:
+        type: entity:user
+    no_cache: TRUE
+  requirements:
+    _access: 'TRUE'
+    user: \d+
+    timestamp: \d+

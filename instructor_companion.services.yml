@@ -26,6 +26,17 @@ services:
       - '@config.factory'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.invite:
+    class: Drupal\instructor_companion\Service\InstructorInviteManager
+    arguments:
+      - '@entity_type.manager'
+      - '@keyvalue'
+      - '@instructor_companion.approval_gate'
+      - '@plugin.manager.mail'
+      - '@config.factory'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.post_event_status:
     class: Drupal\instructor_companion\Service\PostEventStatusService
     arguments:
