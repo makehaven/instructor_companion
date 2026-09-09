@@ -158,36 +158,16 @@ class SettingsForm extends ConfigFormBase {
 
     $form['interest_approval'] = [
       '#type' => 'details',
-      '#title' => $this->t('Instructor Interest approval email'),
-      '#description' => $this->t('Sent to the submitter when staff click <strong>Approve</strong> on a webform_14366 submission in the Instructor Interest queue. Used to walk prospective instructors through the orientation → agreement → propose-a-session funnel without requiring them to have a Drupal account yet. Edit copy here without a code deploy.'),
+      '#title' => $this->t('Approving an Instructor Interest submission'),
+      '#description' => $this->t('Marking a submission <strong>Approved</strong> in the Instructor Interest queue means "we have spoken to this person and they should teach". It creates their MakeHaven account if they do not have one and sends them the instructor agreement invite above — the same email as the <em>Invite an instructor</em> button. It used to send a next-steps email telling them to propose a session, which a non-member cannot do.'),
       '#open' => TRUE,
     ];
 
     $form['interest_approval']['interest_approval_enabled'] = [
       '#type' => 'checkbox',
-      '#title' => $this->t('Send the Instructor Interest approval email'),
+      '#title' => $this->t('Send the invite when a submission is approved'),
       '#default_value' => (bool) $config->get('interest_approval_enabled'),
-    ];
-
-    $form['interest_approval']['interest_approval_subject'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Subject'),
-      '#default_value' => $config->get('interest_approval_subject'),
-      '#maxlength' => 255,
-      '#states' => [
-        'required' => [':input[name="interest_approval_enabled"]' => ['checked' => TRUE]],
-      ],
-    ];
-
-    $form['interest_approval']['interest_approval_body'] = [
-      '#type' => 'textarea',
-      '#title' => $this->t('Body'),
-      '#default_value' => $config->get('interest_approval_body'),
-      '#rows' => 18,
-      '#description' => $this->t('Plain text. Tokens like <code>[submission:name]</code>, <code>[submission:email]</code>, and <code>[site:url]</code> are replaced before sending. The submitter may not have a Drupal account yet, so avoid <code>[user:*]</code> tokens here.'),
-      '#states' => [
-        'required' => [':input[name="interest_approval_enabled"]' => ['checked' => TRUE]],
-      ],
+      '#description' => $this->t('Off means approving only records the status; you would then invite them by hand.'),
     ];
 
     $types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
@@ -274,8 +254,6 @@ class SettingsForm extends ConfigFormBase {
       ->set('invite_subject', $form_state->getValue('invite_subject'))
       ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
-      ->set('interest_approval_subject', $form_state->getValue('interest_approval_subject'))
-      ->set('interest_approval_body', $form_state->getValue('interest_approval_body'))
       ->save();
 
     parent::submitForm($form, $form_state);

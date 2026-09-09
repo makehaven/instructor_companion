@@ -22,7 +22,7 @@ instructor_companion.prospective_instructors:
     _controller: '\Drupal\instructor_companion\Controller\ProspectiveInstructorsController::build'
     _title: 'Prospective Instructors'
   requirements:
-    _permission: 'administer users'
+    _permission: 'access education console'
 
 instructor_companion.grant_instructor_role:
   path: '/admin/people/prospective-instructors/grant/{user}'
@@ -177,7 +177,7 @@ instructor_companion.education_console:
     _controller: '\Drupal\instructor_companion\Controller\EducationConsoleController::build'
     _title: 'Education Console'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
   options:
     _admin_route: TRUE
 
@@ -187,7 +187,7 @@ instructor_companion.workshop_proposal_queue:
     _controller: '\Drupal\instructor_companion\Controller\WorkshopProposalQueueController::build'
     _title: 'Workshop Proposal Queue'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
 
 instructor_companion.instructor_interest_queue:
   path: '/admin/instructor-interest'
@@ -195,7 +195,7 @@ instructor_companion.instructor_interest_queue:
     _controller: '\Drupal\instructor_companion\Controller\InstructorInterestQueueController::build'
     _title: 'Instructor Interest Queue'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
 
 instructor_companion.event_reassign_execute:
   path: '/admin/structure/courses/reassign-event/{event_id}/{target_nid}'
@@ -223,7 +223,7 @@ instructor_companion.submission_status:
   defaults:
     _controller: '\Drupal\instructor_companion\Controller\SubmissionStatusController::setStatus'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
     _csrf_token: 'TRUE'
     submission: '\d+'
     status: '[a-z0-9_]+'
@@ -238,7 +238,7 @@ instructor_companion.invite_form:
     _form: '\Drupal\instructor_companion\Form\InviteInstructorForm'
     _title: 'Invite an instructor'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
   options:
     _admin_route: TRUE
 
@@ -251,7 +251,7 @@ instructor_companion.invite_resend:
       user:
         type: entity:user
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
     _csrf_token: 'TRUE'
     user: \d+
 
@@ -274,7 +274,7 @@ instructor_companion.closeout_remind:
   defaults:
     _controller: '\Drupal\instructor_companion\Controller\EducationConsoleController::remindCloseout'
   requirements:
-    _permission: 'administer webform submission'
+    _permission: 'access education console'
     _csrf_token: 'TRUE'
     event_id: \d+
   options:

@@ -1,3 +1,6 @@
 access instructor dashboard:
   title: 'Access instructor dashboard'
   description: 'View the instructor dashboard page.'
+access education console:
+  title: 'Access the Education console'
+  description: 'View the instructor pipeline, close-out worklist and evaluations, invite instructors, and set review statuses. Granting or revoking roles and door access still needs "Administer users".'

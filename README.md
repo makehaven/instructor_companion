@@ -10,6 +10,14 @@ The **Instructor Companion** module is a custom solution designed to streamline 
 
 ### 1. Getting someone in: two doors
 
+**Two ways an invite goes out.** Marking an Instructor Interest submission
+**Approved** in the queue now sends it — approval means "we have spoken to this
+person and they should teach". It used to send a next-steps email telling them
+to propose a session, which a **non-member cannot do**: the course picker sends
+them straight back to the interest form they had just filled in. Nobody was
+ever caught by that only because no submission had ever been approved. The
+other way is the button below.
+
 **Staff-sent invite (the normal way for someone staff have already met).**
 `/admin/education/invite` — "Invite an Instructor" in the staff-tools Education
 group. Staff enter name, email and an optional note; `InstructorInviteManager`
@@ -93,6 +101,20 @@ hub: at exactly the minute the instructor is standing in the room, the
 one-click path disappeared behind two navigations. "Take attendance" is now
 also the first action on any class row whose attendance is unsaved, upcoming
 or past.
+
+### 1d. Who can see the staff side
+
+The Education console, its queues, the invite form, Prospective Instructors and
+the close-out Remind action all sit behind **`access education console`**, held
+by `manager` and `event_management`. That permission exists because the console
+used to require `administer webform submission` — every webform on the site —
+which meant the person who schedules every class (`event_management`) could not
+see the pipeline he runs.
+
+Granting the instructor role and approving door access still require
+`administer users`. `ProspectiveInstructorsController::usableLinks()` drops
+action links the viewer cannot use, so an event manager sees those queues
+without dead buttons.
 
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)

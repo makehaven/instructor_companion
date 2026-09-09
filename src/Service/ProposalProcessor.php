@@ -300,12 +300,12 @@ class ProposalProcessor {
 
     $config = $this->configFactory->get('instructor_companion.settings');
     if (!$config->get('interest_approval_enabled')) {
-      $this->logger->info('Interest approval email disabled in settings; not sending for submission @sid.', ['@sid' => $submission->id()]);
+      $this->logger->info('Approval email disabled in settings; not inviting for submission @sid.', ['@sid' => $submission->id()]);
       return;
     }
 
     if (!empty($data['interest_outreach_sent_at'])) {
-      $this->logger->info('Outreach email already sent for submission @sid at @when; skipping.', [
+      $this->logger->info('Approval already actioned for submission @sid at @when; skipping.', [
         '@sid' => $submission->id(),
         '@when' => $data['interest_outreach_sent_at'],
       ]);
@@ -314,58 +314,43 @@ class ProposalProcessor {
 
     $email = $this->pickFirst($data, ['email', 'email_6', 'e_mail_address', 'e_mail_address_25']);
     if (!$email) {
-      $this->logger->error('Cannot send interest approval email for submission @sid: no email address on submission.', ['@sid' => $submission->id()]);
-      $this->messenger->addWarning(t('Approval saved, but no email address was found on this submission. Outreach email was not sent.'));
+      $this->logger->error('Cannot action approval for submission @sid: no email address on submission.', ['@sid' => $submission->id()]);
+      $this->messenger->addWarning(t('Approval saved, but no email address was found on this submission, so no invite was sent.'));
       return;
     }
+    $name = (string) ($this->pickFirst($data, ['name', 'name_6', 'your_name', 'your_name_25']) ?? '');
 
-    $name = $this->pickFirst($data, ['name', 'name_6', 'your_name', 'your_name_25']) ?? t('there');
-
-    $subject_tpl = (string) $config->get('interest_approval_subject');
-    $body_tpl = (string) $config->get('interest_approval_body');
-
-    // [submission:name] / [submission:email] aren't standard tokens — do
-    // the direct substitution BEFORE token->replace, because clear:TRUE
-    // strips unrecognised tokens and would erase them.
-    $submission_substitutions = [
-      '[submission:name]' => (string) $name,
-      '[submission:email]' => $email,
-    ];
-    $subject_tpl = strtr($subject_tpl, $submission_substitutions);
-    $body_tpl = strtr($body_tpl, $submission_substitutions);
-
-    $token_data = ['webform_submission' => $submission];
-    $token_options = ['clear' => TRUE];
-    $subject = $this->token->replace($subject_tpl, $token_data, $token_options);
-    $body = $this->token->replace($body_tpl, $token_data, $token_options);
-
+    // Approving means "we have talked to this person and they should teach",
+    // so it sends the agreement invite. It used to send a next-steps email
+    // telling them to propose a session — which a non-member cannot do: the
+    // course picker sends them back to the very interest form they had just
+    // filled in. Nobody was ever caught by that only because no submission
+    // had ever been approved. See docs/ops/2026-08-13-instructor-pages-rollback.md
+    // for why the agreement is staff-sent rather than self-serve.
     try {
-      $result = $this->mailManager->mail(
-        'instructor_companion',
-        'interest_approval',
-        $email,
-        \Drupal::languageManager()->getDefaultLanguage()->getId(),
-        ['subject' => $subject, 'body' => $body, 'submission' => $submission],
-        NULL,
-        TRUE,
-      );
-      if (empty($result['result'])) {
-        $this->logger->error('Mail manager reported failure sending interest_approval to @email for submission @sid.', [
-          '@email' => $email,
-          '@sid' => $submission->id(),
-        ]);
-        $this->messenger->addError(t('Approval saved but the next-steps email failed to send. Check logs and resend manually.'));
-        return;
-      }
+      $result = \Drupal::service('instructor_companion.invite')
+        ->invite($name, $email, \Drupal::currentUser());
     }
     catch (\Throwable $e) {
-      $this->logger->error('Exception sending interest_approval email for submission @sid: @msg', [
+      $this->logger->error('Exception inviting @email from submission @sid: @msg', [
+        '@email' => $email,
         '@sid' => $submission->id(),
         '@msg' => $e->getMessage(),
       ]);
-      $this->messenger->addError(t('Approval saved but the next-steps email threw an error. Check logs.'));
+      $this->messenger->addError(t('Approval saved but the invite threw an error. Check the logs.'));
       return;
     }
+
+    if (empty($result['sent'])) {
+      $this->messenger->addError(t('Approval saved but the invite email to @email failed to send. The account exists — resend it from the Education console.', [
+        '@email' => $email,
+      ]));
+      return;
+    }
+
+    $this->messenger->addStatus($result['created']
+      ? t('Approved. A MakeHaven account was created for @email and the instructor agreement invite is on its way.', ['@email' => $email])
+      : t('Approved. The instructor agreement invite is on its way to @email (existing account).', ['@email' => $email]));
 
     // Record outreach on the submission so the queue shows it and we don't
     // resend on subsequent saves. Format mirrors webform's datetime widget.
@@ -373,14 +358,10 @@ class ProposalProcessor {
     $submission->setData($data);
     $submission->resave();
 
-    $this->logger->info('Sent interest_approval email to @email for submission @sid.', [
+    $this->logger->info('Approved interest submission @sid: agreement invite sent to @email.', [
       '@email' => $email,
       '@sid' => $submission->id(),
     ]);
-    $this->messenger->addStatus(t('Approved interest from @name. Next-steps email sent to @email.', [
-      '@name' => $name,
-      '@email' => $email,
-    ]));
   }
 
   /**

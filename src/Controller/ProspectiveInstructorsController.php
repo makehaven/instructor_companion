@@ -44,6 +44,20 @@ class ProspectiveInstructorsController extends ControllerBase {
   }
 
   /**
+   * Drops action links the current user has no access to.
+   *
+   * The Education console renders these sections for anyone with "access
+   * education console", but granting a role or door access still needs
+   * "Administer users" — so an event manager sees the queue without dead
+   * buttons that would 403.
+   */
+  protected function usableLinks(array $links): array {
+    return array_filter($links, static function (array $link): bool {
+      return !isset($link['url']) || $link['url']->access();
+    });
+  }
+
+  /**
    * Query for a CSRF-protected action link, plus the return path when given.
    */
   protected function actionQuery(Url $url, ?string $destination): array {
@@ -116,10 +130,10 @@ class ProspectiveInstructorsController extends ControllerBase {
         'actions' => [
           'data' => [
             '#type' => 'dropbutton',
-            '#links' => [
+            '#links' => $this->usableLinks([
               'resend' => ['title' => $this->t('Resend invite'), 'url' => $resend_url],
               'profile' => ['title' => $this->t('Open account'), 'url' => Url::fromRoute('entity.user.canonical', ['user' => $uid])],
-            ],
+            ]),
           ],
         ],
       ];
@@ -236,7 +250,7 @@ class ProspectiveInstructorsController extends ControllerBase {
         'actions' => [
           'data' => [
             '#type' => 'dropbutton',
-            '#links' => [
+            '#links' => $this->usableLinks([
               'grant' => [
                 'title' => $this->t('Grant Door Access'),
                 'url' => $grant_url,
@@ -245,7 +259,7 @@ class ProspectiveInstructorsController extends ControllerBase {
                 'title' => $this->t('Open Profile'),
                 'url' => Url::fromRoute('entity.user.canonical', ['user' => $uid]),
               ],
-            ],
+            ]),
           ],
         ],
       ];
@@ -392,7 +406,7 @@ class ProspectiveInstructorsController extends ControllerBase {
         'actions' => [
           'data' => [
             '#type' => 'dropbutton',
-            '#links' => [
+            '#links' => $this->usableLinks([
               'grant' => [
                 'title' => $this->t('Grant Instructor Role'),
                 'url' => $grant_url,
@@ -401,7 +415,7 @@ class ProspectiveInstructorsController extends ControllerBase {
                 'title' => $this->t('Open Profile'),
                 'url' => Url::fromRoute('entity.user.canonical', ['user' => $uid]),
               ],
-            ],
+            ]),
           ],
         ],
       ];
