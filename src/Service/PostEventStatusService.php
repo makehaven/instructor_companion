@@ -59,6 +59,11 @@ class PostEventStatusService {
   protected const ATTENDANCE_STATE_KEY = 'instructor_companion.attendance_confirmed';
 
   /**
+   * The participant-facing Event Feedback webform (survey link in reminders).
+   */
+  public const EVALUATION_WEBFORM = 'webform_1181';
+
+  /**
    * Payment_request status values that mean the instructor submitted it.
    *
    * 'draft' = saved but not submitted; 'rejected' = needs redo. Neither
@@ -187,6 +192,118 @@ class PostEventStatusService {
       'incomplete_labels' => array_map(static fn(string $k): string => self::LABELS[$k], $incomplete),
       'progress' => $done_count . '/' . $applicable_count,
     ];
+  }
+
+  /**
+   * Classes that have ended with wrap-up still outstanding.
+   *
+   * The staff-side counterpart to the instructor's post-event hub: the same
+   * four steps, for every recent class at once. Classes with no counted
+   * participants are skipped — nagging about a class nobody attended is noise,
+   * and it is the same rule the reminder cron applies.
+   *
+   * @param int $days
+   *   How far back to look from now.
+   * @param int $limit
+   *   Maximum classes to return.
+   *
+   * @return array<int, array>
+   *   Newest-ended first. Each row: event_id, title, uid, instructor,
+   *   ended (timestamp), status (see ::getStatus()), attendees (int),
+   *   evaluations (int) — participant Event Feedback responses for the class.
+   */
+  public function closeoutBacklog(int $days = 30, int $limit = 60): array {
+    $now = \Drupal::time()->getRequestTime();
+    $since = date('Y-m-d H:i:s', $now - $days * 86400);
+    $until = date('Y-m-d H:i:s', $now);
+
+    $q = $this->database->select('civicrm_event', 'e');
+    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+    $q->addField('e', 'id', 'event_id');
+    $q->addField('e', 'title', 'title');
+    $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
+    $q->addExpression('COALESCE(e.end_date, e.start_date)', 'ended');
+    $q->where('COALESCE(e.end_date, e.start_date) BETWEEN :lo AND :hi', [':lo' => $since, ':hi' => $until]);
+    $q->condition('e.is_active', 1);
+    $q->condition('e.is_template', 0);
+    $q->orderBy('ended', 'DESC');
+    $q->range(0, $limit);
+
+    $evaluations = $this->evaluationCounts($since, $until);
+    $user_storage = $this->entityTypeManager->getStorage('user');
+    $rows = [];
+
+    foreach ($q->execute() as $row) {
+      $event_id = (int) $row->event_id;
+      $uid = (int) $row->uid;
+      if (!$uid) {
+        continue;
+      }
+      $attendees = $this->countedParticipants($event_id);
+      if (!$attendees) {
+        continue;
+      }
+      $status = $this->getStatus($event_id, $uid);
+      if ($status['all_complete']) {
+        continue;
+      }
+      $instructor = $user_storage->load($uid);
+      $rows[] = [
+        'event_id' => $event_id,
+        'title' => (string) $row->title,
+        'uid' => $uid,
+        // Translation is the caller's job — this service has no string trait.
+        'instructor' => $instructor ? $instructor->getDisplayName() : '',
+        'ended' => strtotime((string) $row->ended) ?: NULL,
+        'status' => $status,
+        'attendees' => $attendees,
+        'evaluations' => (int) ($evaluations[$event_id] ?? 0),
+      ];
+    }
+    return $rows;
+  }
+
+  /**
+   * Counted (non-test, is_counted status) participants on an event.
+   */
+  public function countedParticipants(int $event_id): int {
+    $q = $this->database->select('civicrm_participant', 'p');
+    $q->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $q->condition('p.event_id', $event_id);
+    $q->condition('p.is_test', 0);
+    $q->condition('pst.is_counted', 1);
+    return (int) $q->countQuery()->execute()->fetchField();
+  }
+
+  /**
+   * Participant Event Feedback responses per event id, for a date window.
+   *
+   * The survey is webform_1181, linked from the "Thanks for Attending!" and
+   * "3 days Later Reminder" CiviCRM reminders, which pass ?event_id=. Older
+   * submissions predate that parameter and simply do not count.
+   *
+   * @return array<int, int>
+   *   event_id => response count.
+   */
+  protected function evaluationCounts(string $since, string $until): array {
+    if (!$this->database->schema()->tableExists('webform_submission_data')) {
+      return [];
+    }
+    $q = $this->database->select('webform_submission_data', 'sd');
+    $q->innerJoin('webform_submission', 'ws', 'ws.sid = sd.sid');
+    $q->addField('sd', 'value', 'event_id');
+    $q->addExpression('COUNT(*)', 'n');
+    $q->condition('ws.webform_id', self::EVALUATION_WEBFORM);
+    $q->condition('sd.name', 'event_id');
+    $q->condition('ws.created', strtotime($since) - 30 * 86400, '>=');
+    $q->groupBy('sd.value');
+    $out = [];
+    foreach ($q->execute() as $row) {
+      if (ctype_digit((string) $row->event_id)) {
+        $out[(int) $row->event_id] = (int) $row->n;
+      }
+    }
+    return $out;
   }
 
   /**

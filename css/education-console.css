@@ -119,3 +119,13 @@ a.education-console__tile:focus-visible {
 .education-console__onboarding .awaiting-instructor-role-section {
   margin-bottom: 1.5rem;
 }
+
+/* Close-out worklist: keep the four step ticks readable on one line. */
+.education-console__table--closeout td {
+  vertical-align: top;
+}
+.education-console__table--closeout td:nth-child(5) {
+  font-size: 0.92em;
+  line-height: 1.6;
+  min-width: 22rem;
+}

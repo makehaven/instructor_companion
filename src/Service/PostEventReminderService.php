@@ -144,6 +144,45 @@ class PostEventReminderService {
   }
 
   /**
+   * Sends the post-class reminder now, on a staff member's say-so.
+   *
+   * Bypasses the cron due-window and the already-sent record deliberately:
+   * staff use this when the automatic one did not land or was ignored, and
+   * they can see on the console exactly what is still outstanding.
+   *
+   * @return bool
+   *   FALSE when the class has no instructor, the instructor has no email, or
+   *   there is nothing left outstanding.
+   */
+  public function remindNow(int $event_id): bool {
+    $uid = (int) $this->database->select('civicrm_event__field_civi_event_instructor', 'i')
+      ->fields('i', ['field_civi_event_instructor_target_id'])
+      ->condition('i.entity_id', $event_id)
+      ->condition('i.deleted', 0)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (!$uid) {
+      return FALSE;
+    }
+    $status = $this->postEventStatus->getStatus($event_id, $uid);
+    if ($status['all_complete']) {
+      return FALSE;
+    }
+    if (!$this->sendReminder($event_id, $uid, $status)) {
+      return FALSE;
+    }
+    $sent = (array) $this->state->get(self::SENT_STATE_KEY, []);
+    $sent[$event_id] = ['t' => \Drupal::time()->getRequestTime(), 'sent' => TRUE];
+    $this->state->set(self::SENT_STATE_KEY, $sent);
+    $this->logger->notice('Post-class reminder for event @id re-sent to uid @uid by staff.', [
+      '@id' => $event_id,
+      '@uid' => $uid,
+    ]);
+    return TRUE;
+  }
+
+  /**
    * Sends the reminder email to the instructor.
    */
   protected function sendReminder(int $event_id, int $uid, array $status): bool {

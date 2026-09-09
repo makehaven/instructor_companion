@@ -268,3 +268,14 @@ instructor_companion.invite_accept:
     _access: 'TRUE'
     user: \d+
     timestamp: \d+
+
+instructor_companion.closeout_remind:
+  path: '/admin/education/closeout/{event_id}/remind'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EducationConsoleController::remindCloseout'
+  requirements:
+    _permission: 'administer webform submission'
+    _csrf_token: 'TRUE'
+    event_id: \d+
+  options:
+    _admin_route: TRUE

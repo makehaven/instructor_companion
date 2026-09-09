@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\InstructorApprovalGate;
+use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\instructor_companion\Service\ProposalHoldManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -40,6 +41,7 @@ class EducationConsoleController extends ControllerBase {
     protected DateFormatterInterface $dateFormatter,
     protected ProposalHoldManager $holdManager,
     protected InstructorApprovalGate $approvalGate,
+    protected PostEventStatusService $postEventStatus,
   ) {}
 
   /**
@@ -51,6 +53,7 @@ class EducationConsoleController extends ControllerBase {
       $container->get('date.formatter'),
       $container->get('instructor_companion.proposal_hold_manager'),
       $container->get('instructor_companion.approval_gate'),
+      $container->get('instructor_companion.post_event_status'),
     );
   }
 
@@ -71,6 +74,7 @@ class EducationConsoleController extends ControllerBase {
     $ideas = $this->unreviewedSubmissions('webform_497', $now);
     $signed = $this->agreementsSigned($now);
     $invited = \Drupal::service('instructor_companion.invite')->pending();
+    $closeout = $this->postEventStatus->closeoutBacklog();
 
     $build = [
       '#type' => 'container',
@@ -147,6 +151,13 @@ class EducationConsoleController extends ControllerBase {
         Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'onboarding']),
         $invited ? (string) $this->t('oldest: @age', ['@age' => $this->age(min(array_map(fn($r) => (int) ($r['last_sent'] ?? $now), $invited)), $now)]) : NULL
       ),
+      'closeout' => $this->tile(
+        $this->t('Classes to close out'),
+        count($closeout),
+        $this->t('ended recently, wrap-up outstanding'),
+        Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'closeout']),
+        $closeout ? (string) $this->t('oldest: @age', ['@age' => $this->age((int) min(array_filter(array_column($closeout, 'ended'))), $now)]) : NULL
+      ),
       'agreements' => $this->tile(
         $this->t('Agreements signed'),
         $signed['count'],
@@ -174,6 +185,10 @@ class EducationConsoleController extends ControllerBase {
       ],
     ] + ProspectiveInstructorsController::create(\Drupal::getContainer())->onboardingSections('/admin/education');
 
+    if ($closeout) {
+      $build['closeout'] = $this->closeoutTable($closeout, $now);
+    }
+
     if ($held) {
       $build['held'] = $this->heldTable($held, $holds);
     }
@@ -190,6 +205,104 @@ class EducationConsoleController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Staff action: re-send the post-class reminder for one class.
+   */
+  public function remindCloseout(int $event_id): \Symfony\Component\HttpFoundation\RedirectResponse {
+    $sent = \Drupal::service('instructor_companion.post_event_reminder')->remindNow($event_id);
+    if ($sent) {
+      $this->messenger()->addStatus($this->t('Reminder sent to the instructor.'));
+    }
+    else {
+      $this->messenger()->addWarning($this->t('Nothing sent — the class has no instructor on it, that account has no email, or the wrap-up is already complete.'));
+    }
+    // ?destination (set by the console link) takes it from here.
+    return $this->redirect('instructor_companion.education_console');
+  }
+
+  /**
+   * Classes that ended with wrap-up outstanding.
+   *
+   * The same four steps the instructor sees on their post-event hub, for
+   * every recent class at once, plus how many attendees returned the
+   * participant survey. "Remind" re-sends the post-class email.
+   */
+  protected function closeoutTable(array $rows, int $now): array {
+    $table_rows = [];
+    foreach ($rows as $row) {
+      $remind_url = Url::fromRoute('instructor_companion.closeout_remind', ['event_id' => $row['event_id']]);
+      $remind_url->setOption('query', [
+        'token' => \Drupal::csrfToken()->get($remind_url->getInternalPath()),
+        'destination' => '/admin/education',
+      ]);
+
+      $ticks = [];
+      foreach ($row['status']['steps'] as $step) {
+        if (!$step['applicable']) {
+          continue;
+        }
+        $ticks[] = ($step['complete'] ? '✅ ' : '⬜ ') . $step['label'];
+      }
+
+      $table_rows[] = [
+        'what' => [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $row['title'],
+            '#url' => Url::fromRoute('instructor_companion.post_event_hub', ['event_id' => $row['event_id']]),
+          ],
+        ],
+        'who' => $row['instructor'] ?: $this->t('(no instructor on the event)'),
+        'ended' => $row['ended'] ? $this->t('@age ago', ['@age' => $this->age($row['ended'], $now)]) : '—',
+        'progress' => $row['status']['progress'],
+        'outstanding' => implode(' · ', $ticks),
+        'evaluations' => $this->t('@n of @total', ['@n' => $row['evaluations'], '@total' => $row['attendees']]),
+        'action' => [
+          'data' => [
+            '#type' => 'dropbutton',
+            '#links' => [
+              'remind' => ['title' => $this->t('Remind instructor'), 'url' => $remind_url],
+              'hub' => [
+                'title' => $this->t('Open wrap-up page'),
+                'url' => Url::fromRoute('instructor_companion.post_event_hub', ['event_id' => $row['event_id']]),
+              ],
+            ],
+          ],
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__closeout'], 'id' => 'closeout'],
+      'heading' => ['#markup' => '<h2>' . $this->t('Classes to close out') . '</h2>'],
+      'note' => [
+        '#markup' => '<p class="education-console__held-note">' . $this->t(
+          'Classes from the last 30 days whose instructor still owes wrap-up.
+           Classes nobody attended are left out. The instructor is emailed
+           automatically after the class; "Remind instructor" sends it again.
+           Evaluations counts the participant Event Feedback survey, which the
+           attendees are asked for separately — a low number there is not the
+           instructor\'s doing.'
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'what' => $this->t('Class'),
+          'who' => $this->t('Instructor'),
+          'ended' => $this->t('Ended'),
+          'progress' => $this->t('Done'),
+          'outstanding' => $this->t('Wrap-up steps'),
+          'evaluations' => $this->t('Evaluations'),
+          'action' => $this->t('Action'),
+        ],
+        '#rows' => $table_rows,
+        '#attributes' => ['class' => ['education-console__table', 'education-console__table--closeout']],
+      ],
+    ];
   }
 
   /**

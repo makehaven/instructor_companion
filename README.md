@@ -40,6 +40,23 @@ propose a session; anyone else is pointed at the interest form). It does **not**
 lead to the agreement. The old `/register/instructor` redirect points at
 `/become-instructor` since `update_9013`.
 
+### 1b. Staff view of post-class wrap-up
+
+`PostEventStatusService` computes four wrap-up steps per class + instructor —
+**attendance, badges, feedback, payment** — and `PostEventHubController` shows
+them to the instructor for one class. `closeoutBacklog()` is the staff-side
+counterpart: every class from the last 30 days whose wrap-up is incomplete,
+rendered as **Classes to close out** on the Education console (with a count
+tile). Classes with no counted participants are skipped, matching the reminder
+cron. The Evaluations column counts participant responses to the Event Feedback
+survey (`webform_1181`, linked from the "Thanks for Attending!" and "3 days
+Later Reminder" CiviCRM reminders, which pass `?event_id=`) — that is an
+attendee response rate, not something the instructor owes.
+
+"Remind instructor" calls `PostEventReminderService::remindNow()`, which
+re-sends the post-class email regardless of the cron due-window and
+already-sent record; staff use it when the automatic one was ignored.
+
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)
 *   **Dynamic Class List:** 
