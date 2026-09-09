@@ -217,6 +217,25 @@ function instructor_companion_user_register_notify($form, FormStateInterface $fo
 }
 
 /**
+ * The settings this module ships in config/install.
+ *
+ * Used as a last-resort fallback for email copy when a site's active config
+ * has not been seeded yet, so a missing key degrades to the shipped wording
+ * instead of an unsendable empty message.
+ */
+function _instructor_companion_install_defaults(): array {
+  static $defaults;
+  if ($defaults === NULL) {
+    $file = \Drupal::service('extension.list.module')->getPath('instructor_companion')
+      . '/config/install/instructor_companion.settings.yml';
+    $defaults = is_readable($file)
+      ? (\Drupal\Core\Serialization\Yaml::decode(file_get_contents($file)) ?: [])
+      : [];
+  }
+  return $defaults;
+}
+
+/**
  * Implements hook_mail().
  */
 function instructor_companion_mail($key, &$message, $params) {
@@ -253,11 +272,22 @@ function instructor_companion_mail($key, &$message, $params) {
         '[invite:sender]' => $params['sender'],
         '[invite:note]' => $note === '' ? '' : (string) t('A note from @sender: @note', ['@sender' => $params['sender'], '@note' => $note]),
       ];
-      $body = strtr((string) $config->get('invite_body'), $replacements);
+      // Fall back to the module's own default when the site config has not
+      // been seeded yet (update_9013 does that on deploy). Without this the
+      // mail system refuses an empty body and the invite silently fails after
+      // the account has already been created — found on Lando 2026-09-09.
+      $subject_tpl = (string) ($config->get('invite_subject') ?: '');
+      $body_tpl = (string) ($config->get('invite_body') ?: '');
+      if ($body_tpl === '' || $subject_tpl === '') {
+        $defaults = _instructor_companion_install_defaults();
+        $subject_tpl = $subject_tpl ?: (string) ($defaults['invite_subject'] ?? 'Your MakeHaven instructor agreement');
+        $body_tpl = $body_tpl ?: (string) ($defaults['invite_body'] ?? "Hi,\n\nSign your MakeHaven instructor agreement here:\n[invite:link]\n");
+      }
+      $body = strtr($body_tpl, $replacements);
       // Collapse the blank lines an empty note leaves behind.
       $body = preg_replace("/\n{3,}/", "\n\n", $body);
       $message['from'] = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');
-      $message['subject'] = \Drupal::token()->replace((string) $config->get('invite_subject'), $data, $options);
+      $message['subject'] = \Drupal::token()->replace($subject_tpl, $data, $options);
       $message['body'][] = \Drupal::token()->replace($body, $data, $options);
       break;
 
