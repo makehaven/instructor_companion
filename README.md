@@ -84,6 +84,16 @@ types outside `closeout_event_types`. Records live in the
 hours wide so an hourly cron cannot step over a class. Switch it off, or move
 the offset, at the module settings page.
 
+**Getting to it in the UI.** The dashboard opens with a **Happening now**
+strip — the class that started within the last 6 hours whose attendance is not
+yet saved, with one full-width button. It exists because a class flips from
+"My Upcoming Classes" to "Recent / Completed" the *moment it starts*, which
+used to replace the row's direct "Take attendance" link with the post-class
+hub: at exactly the minute the instructor is standing in the room, the
+one-click path disappeared behind two navigations. "Take attendance" is now
+also the first action on any class row whose attendance is unsaved, upcoming
+or past.
+
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)
 *   **Dynamic Class List:** 

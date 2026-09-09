@@ -39,6 +39,14 @@ class InstructorDashboardController extends ControllerBase {
   protected const FEEDBACK_DISPLAY_LIMIT = 6;
 
   /**
+   * How long after its start time a class still counts as "happening now".
+   *
+   * Generous on purpose: a class that ran long, or an instructor who checks
+   * the dashboard on the way out, should still get the one-click button.
+   */
+  protected const LIVE_CLASS_HOURS = 6;
+
+  /**
    * Builds the Instructor Dashboard.
    */
   public function build() {
@@ -47,6 +55,16 @@ class InstructorDashboardController extends ControllerBase {
     $build = [];
 
     $build['#attached']['library'][] = 'instructor_companion/dashboard';
+
+    // Attendance is taken in the room, so the class happening right now gets
+    // the top of the page and a single button. Without this the instructor
+    // has to find the class in "Recent / Completed" — a class flips out of
+    // "Upcoming" the moment it starts — and then click through the post-class
+    // hub, which is two navigations too many while standing in a workshop.
+    $live = $this->liveClassStrip((int) $current_user->id());
+    if ($live) {
+      $build['live_class'] = $live;
+    }
 
     // Accounts created by a staff invite have no password: the invite link was
     // the credential. Say so once they are here, or their next visit ends at
@@ -478,7 +496,7 @@ class InstructorDashboardController extends ControllerBase {
 
     $build['completed_classes_note'] = [
       '#markup' => '<p class="instructor-dashboard-note">'
-        . $this->t('After every class, open <strong>Post-class tasks</strong> to take attendance, approve badges, submit feedback &amp; materials to reorder, and request payment. Sessions flagged with ⚠ still have steps outstanding.')
+        . $this->t('Take attendance <strong>during the class</strong> — that is the only time it is accurate, and it is what tells us who to follow up with and catches anyone who turned up without registering. Afterwards, open <strong>Post-class tasks</strong> for badges, feedback &amp; materials to reorder, and your payment request. Sessions flagged with ⚠ still have steps outstanding.')
         . '</p>',
     ];
     $build['completed_classes_table'] = [
@@ -643,12 +661,16 @@ class InstructorDashboardController extends ControllerBase {
       ];
     }
 
-    // Upcoming / today's classes: quick path to take attendance at class start.
-    if (!$allow_feedback) {
-      $links['attendance'] = [
+    // A direct attendance link on every class that has not been marked yet —
+    // upcoming, in progress, or finished. It used to disappear the instant a
+    // class started, because the row moved to "Recent / Completed" and the
+    // post-class hub took over as the primary action. That was precisely
+    // backwards: the start of the session is when attendance is accurate.
+    if (!\Drupal::service('instructor_companion.post_event_status')->isAttendanceConfirmed($event_id)) {
+      $links = ['attendance' => [
         'title' => $this->t('Take attendance'),
         'url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => $event_id]),
-      ];
+      ]] + $links;
     }
 
     $links['roster'] = [
@@ -698,6 +720,65 @@ class InstructorDashboardController extends ControllerBase {
           '#type' => 'dropbutton',
           '#links' => $links,
         ],
+      ],
+    ];
+  }
+
+  /**
+   * The class this instructor is teaching right now, as a call to action.
+   *
+   * "Right now" is generous on purpose — from the start time until a few hours
+   * after — because the point is to catch them while the room is still full,
+   * and a class that ran long should not lose the button. Disappears as soon
+   * as attendance is saved.
+   *
+   * @return array|null
+   *   A render array, or NULL when there is nothing live.
+   */
+  protected function liveClassStrip(int $uid): ?array {
+    $now = \Drupal::time()->getRequestTime();
+    $window_start = date('Y-m-d H:i:s', $now - self::LIVE_CLASS_HOURS * 3600);
+
+    $q = \Drupal::database()->select('civicrm_event', 'e');
+    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+    $q->addField('e', 'id', 'event_id');
+    $q->addField('e', 'title', 'title');
+    $q->addField('e', 'start_date', 'start_date');
+    $q->condition('i.field_civi_event_instructor_target_id', $uid);
+    $q->condition('e.is_active', 1);
+    $q->condition('e.is_template', 0);
+    $q->where('e.start_date BETWEEN :lo AND :hi', [':lo' => $window_start, ':hi' => date('Y-m-d H:i:s', $now)]);
+    $q->orderBy('e.start_date', 'DESC');
+    $q->range(0, 1);
+    $row = $q->execute()->fetchObject();
+
+    $post_event_status = \Drupal::service('instructor_companion.post_event_status');
+    if (!$row || $post_event_status->isAttendanceConfirmed((int) $row->event_id)) {
+      return NULL;
+    }
+
+    $registered = $post_event_status->countedParticipants((int) $row->event_id);
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['instructor-live-class']],
+      'heading' => [
+        '#markup' => '<h2 class="instructor-live-class__title">'
+        . $this->t('Happening now: @title', ['@title' => $row->title]) . '</h2>',
+      ],
+      'body' => [
+        '#markup' => '<p class="instructor-live-class__body">' . $this->t(
+          'Tick off who actually came while everyone is still here. @n registered;
+           anyone else who turned up can be added on the page, and anyone you do
+           not tick is recorded as a no-show so we know to follow up.',
+          ['@n' => $registered]
+        ) . '</p>',
+      ],
+      'button' => [
+        '#type' => 'link',
+        '#title' => $this->t('Take attendance'),
+        '#url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => (int) $row->event_id]),
+        '#attributes' => ['class' => ['button', 'button--primary', 'button--large', 'instructor-live-class__button']],
       ],
     ];
   }

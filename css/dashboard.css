@@ -197,3 +197,34 @@
   .peh-step-action { align-items: flex-start; width: 100%; }
   .peh-step-tip { text-align: left; max-width: none; }
 }
+
+/* "Happening now" — attendance is taken in the room, usually on a phone, so
+   this sits above everything else and is thumb-sized. */
+.instructor-live-class {
+  border: 2px solid var(--mh-color-brand-primary, #8b1919);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin: 0 0 1.5rem;
+  background: var(--mh-color-surface-raised, #fff8f8);
+}
+.instructor-live-class__title {
+  margin: 0 0 .5rem;
+  font-size: 1.35rem;
+}
+.instructor-live-class__body {
+  margin: 0 0 1rem;
+  max-width: 46rem;
+}
+.instructor-live-class__button {
+  display: inline-block;
+  font-size: 1.05rem;
+  padding: .8rem 1.6rem;
+}
+@media (max-width: 600px) {
+  .instructor-live-class__button {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 1rem;
+  }
+}
