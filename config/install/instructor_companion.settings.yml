@@ -60,6 +60,8 @@ invite_body: |
   [invite:sender]
   MakeHaven Education Team
   www.makehaven.org
+attendance_prompt_enabled: true
+attendance_prompt_offset_minutes: 15
 closeout_event_types:
   - 6
   - 16

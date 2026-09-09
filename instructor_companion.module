@@ -20,6 +20,10 @@ function instructor_companion_cron() {
   // Sync all course stats once a day or on a schedule.
   \Drupal::service('instructor_companion.stats_sync')->sync();
   \Drupal::service('instructor_companion.badge_sync')->sync();
+  // Ask for attendance while the class is still in the room. This is the one
+  // that matters for accuracy: an instructor asked two days later is guessing,
+  // and a walk-in nobody registered is long gone.
+  \Drupal::service('instructor_companion.attendance_prompt')->run();
   // Nudge instructors who still have post-class tasks ~48h after the class.
   \Drupal::service('instructor_companion.post_event_reminder')->run();
   // Weekly digest to staff of interest/proposal submissions stuck unreviewed.
@@ -419,6 +423,21 @@ function instructor_companion_mail($key, &$message, $params) {
       ]);
       $message['body'][] = t('To earn it, retake the class — upcoming sessions are listed on the badge page: @url', ['@url' => $params['badge_url']]);
       $message['body'][] = t('If you think this was recorded in error, reply to this email or contact education@makehaven.org.');
+      break;
+
+    case 'attendance_prompt':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Who turned up for @event?', ['@event' => $params['event_label']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['instructor_name']]);
+      $message['body'][] = t('While everyone is still in the room, please tick off who actually came to @event. It takes a few seconds: @url', [
+        '@event' => $params['event_label'],
+        '@url' => $params['attendance_url'],
+      ]);
+      $message['body'][] = t('@n people are registered. Anyone there who is not on the list can be added at the bottom of the page — and anyone on the list you do not tick is recorded as a no-show, which is how we know to follow up with them.', [
+        '@n' => $params['registered'],
+      ]);
+      $message['body'][] = t('You can re-save it later if someone turns up late.');
+      $message['body'][] = t('The rest of the wrap-up — badges, feedback and your payment request — can wait until afterwards; we will remind you.');
       break;
 
     case 'post_event_reminder':

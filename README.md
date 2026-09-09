@@ -66,6 +66,24 @@ survey and read by nobody — that is what the section exists for.
 re-sends the post-class email regardless of the cron due-window and
 already-sent record; staff use it when the automatic one was ignored.
 
+### 1c. Attendance is taken in the room, not afterwards
+
+Attendance exists to record who actually turned up (so no-shows can be chased),
+and it is the moment an unregistered walk-in gets noticed. `AttendanceForm`
+already does the right thing — ticked people become **Attended**, everyone else
+on the roster becomes **No-show**, and a walk-in can be added by account email —
+but until 2026-09-09 the only prompt was `PostEventReminderService`, 48-72 hours
+later, when the instructor is guessing.
+
+`AttendancePromptService` runs on the same cron and emails the instructor
+`attendance_prompt_offset_minutes` (default 15) after the class starts, with a
+direct link to the list and nothing else asked of them. It skips classes with no
+counted participants, classes whose attendance is already confirmed, and event
+types outside `closeout_event_types`. Records live in the
+`instructor_companion.attendance_prompt_sent` state key; the window is four
+hours wide so an hourly cron cannot step over a class. Switch it off, or move
+the offset, at the module settings page.
+
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)
 *   **Dynamic Class List:** 

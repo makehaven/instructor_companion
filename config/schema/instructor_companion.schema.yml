@@ -47,3 +47,9 @@ instructor_companion.settings:
       sequence:
         type: integer
         label: 'Event type id'
+    attendance_prompt_enabled:
+      type: boolean
+      label: 'Ask the instructor for attendance at the start of the class'
+    attendance_prompt_offset_minutes:
+      type: integer
+      label: 'Minutes after the start time before prompting for attendance'

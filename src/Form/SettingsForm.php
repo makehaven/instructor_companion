@@ -198,6 +198,25 @@ class SettingsForm extends ConfigFormBase {
         '#description' => $this->t('Which kinds of event owe attendance, badges, feedback and a payment request afterwards. These are the ones listed under "Classes to close out" on the Education console and the ones whose instructor gets the automatic post-class reminder.'),
         '#open' => TRUE,
       ];
+      $form['closeout']['attendance_prompt_enabled'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Ask for attendance at the start of the class'),
+        '#default_value' => (bool) ($config->get('attendance_prompt_enabled') ?? TRUE),
+        '#description' => $this->t('Emails the instructor shortly after the class begins with a direct link to the attendance list. This is the prompt that decides whether attendance data is any good — asked two days later, an instructor is guessing, and a walk-in nobody registered has long gone.'),
+      ];
+
+      $form['closeout']['attendance_prompt_offset_minutes'] = [
+        '#type' => 'number',
+        '#title' => $this->t('Minutes after the start time'),
+        '#min' => 1,
+        '#max' => 240,
+        '#default_value' => $config->get('attendance_prompt_offset_minutes') ?: \Drupal\instructor_companion\Service\AttendancePromptService::DEFAULT_OFFSET_MINUTES,
+        '#description' => $this->t('Not zero — at the bell the instructor is greeting people and setting up.'),
+        '#states' => [
+          'visible' => [':input[name="attendance_prompt_enabled"]' => ['checked' => TRUE]],
+        ],
+      ];
+
       $form['closeout']['closeout_event_types'] = [
         '#type' => 'checkboxes',
         '#title' => $this->t('Event types that owe wrap-up'),
@@ -235,6 +254,12 @@ class SettingsForm extends ConfigFormBase {
       ->set('notification_email', $form_state->getValue('notification_email'))
       ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
       ->set('orientation_step_enabled', (bool) $form_state->getValue('orientation_step_enabled'))
+      ->set('attendance_prompt_enabled', $form_state->hasValue('attendance_prompt_enabled')
+        ? (bool) $form_state->getValue('attendance_prompt_enabled')
+        : $this->config('instructor_companion.settings')->get('attendance_prompt_enabled'))
+      ->set('attendance_prompt_offset_minutes', $form_state->hasValue('attendance_prompt_offset_minutes')
+        ? (int) $form_state->getValue('attendance_prompt_offset_minutes')
+        : $this->config('instructor_companion.settings')->get('attendance_prompt_offset_minutes'))
       ->set('closeout_event_types', $form_state->hasValue('closeout_event_types')
         ? array_values(array_map('intval', array_filter((array) $form_state->getValue('closeout_event_types'))))
         : $this->config('instructor_companion.settings')->get('closeout_event_types'))

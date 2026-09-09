@@ -559,3 +559,31 @@ function instructor_companion_update_9014() {
   $config->set('closeout_event_types', $defaults)->save();
   return 'Post-class wrap-up scoped to event types ' . implode(', ', $defaults) . '.';
 }
+
+/**
+ * Turn on the at-class-start attendance prompt.
+ *
+ * Attendance exists to record who actually turned up (so no-shows get followed
+ * up) and to notice someone who never registered. Both only work if it is
+ * taken in the room. The only prompt used to be the post-class reminder,
+ * 48-72 hours later: attendance had been confirmed on two classes ever, while
+ * 301 of 383 participants over 90 days sat at "Registered".
+ */
+function instructor_companion_update_9015() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  $changed = FALSE;
+  if ($config->get('attendance_prompt_enabled') === NULL) {
+    $config->set('attendance_prompt_enabled', TRUE);
+    $changed = TRUE;
+  }
+  if (!$config->get('attendance_prompt_offset_minutes')) {
+    $config->set('attendance_prompt_offset_minutes',
+      \Drupal\instructor_companion\Service\AttendancePromptService::DEFAULT_OFFSET_MINUTES);
+    $changed = TRUE;
+  }
+  if ($changed) {
+    $config->save();
+    return 'At-class-start attendance prompt enabled (15 minutes after the start time).';
+  }
+  return 'Attendance prompt already configured; left alone.';
+}

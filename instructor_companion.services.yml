@@ -52,6 +52,18 @@ services:
       - '@entity_type.manager'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.attendance_prompt:
+    class: Drupal\instructor_companion\Service\AttendancePromptService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@entity_type.manager'
+      - '@instructor_companion.post_event_status'
+      - '@plugin.manager.mail'
+      - '@config.factory'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.post_event_reminder:
     class: Drupal\instructor_companion\Service\PostEventReminderService
     arguments:
