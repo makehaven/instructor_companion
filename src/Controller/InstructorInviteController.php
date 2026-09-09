@@ -80,7 +80,7 @@ class InstructorInviteController extends ControllerBase {
       $this->messenger()->addStatus($this->t('Invite resent to @mail.', ['@mail' => $user->getEmail()]));
     }
     else {
-      $this->messenger()->addError($this->t('@name has no invite on record to resend — send a new one.', ['@name' => $user->getDisplayName()]));
+      $this->messenger()->addError($this->t('Invite not sent to @name. The invite record is missing or the email could not be sent. Check the invite and mail logs before retrying.', ['@name' => $user->getDisplayName()]));
     }
     // ?destination (set by the console's action links) overrides this.
     return $this->redirect('instructor_companion.education_console');

@@ -37,7 +37,9 @@ class PostEventHubController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    $uid = (int) $this->currentUser()->id();
+    $uid = $event->hasField('field_civi_event_instructor')
+      ? (int) $event->get('field_civi_event_instructor')->target_id
+      : 0;
     $status = $this->postEventStatus->getStatus($event_id, $uid);
 
     $build = [];
@@ -70,10 +72,11 @@ class PostEventHubController extends ControllerBase {
       $build['steps'][$step['key']] = $this->buildStep($event_id, $i + 1, $step, $status);
     }
 
+    $staff = $this->currentUser()->hasPermission('access education console');
     $build['back'] = [
       '#type' => 'link',
-      '#title' => $this->t('← Back to Instructor Dashboard'),
-      '#url' => Url::fromRoute('instructor_companion.dashboard'),
+      '#title' => $staff ? $this->t('← Back to Education') : $this->t('← Back to Instructor Dashboard'),
+      '#url' => Url::fromRoute($staff ? 'instructor_companion.education_console' : 'instructor_companion.dashboard'),
       '#attributes' => ['class' => ['button', 'button--small', 'peh-back']],
     ];
 

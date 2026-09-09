@@ -4,6 +4,7 @@ namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
+use Drupal\instructor_companion\Service\InstructorInviteManager;
 use Drupal\user\UserInterface;
 
 /**
@@ -103,7 +104,10 @@ class ProspectiveInstructorsController extends ControllerBase {
       $user = $record['user'];
       $by = $user_storage->load($record['last_sent_by'] ?? $record['invited_by'] ?? 0);
       $sent = (int) ($record['last_sent'] ?? 0);
-      $expired = !\Drupal\instructor_companion\Service\InstructorInviteManager::isWithinTtl($sent, \Drupal::time()->getRequestTime());
+      $now = \Drupal::time()->getRequestTime();
+      $started = (int) ($record['invited_at'] ?? $sent);
+      $expires = $sent + InstructorInviteManager::TTL;
+      $expired = !InstructorInviteManager::isWithinTtl($sent, $now);
 
       $resend_url = Url::fromRoute('instructor_companion.invite_resend', ['user' => $uid]);
       $resend_url->setOption('query', $this->actionQuery($resend_url, $destination));
@@ -127,6 +131,14 @@ class ProspectiveInstructorsController extends ControllerBase {
           '@again' => ($record['count'] ?? 1) > 1 ? ' (×' . $record['count'] . ')' : '',
         ]),
         'status' => $status,
+        'waiting' => \Drupal::service('date.formatter')->formatInterval(max(0, $now - $started), 1),
+        'expires' => \Drupal::service('date.formatter')->format($expires, 'custom', 'M j, Y'),
+        'follow_up' => $this->t('@who: @action', [
+          '@who' => $by ? $by->getDisplayName() : $this->t('Education team'),
+          '@action' => $expired
+            ? $this->t('resend the expired link and contact the instructor')
+            : $this->t('contact the instructor if they need help signing'),
+        ]),
         'actions' => [
           'data' => [
             '#type' => 'dropbutton',
@@ -156,6 +168,9 @@ class ProspectiveInstructorsController extends ControllerBase {
           'email' => $this->t('Email'),
           'sent' => $this->t('Invite sent'),
           'status' => $this->t('Status'),
+          'waiting' => $this->t('Waiting since first invite'),
+          'expires' => $this->t('Link expires'),
+          'follow_up' => $this->t('Follow-up owner / next step'),
           'actions' => $this->t('Actions'),
         ],
         '#rows' => $rows,
@@ -271,7 +286,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       'heading' => $heading,
       'summary' => [
         '#markup' => '<p>' . $this->t(
-          '<strong>@count instructor(s)</strong> have a pending door badge. Approving grants building access immediately (synced to UniFi). Review their background before approving.',
+          '<strong>@count instructor(s)</strong> have a pending door badge. Approving grants building access immediately (synced to UniFi). Review their background before approving. If you cannot see the approval action, ask a site manager with permission to administer users to review and approve access.',
           ['@count' => count($rows)]
         ) . '</p>',
       ],

@@ -230,19 +230,23 @@ class PostEventStatusService {
    * and it is the same rule the reminder cron applies.
    *
    * @param int $days
-   *   How far back to look from now.
+   *   How far back to look from now, or zero for all history.
    * @param int $limit
    *   Maximum classes to return.
+   * @param int $older_than_days
+   *   Exclude classes newer than this age. Zero includes all ended classes.
+   * @param int $offset
+   *   Number of outstanding classes to skip for pagination.
    *
    * @return array<int, array>
    *   Newest-ended first. Each row: event_id, title, uid, instructor,
    *   ended (timestamp), status (see ::getStatus()), attendees (int),
    *   evaluations (int) — participant Event Feedback responses for the class.
    */
-  public function closeoutBacklog(int $days = 30, int $limit = 60): array {
+  public function closeoutBacklog(int $days = 30, int $limit = 60, int $older_than_days = 0, int $offset = 0): array {
     $now = \Drupal::time()->getRequestTime();
-    $since = date('Y-m-d H:i:s', $now - $days * 86400);
-    $until = date('Y-m-d H:i:s', $now);
+    $since = $days > 0 ? date('Y-m-d H:i:s', $now - $days * 86400) : '1970-01-01 00:00:00';
+    $until = date('Y-m-d H:i:s', $now - $older_than_days * 86400);
 
     $q = $this->database->select('civicrm_event', 'e');
     $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
@@ -251,6 +255,9 @@ class PostEventStatusService {
     $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
     $q->addExpression('COALESCE(e.end_date, e.start_date)', 'ended');
     $q->where('COALESCE(e.end_date, e.start_date) BETWEEN :lo AND :hi', [':lo' => $since, ':hi' => $until]);
+    if ($older_than_days > 0) {
+      $q->where('COALESCE(e.end_date, e.start_date) < :cutoff', [':cutoff' => $until]);
+    }
     $q->condition('e.is_active', 1);
     $q->condition('e.is_template', 0);
     $types = self::closeoutEventTypes();
@@ -258,7 +265,6 @@ class PostEventStatusService {
       $q->condition('e.event_type_id', $types, 'IN');
     }
     $q->orderBy('ended', 'DESC');
-    $q->range(0, $limit);
 
     $evaluations = $this->evaluationSummaries($since);
     $user_storage = $this->entityTypeManager->getStorage('user');
@@ -278,6 +284,10 @@ class PostEventStatusService {
       if ($status['all_complete']) {
         continue;
       }
+      if ($offset > 0) {
+        $offset--;
+        continue;
+      }
       $instructor = $user_storage->load($uid);
       $rows[] = [
         'event_id' => $event_id,
@@ -290,6 +300,9 @@ class PostEventStatusService {
         'attendees' => $attendees,
         'evaluation' => $evaluations[$event_id] ?? ['count' => 0, 'lowest' => NULL, 'average' => NULL],
       ];
+      if (count($rows) >= $limit) {
+        break;
+      }
     }
     return $rows;
   }

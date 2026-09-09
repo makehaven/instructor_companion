@@ -1,5 +1,21 @@
 # Instructor Companion Module
 
+## Education follow-up
+
+Staff use `/admin/education` to monitor onboarding and recent class wrap-up.
+The invite list shows waiting time from the first invite, the current link's
+expiry date, and the latest sender as the follow-up contact (falling back to
+the education team). Resending does not reset the total waiting time.
+Door approval requires permission to administer users; staff without that
+permission are directed to a site manager.
+
+The console links to `/admin/education/closeout/older` for unfinished classes
+older than 30 days, with 20 classes per page and no age cutoff. The same event
+types and attendance/completion rules apply as on the recent list. Review
+historical classes before sending reminders, since some predate task tracking.
+Staff viewing a class's wrap-up page can return directly to Education;
+instructors return to their dashboard.
+
 ## Overview
 The **Instructor Companion** module is a custom solution designed to streamline the lifecycle of an instructor at MakeHaven. It handles the specific needs of instructors which differ from standard members, including:
 1.  **Specialized Onboarding:** Separate registration path that bypasses the "Member" role but captures necessary data.

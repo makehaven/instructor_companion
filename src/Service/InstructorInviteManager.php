@@ -121,15 +121,15 @@ class InstructorInviteManager {
    * Resends the invite to an already-invited user.
    *
    * @return bool
-   *   FALSE when there is no invite record to resend.
+   *   FALSE when there is no invite record or the email fails to send.
    */
   public function resend(UserInterface $user, AccountInterface $sender): bool {
     $record = $this->store->get($user->id());
     if (!$record) {
       return FALSE;
     }
-    $this->invite($record['name'] ?? '', $user->getEmail() ?: ($record['mail'] ?? ''), $sender, $record['note'] ?? '');
-    return TRUE;
+    $result = $this->invite($record['name'] ?? '', $user->getEmail() ?: ($record['mail'] ?? ''), $sender, $record['note'] ?? '');
+    return $result['sent'];
   }
 
   /**

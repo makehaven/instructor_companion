@@ -279,3 +279,13 @@ instructor_companion.closeout_remind:
     event_id: \d+
   options:
     _admin_route: TRUE
+
+instructor_companion.older_closeout:
+  path: '/admin/education/closeout/older'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EducationConsoleController::olderCloseout'
+    _title: 'Older outstanding classes'
+  requirements:
+    _permission: 'access education console'
+  options:
+    _admin_route: TRUE

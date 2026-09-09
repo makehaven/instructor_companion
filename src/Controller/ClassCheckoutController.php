@@ -404,8 +404,9 @@ class ClassCheckoutController extends ControllerBase {
       return AccessResult::forbidden();
     }
     if ($account->hasPermission('administer civicrm_event entities')
+      || $account->hasPermission('edit all events')
       || $account->hasPermission('create civicrm_event entities')) {
-      return AccessResult::allowed();
+      return AccessResult::allowed()->cachePerPermissions();
     }
     $is_instructor = (bool) \Drupal::database()->select('civicrm_event__field_civi_event_instructor', 'i')
       ->fields('i', ['entity_id'])
@@ -413,7 +414,7 @@ class ClassCheckoutController extends ControllerBase {
       ->condition('i.field_civi_event_instructor_target_id', $account->id())
       ->execute()
       ->fetchField();
-    return $is_instructor ? AccessResult::allowed() : AccessResult::forbidden();
+    return ($is_instructor ? AccessResult::allowed() : AccessResult::forbidden())->cachePerUser()->setCacheMaxAge(0);
   }
 
   protected function buildParticipantRow(int $event_id, int $uid, string $participant_name, TermInterface $badge_term): array {

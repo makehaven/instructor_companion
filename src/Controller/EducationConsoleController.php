@@ -10,6 +10,7 @@ use Drupal\instructor_companion\Service\InstructorApprovalGate;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\instructor_companion\Service\ProposalHoldManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * One-page landing for the education team's instructor pipeline.
@@ -200,6 +201,12 @@ class EducationConsoleController extends ControllerBase {
     if ($closeout) {
       $build['closeout'] = $this->closeoutTable($closeout, $now);
     }
+    $build['older_closeout'] = [
+      '#type' => 'link',
+      '#title' => $this->t('Older outstanding classes (more than 30 days ago) →'),
+      '#url' => Url::fromRoute('instructor_companion.older_closeout'),
+      '#attributes' => ['class' => ['button']],
+    ];
 
     if ($held) {
       $build['held'] = $this->heldTable($held, $holds);
@@ -354,13 +361,13 @@ class EducationConsoleController extends ControllerBase {
    * every recent class at once, plus how many attendees returned the
    * participant survey. "Remind" re-sends the post-class email.
    */
-  protected function closeoutTable(array $rows, int $now): array {
+  protected function closeoutTable(array $rows, int $now, bool $older = FALSE): array {
     $table_rows = [];
     foreach ($rows as $row) {
       $remind_url = Url::fromRoute('instructor_companion.closeout_remind', ['event_id' => $row['event_id']]);
       $remind_url->setOption('query', [
         'token' => \Drupal::csrfToken()->get($remind_url->getInternalPath()),
-        'destination' => '/admin/education',
+        'destination' => $older ? '/admin/education/closeout/older' : '/admin/education',
       ]);
 
       $ticks = [];
@@ -402,16 +409,18 @@ class EducationConsoleController extends ControllerBase {
     return [
       '#type' => 'container',
       '#attributes' => ['class' => ['education-console__closeout'], 'id' => 'closeout'],
-      'heading' => ['#markup' => '<h2>' . $this->t('Classes to close out') . '</h2>'],
+      'heading' => ['#markup' => '<h2>' . ($older ? $this->t('Older outstanding classes') : $this->t('Classes to close out')) . '</h2>'],
       'note' => [
-        '#markup' => '<p class="education-console__held-note">' . $this->t(
+        '#markup' => '<p class="education-console__held-note">' . ($older ? $this->t(
+          'Classes that ended more than 30 days ago with wrap-up still outstanding, newest first. Older records may predate task tracking: review the class before reminding the instructor. Classes with no counted participants are excluded.'
+        ) : $this->t(
           'Classes from the last 30 days whose instructor still owes wrap-up.
            Classes nobody attended are left out. The instructor is emailed
            automatically after the class; "Remind instructor" sends it again.
            Evaluations counts the participant Event Feedback survey, which the
            attendees are asked for separately — a low number there is not the
            instructor\'s doing.'
-        ) . '</p>',
+        )) . '</p>',
       ],
       'table' => [
         '#type' => 'table',
@@ -425,9 +434,46 @@ class EducationConsoleController extends ControllerBase {
           'action' => $this->t('Action'),
         ],
         '#rows' => $table_rows,
+        '#empty' => $this->t('No outstanding classes in this list.'),
         '#attributes' => ['class' => ['education-console__table', 'education-console__table--closeout']],
       ],
     ];
+  }
+
+  /**
+   * Lists older unfinished classes without an expiry horizon.
+   */
+  public function olderCloseout(Request $request): array {
+    $page = max(0, $request->query->getInt('page'));
+    $page_size = 20;
+    $rows = $this->postEventStatus->closeoutBacklog(0, $page_size + 1, 30, $page * $page_size);
+    $build = [
+      '#attached' => ['library' => ['instructor_companion/education_console']],
+      '#cache' => ['max-age' => 0],
+      'back' => [
+        '#type' => 'link',
+        '#title' => $this->t('← Back to Education'),
+        '#url' => Url::fromRoute('instructor_companion.education_console'),
+      ],
+      'classes' => $this->closeoutTable(array_slice($rows, 0, $page_size), \Drupal::time()->getRequestTime(), TRUE),
+    ];
+    if ($page > 0) {
+      $build['previous'] = [
+        '#type' => 'link',
+        '#title' => $this->t('← Previous page'),
+        '#url' => Url::fromRoute('instructor_companion.older_closeout', [], ['query' => ['page' => $page - 1]]),
+        '#attributes' => ['class' => ['button']],
+      ];
+    }
+    if (count($rows) > $page_size) {
+      $build['next'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Next page →'),
+        '#url' => Url::fromRoute('instructor_companion.older_closeout', [], ['query' => ['page' => $page + 1]]),
+        '#attributes' => ['class' => ['button']],
+      ];
+    }
+    return $build;
   }
 
   /**
@@ -575,9 +621,10 @@ class EducationConsoleController extends ControllerBase {
     $build['heading'] = ['#markup' => '<h2>' . $this->t('Approved — waiting on instructor onboarding') . '</h2>'];
     $build['note'] = [
       '#markup' => '<p class="education-console__held-note">' . $this->t(
-        'No action needed: each session publishes automatically the moment its
-         instructor finishes the missing steps (they were emailed the list at
-         approval).'
+        'Each session publishes automatically when its instructor finishes the
+         missing steps. The education team should contact the instructor if
+         onboarding stalls or the session date is approaching; the instructor
+         received the missing steps at approval.'
       ) . '</p>',
     ];
     $build['table'] = [
