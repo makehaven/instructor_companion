@@ -64,6 +64,21 @@ class PostEventStatusService {
   public const EVALUATION_WEBFORM = 'webform_1181';
 
   /**
+   * The satisfaction rating element on that form (1-5; 0 means unanswered).
+   */
+  public const EVALUATION_RATING = 'overall_how_satisfied_were_you_with_the_event';
+
+  /**
+   * The free-text element that carries what went wrong.
+   */
+  public const EVALUATION_IMPROVE = 'was_there_anything_that_could_have_been_improved';
+
+  /**
+   * At or below this rating, a response is worth a staff member's attention.
+   */
+  public const LOW_RATING = 3;
+
+  /**
    * Payment_request status values that mean the instructor submitted it.
    *
    * 'draft' = saved but not submitted; 'rejected' = needs redo. Neither
@@ -229,7 +244,7 @@ class PostEventStatusService {
     $q->orderBy('ended', 'DESC');
     $q->range(0, $limit);
 
-    $evaluations = $this->evaluationCounts($since, $until);
+    $evaluations = $this->evaluationSummaries($since);
     $user_storage = $this->entityTypeManager->getStorage('user');
     $rows = [];
 
@@ -257,7 +272,7 @@ class PostEventStatusService {
         'ended' => strtotime((string) $row->ended) ?: NULL,
         'status' => $status,
         'attendees' => $attendees,
-        'evaluations' => (int) ($evaluations[$event_id] ?? 0),
+        'evaluation' => $evaluations[$event_id] ?? ['count' => 0, 'lowest' => NULL, 'average' => NULL],
       ];
     }
     return $rows;
@@ -276,32 +291,99 @@ class PostEventStatusService {
   }
 
   /**
-   * Participant Event Feedback responses per event id, for a date window.
+   * Participant Event Feedback per event: how many, and how they scored it.
    *
    * The survey is webform_1181, linked from the "Thanks for Attending!" and
    * "3 days Later Reminder" CiviCRM reminders, which pass ?event_id=. Older
    * submissions predate that parameter and simply do not count.
    *
-   * @return array<int, int>
-   *   event_id => response count.
+   * A rating of 0 means the question was skipped, not "terrible" — it is
+   * excluded from both the average and the lowest score.
+   *
+   * @return array<int, array{count: int, lowest: int|null, average: float|null}>
+   *   Keyed by event id.
    */
-  protected function evaluationCounts(string $since, string $until): array {
+  protected function evaluationSummaries(string $since): array {
     if (!$this->database->schema()->tableExists('webform_submission_data')) {
       return [];
     }
-    $q = $this->database->select('webform_submission_data', 'sd');
-    $q->innerJoin('webform_submission', 'ws', 'ws.sid = sd.sid');
-    $q->addField('sd', 'value', 'event_id');
-    $q->addExpression('COUNT(*)', 'n');
+    $q = $this->database->select('webform_submission_data', 'ev');
+    $q->innerJoin('webform_submission', 'ws', 'ws.sid = ev.sid');
+    $q->leftJoin('webform_submission_data', 'sat', "sat.sid = ws.sid AND sat.name = :sat", [':sat' => self::EVALUATION_RATING]);
+    $q->addField('ev', 'value', 'event_id');
+    $q->addExpression('COUNT(DISTINCT ws.sid)', 'n');
+    $q->addExpression('MIN(NULLIF(sat.value, 0))', 'lowest');
+    $q->addExpression('AVG(NULLIF(sat.value, 0))', 'average');
     $q->condition('ws.webform_id', self::EVALUATION_WEBFORM);
-    $q->condition('sd.name', 'event_id');
+    $q->condition('ev.name', 'event_id');
+    // Responses arrive days after the class, so look a little wider than the
+    // backlog window itself.
     $q->condition('ws.created', strtotime($since) - 30 * 86400, '>=');
-    $q->groupBy('sd.value');
+    $q->groupBy('ev.value');
     $out = [];
     foreach ($q->execute() as $row) {
-      if (ctype_digit((string) $row->event_id)) {
-        $out[(int) $row->event_id] = (int) $row->n;
+      if (!ctype_digit((string) $row->event_id)) {
+        continue;
       }
+      $out[(int) $row->event_id] = [
+        'count' => (int) $row->n,
+        'lowest' => $row->lowest === NULL ? NULL : (int) $row->lowest,
+        'average' => $row->average === NULL ? NULL : round((float) $row->average, 1),
+      ];
+    }
+    return $out;
+  }
+
+  /**
+   * Evaluations that flag a problem: rated at or below LOW_RATING.
+   *
+   * Per-class averages are noise at one or two responses, but a single low
+   * rating is signal at any n — and the free-text that comes with it is the
+   * most useful thing in the whole survey. Two instructor no-shows in
+   * August 2026 were reported here and read by nobody.
+   *
+   * @param int $days
+   *   How far back to look.
+   * @param int $limit
+   *   Maximum responses to return.
+   *
+   * @return array<int, array>
+   *   Newest first: sid, created, event_id, event_title, rating, comment.
+   */
+  public function lowRatedEvaluations(int $days = 90, int $limit = 15): array {
+    if (!$this->database->schema()->tableExists('webform_submission_data')) {
+      return [];
+    }
+    $since = \Drupal::time()->getRequestTime() - $days * 86400;
+
+    $q = $this->database->select('webform_submission', 'ws');
+    $q->innerJoin('webform_submission_data', 'sat', "sat.sid = ws.sid AND sat.name = :sat", [':sat' => self::EVALUATION_RATING]);
+    $q->leftJoin('webform_submission_data', 'ev', "ev.sid = ws.sid AND ev.name = 'event_id'");
+    $q->leftJoin('webform_submission_data', 'ti', "ti.sid = ws.sid AND ti.name = 'event_title'");
+    $q->leftJoin('webform_submission_data', 'imp', "imp.sid = ws.sid AND imp.name = :imp", [':imp' => self::EVALUATION_IMPROVE]);
+    $q->addField('ws', 'sid', 'sid');
+    $q->addField('ws', 'created', 'created');
+    $q->addField('sat', 'value', 'rating');
+    $q->addField('ev', 'value', 'event_id');
+    $q->addField('ti', 'value', 'event_title');
+    $q->addField('imp', 'value', 'comment');
+    $q->condition('ws.webform_id', self::EVALUATION_WEBFORM);
+    $q->condition('ws.created', $since, '>=');
+    // 0 is "not answered", so the floor is 1.
+    $q->condition('sat.value', [1, self::LOW_RATING], 'BETWEEN');
+    $q->orderBy('ws.created', 'DESC');
+    $q->range(0, $limit);
+
+    $out = [];
+    foreach ($q->execute() as $row) {
+      $out[] = [
+        'sid' => (int) $row->sid,
+        'created' => (int) $row->created,
+        'rating' => (int) $row->rating,
+        'event_id' => ctype_digit((string) $row->event_id) ? (int) $row->event_id : NULL,
+        'event_title' => (string) ($row->event_title ?? ''),
+        'comment' => trim((string) ($row->comment ?? '')),
+      ];
     }
     return $out;
   }

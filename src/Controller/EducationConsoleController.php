@@ -75,6 +75,7 @@ class EducationConsoleController extends ControllerBase {
     $signed = $this->agreementsSigned($now);
     $invited = \Drupal::service('instructor_companion.invite')->pending();
     $closeout = $this->postEventStatus->closeoutBacklog();
+    $low_rated = $this->postEventStatus->lowRatedEvaluations();
 
     $build = [
       '#type' => 'container',
@@ -158,6 +159,13 @@ class EducationConsoleController extends ControllerBase {
         Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'closeout']),
         $closeout ? (string) $this->t('oldest: @age', ['@age' => $this->age((int) min(array_filter(array_column($closeout, 'ended'))), $now)]) : NULL
       ),
+      'low_rated' => $this->tile(
+        $this->t('Evaluations to read'),
+        count($low_rated),
+        $this->t('rated @n or lower, last 90 days', ['@n' => \Drupal\instructor_companion\Service\PostEventStatusService::LOW_RATING]),
+        Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'low-rated']),
+        $low_rated ? (string) $this->t('newest: @age ago', ['@age' => $this->age((int) $low_rated[0]['created'], $now)]) : NULL
+      ),
       'agreements' => $this->tile(
         $this->t('Agreements signed'),
         $signed['count'],
@@ -185,6 +193,10 @@ class EducationConsoleController extends ControllerBase {
       ],
     ] + ProspectiveInstructorsController::create(\Drupal::getContainer())->onboardingSections('/admin/education');
 
+    if ($low_rated) {
+      $build['low_rated'] = $this->lowRatedTable($low_rated, $now);
+    }
+
     if ($closeout) {
       $build['closeout'] = $this->closeoutTable($closeout, $now);
     }
@@ -205,6 +217,119 @@ class EducationConsoleController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * The Evaluations cell: how many responded, and whether any rated it low.
+   *
+   * Linked to the responses themselves — the free text is the useful part,
+   * and a count nobody can click through to is not worth printing.
+   */
+  protected function evaluationCell(array $row): array {
+    $eval = $row['evaluation'];
+    $summary = $this->t('@n of @total', ['@n' => $eval['count'], '@total' => $row['attendees']]);
+
+    if (!$eval['count']) {
+      return ['#markup' => '<span class="education-console__eval education-console__eval--none">' . $summary . '</span>'];
+    }
+
+    $link = Url::fromRoute('entity.webform.results_submissions', ['webform' => PostEventStatusService::EVALUATION_WEBFORM], [
+      'query' => ['search' => $row['event_id']],
+    ]);
+    $build = [
+      'link' => [
+        '#type' => 'link',
+        '#title' => $summary,
+        '#url' => $link,
+      ],
+    ];
+    if ($eval['lowest'] !== NULL && $eval['lowest'] <= PostEventStatusService::LOW_RATING) {
+      $build['flag'] = [
+        '#markup' => ' <span class="education-console__eval--low">'
+          . $this->t('⚠ lowest @n/5', ['@n' => $eval['lowest']]) . '</span>',
+      ];
+    }
+    elseif ($eval['average'] !== NULL) {
+      $build['avg'] = ['#markup' => ' <span class="education-console__eval--avg">' . $this->t('avg @n/5', ['@n' => $eval['average']]) . '</span>'];
+    }
+    return $build;
+  }
+
+  /**
+   * Evaluations that flag a problem, newest first.
+   *
+   * Separate from the close-out list on purpose: a class can be fully wrapped
+   * up and still have gone badly, and those are the ones worth reading. Two
+   * instructor no-shows in August 2026 were reported here and seen by nobody.
+   */
+  protected function lowRatedTable(array $rows, int $now): array {
+    $table_rows = [];
+    foreach ($rows as $row) {
+      $title = $row['event_title'] !== '' ? $row['event_title'] : $this->t('(class not recorded)');
+      $what = $row['event_id']
+        ? [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $title,
+            '#url' => Url::fromRoute('instructor_companion.post_event_hub', ['event_id' => $row['event_id']]),
+          ],
+        ]
+        : $title;
+
+      $comment = $row['comment'];
+      if ($comment !== '' && mb_strlen($comment) > 180) {
+        $comment = mb_substr($comment, 0, 180) . '…';
+      }
+
+      $table_rows[] = [
+        'rating' => $this->t('@n/5', ['@n' => $row['rating']]),
+        'what' => $what,
+        'when' => $this->t('@age ago', ['@age' => $this->age($row['created'], $now)]),
+        'comment' => $comment !== '' ? $comment : $this->t('(no comment left)'),
+        'action' => [
+          'data' => [
+            '#type' => 'link',
+            '#title' => $this->t('Read the response'),
+            '#url' => Url::fromRoute('entity.webform_submission.canonical', [
+              'webform' => PostEventStatusService::EVALUATION_WEBFORM,
+              'webform_submission' => $row['sid'],
+            ]),
+          ],
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__low-rated'], 'id' => 'low-rated'],
+      'heading' => ['#markup' => '<h2>' . $this->t('Evaluations to read') . '</h2>'],
+      'note' => [
+        '#markup' => '<p class="education-console__held-note">' . $this->t(
+          'Attendees who rated a class @n out of 5 or lower in the last 90 days.
+           Volume is low enough that a per-class average means little, but a
+           single low score with a comment usually says something real. Nobody
+           is emailed about these — reading them is the whole mechanism.',
+          ['@n' => PostEventStatusService::LOW_RATING]
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'rating' => $this->t('Rated'),
+          'what' => $this->t('Class'),
+          'when' => $this->t('When'),
+          'comment' => $this->t('What they said could be better'),
+          'action' => $this->t(''),
+        ],
+        '#rows' => $table_rows,
+        '#attributes' => ['class' => ['education-console__table', 'education-console__table--low-rated']],
+      ],
+      'all' => [
+        '#type' => 'link',
+        '#title' => $this->t('All event feedback →'),
+        '#url' => Url::fromRoute('entity.webform.results_submissions', ['webform' => PostEventStatusService::EVALUATION_WEBFORM]),
+      ],
+    ];
   }
 
   /**
@@ -258,7 +383,7 @@ class EducationConsoleController extends ControllerBase {
         'ended' => $row['ended'] ? $this->t('@age ago', ['@age' => $this->age($row['ended'], $now)]) : '—',
         'progress' => $row['status']['progress'],
         'outstanding' => implode(' · ', $ticks),
-        'evaluations' => $this->t('@n of @total', ['@n' => $row['evaluations'], '@total' => $row['attendees']]),
+        'evaluations' => ['data' => $this->evaluationCell($row)],
         'action' => [
           'data' => [
             '#type' => 'dropbutton',

@@ -48,10 +48,19 @@ them to the instructor for one class. `closeoutBacklog()` is the staff-side
 counterpart: every class from the last 30 days whose wrap-up is incomplete,
 rendered as **Classes to close out** on the Education console (with a count
 tile). Classes with no counted participants are skipped, matching the reminder
-cron. The Evaluations column counts participant responses to the Event Feedback
-survey (`webform_1181`, linked from the "Thanks for Attending!" and "3 days
-Later Reminder" CiviCRM reminders, which pass `?event_id=`) — that is an
-attendee response rate, not something the instructor owes.
+cron. The Evaluations column links to the participant responses for that class
+(`webform_1181`, linked from the "Thanks for Attending!" and "3 days Later
+Reminder" CiviCRM reminders, which pass `?event_id=`) and flags the lowest
+rating when one is at or below `LOW_RATING` (3). That is an attendee response
+rate, not something the instructor owes.
+
+**Evaluations to read** is a separate section, deliberately not tied to the
+close-out list: a class can be fully wrapped up and still have gone badly.
+It lists responses from the last 90 days rated 3/5 or lower with the "what
+could be improved" text, each linked to the full submission. Per-class
+averages are noise at one or two responses; a single low score with a comment
+is not. Two instructor no-shows in August 2026 were reported through this
+survey and read by nobody — that is what the section exists for.
 
 "Remind instructor" calls `PostEventReminderService::remindNow()`, which
 re-sends the post-class email regardless of the cron due-window and

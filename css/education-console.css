@@ -129,3 +129,26 @@ a.education-console__tile:focus-visible {
   line-height: 1.6;
   min-width: 22rem;
 }
+
+/* Evaluation signals in the close-out table and the read-these list. */
+.education-console__eval--none {
+  color: var(--mh-color-text-muted, #777);
+}
+.education-console__eval--low {
+  color: var(--mh-color-brand-primary, #8b1919);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.education-console__eval--avg {
+  color: var(--mh-color-text-muted, #555);
+  white-space: nowrap;
+}
+.education-console__table--low-rated td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.education-console__table--low-rated td:nth-child(4) {
+  font-size: 0.92em;
+  line-height: 1.5;
+  min-width: 24rem;
+}
