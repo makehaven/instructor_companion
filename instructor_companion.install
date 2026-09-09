@@ -538,3 +538,24 @@ function instructor_companion_update_9013() {
   $messages[] = $changed ? 'Seeded invite email copy.' : 'Invite email copy already present.';
   return implode(' ', $messages);
 }
+
+/**
+ * Scope post-class wrap-up to event types that actually owe it.
+ *
+ * Until now every past event with an instructor was listed as owing
+ * attendance, badges, feedback and a payment request, and its instructor was
+ * emailed about it. That swept in meetups (hosted, not taught — no badges, no
+ * pay) and programs (multi-week cohorts whose first session ends nothing):
+ * 6 of the 19 reminders sent by 2026-09-09 went to those. Default to
+ * Ticketed Workshop and Ticketed Member Only; staff can change it at
+ * /admin/config/makerspace/instructor-companion.
+ */
+function instructor_companion_update_9014() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  if ($config->get('closeout_event_types') !== NULL) {
+    return 'Close-out event types already configured; left alone.';
+  }
+  $defaults = \Drupal\instructor_companion\Service\PostEventStatusService::DEFAULT_CLOSEOUT_EVENT_TYPES;
+  $config->set('closeout_event_types', $defaults)->save();
+  return 'Post-class wrap-up scoped to event types ' . implode(', ', $defaults) . '.';
+}

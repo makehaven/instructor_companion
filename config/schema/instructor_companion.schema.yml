@@ -41,3 +41,9 @@ instructor_companion.settings:
     invite_body:
       type: text
       label: 'Instructor agreement invite email body'
+    closeout_event_types:
+      type: sequence
+      label: 'CiviCRM event types that owe post-class wrap-up'
+      sequence:
+        type: integer
+        label: 'Event type id'

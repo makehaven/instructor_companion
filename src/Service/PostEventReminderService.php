@@ -72,6 +72,13 @@ class PostEventReminderService {
     ]);
     $q->condition('e.is_active', 1);
     $q->condition('e.is_template', 0);
+    // Only classes that actually owe wrap-up. A meetup host owes no badges or
+    // payment and a program's first session ends nothing, so reminding them
+    // just teaches everyone that this email is noise.
+    $types = PostEventStatusService::closeoutEventTypes();
+    if ($types) {
+      $q->condition('e.event_type_id', $types, 'IN');
+    }
     $candidates = $q->execute()->fetchAll();
 
     $sent = (array) $this->state->get(self::SENT_STATE_KEY, []);

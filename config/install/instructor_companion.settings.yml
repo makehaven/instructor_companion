@@ -60,4 +60,7 @@ invite_body: |
   [invite:sender]
   MakeHaven Education Team
   www.makehaven.org
+closeout_event_types:
+  - 6
+  - 16
 proposal_staff_contact_uid: 0

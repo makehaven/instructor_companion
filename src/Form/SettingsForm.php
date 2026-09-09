@@ -190,6 +190,23 @@ class SettingsForm extends ConfigFormBase {
       ],
     ];
 
+    $types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
+    if ($types) {
+      $form['closeout'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Post-class wrap-up'),
+        '#description' => $this->t('Which kinds of event owe attendance, badges, feedback and a payment request afterwards. These are the ones listed under "Classes to close out" on the Education console and the ones whose instructor gets the automatic post-class reminder.'),
+        '#open' => TRUE,
+      ];
+      $form['closeout']['closeout_event_types'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Event types that owe wrap-up'),
+        '#options' => $types,
+        '#default_value' => \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes(),
+        '#description' => $this->t('Leave Meetup unticked — a meetup is hosted, not taught, so its host owes no badges or payment. Leave Program unticked too: a program is a multi-week cohort and its first session is not the end of anything. Unticking a type stops both the console listing and the reminder email.'),
+      ];
+    }
+
     $form['orientation_step_enabled'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Require the orientation video and quiz'),
@@ -218,6 +235,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('notification_email', $form_state->getValue('notification_email'))
       ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
       ->set('orientation_step_enabled', (bool) $form_state->getValue('orientation_step_enabled'))
+      ->set('closeout_event_types', $form_state->hasValue('closeout_event_types')
+        ? array_values(array_map('intval', array_filter((array) $form_state->getValue('closeout_event_types'))))
+        : $this->config('instructor_companion.settings')->get('closeout_event_types'))
       ->set('emergency_procedures_url', $form_state->getValue('emergency_procedures_url'))
       ->set('instructor_handbook_url', $form_state->getValue('instructor_handbook_url'))
       ->set('request_reimbursement_url', $form_state->getValue('request_reimbursement_url'))

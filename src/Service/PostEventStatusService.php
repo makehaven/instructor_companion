@@ -79,6 +79,18 @@ class PostEventStatusService {
   public const LOW_RATING = 3;
 
   /**
+   * CiviCRM event types that owe post-class wrap-up, when nothing is configured.
+   *
+   * 6 = Ticketed Workshop, 16 = Ticketed Member Only. Deliberately not every
+   * type: a Meetup is hosted rather than taught, so its host owes no badges
+   * and no payment; a Program is a multi-week cohort whose first session is
+   * not the end of anything; a Tour is staff-run. Asking those people to
+   * "close out" is how a reminder becomes noise — 6 of the 19 reminders sent
+   * to 2026-09-09 went to meetups and programs.
+   */
+  public const DEFAULT_CLOSEOUT_EVENT_TYPES = [6, 16];
+
+  /**
    * Payment_request status values that mean the instructor submitted it.
    *
    * 'draft' = saved but not submitted; 'rejected' = needs redo. Neither
@@ -241,6 +253,10 @@ class PostEventStatusService {
     $q->where('COALESCE(e.end_date, e.start_date) BETWEEN :lo AND :hi', [':lo' => $since, ':hi' => $until]);
     $q->condition('e.is_active', 1);
     $q->condition('e.is_template', 0);
+    $types = self::closeoutEventTypes();
+    if ($types) {
+      $q->condition('e.event_type_id', $types, 'IN');
+    }
     $q->orderBy('ended', 'DESC');
     $q->range(0, $limit);
 
@@ -276,6 +292,48 @@ class PostEventStatusService {
       ];
     }
     return $rows;
+  }
+
+  /**
+   * Event types that owe post-class wrap-up.
+   *
+   * Static so the reminder cron can apply exactly the same scope without
+   * having to hold a reference to this service's config.
+   *
+   * @return int[]
+   *   CiviCRM event_type_id values; empty means "every type".
+   */
+  public static function closeoutEventTypes(): array {
+    $configured = \Drupal::config('instructor_companion.settings')->get('closeout_event_types');
+    if ($configured === NULL) {
+      return self::DEFAULT_CLOSEOUT_EVENT_TYPES;
+    }
+    return array_values(array_filter(array_map('intval', (array) $configured)));
+  }
+
+  /**
+   * The CiviCRM event types, id => label, for the settings form.
+   *
+   * @return array<int, string>
+   *   Empty when CiviCRM's tables are not present.
+   */
+  public static function eventTypeOptions(): array {
+    $db = \Drupal::database();
+    if (!$db->schema()->tableExists('civicrm_option_value')) {
+      return [];
+    }
+    $q = $db->select('civicrm_option_value', 'ov');
+    $q->innerJoin('civicrm_option_group', 'og', "og.id = ov.option_group_id AND og.name = 'event_type'");
+    $q->addField('ov', 'value', 'id');
+    $q->addField('ov', 'label', 'label');
+    $q->orderBy('ov.label');
+    $out = [];
+    foreach ($q->execute() as $row) {
+      if (ctype_digit((string) $row->id)) {
+        $out[(int) $row->id] = (string) $row->label;
+      }
+    }
+    return $out;
   }
 
   /**
