@@ -5,6 +5,7 @@ core_version_requirement: ^10 || ^11
 package: 'Makerspace'
 configure: instructor_companion.settings
 dependencies:
+  - appointment_facilitator:appointment_facilitator
   - drupal:user
   - drupal:webform
   - drupal:token

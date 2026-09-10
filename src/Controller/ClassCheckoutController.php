@@ -108,6 +108,14 @@ class ClassCheckoutController extends ControllerBase {
     }
 
     $badge_request = $this->loadExistingBadgeRequest($user_id, $badge_tid);
+    $gate = \Drupal::service('appointment_facilitator.badge_gate');
+    if (!$badge_request) {
+      $preparation = $gate->evaluatePrerequisites($user_id, $badge_term, TRUE);
+      if (!$preparation['allowed']) {
+        $this->messenger()->addWarning(implode(' ', $preparation['reasons']));
+        return $this->redirect('instructor_companion.class_checkout', ['event_id' => $event_id]);
+      }
+    }
     $now = (new DrupalDateTime('now', 'UTC'))->format(DateTimeItemInterface::DATETIME_STORAGE_FORMAT);
     $is_new = FALSE;
 
@@ -150,6 +158,14 @@ class ClassCheckoutController extends ControllerBase {
 
     switch ($outcome) {
       case self::OUTCOME_ACTIVATE:
+        $prerequisites = $gate->evaluatePrerequisites($user_id, $badge_term);
+        if (!$prerequisites['allowed']) {
+          $messenger->addWarning($this->t('Class checkout recorded for @badge. The badge remains pending. @reason Both badges can be approved during the same visit, with prerequisites approved first.', [
+            '@badge' => $badge_name,
+            '@reason' => implode(' ', $prerequisites['reasons']),
+          ]));
+          return $this->redirect('instructor_companion.class_checkout', ['event_id' => $event_id]);
+        }
         $badge_request->set('field_badge_status', 'active');
         $badge_request->setNewRevision(TRUE);
         $badge_request->setRevisionUserId((int) $this->currentUser()->id());
