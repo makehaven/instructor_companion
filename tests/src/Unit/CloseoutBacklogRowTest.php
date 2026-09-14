@@ -41,6 +41,40 @@ class CloseoutBacklogRowTest extends UnitTestCase {
   }
 
   /**
+   * The badges-owed list keys off the badge step alone.
+   */
+  public function testOwesBadgesOnlyWhenBadgeStepIsOpen(): void {
+    $open = PostEventStatusService::computeStatus([
+      'attendance_confirmed' => TRUE,
+      'badges_applicable' => TRUE,
+      'badges_total_pairs' => 5,
+      'badges_done_pairs' => 4,
+      'feedback_submitted' => TRUE,
+      'payment_done' => TRUE,
+    ]);
+    $this->assertTrue(PostEventStatusService::owesBadges($open), 'One unchecked pair still owes a badge.');
+
+    $done = PostEventStatusService::computeStatus([
+      'attendance_confirmed' => FALSE,
+      'badges_applicable' => TRUE,
+      'badges_total_pairs' => 5,
+      'badges_done_pairs' => 5,
+      'feedback_submitted' => FALSE,
+      'payment_done' => FALSE,
+    ]);
+    $this->assertFalse(PostEventStatusService::owesBadges($done), 'Other open steps do not count as owed badges.');
+
+    $badgeless = PostEventStatusService::computeStatus([
+      'attendance_confirmed' => FALSE,
+      'badges_applicable' => FALSE,
+      'feedback_submitted' => FALSE,
+      'payment_done' => FALSE,
+    ]);
+    $this->assertFalse(PostEventStatusService::owesBadges($badgeless), 'A class with no badges owes none.');
+    $this->assertFalse(PostEventStatusService::owesBadges([]), 'An empty status owes nothing.');
+  }
+
+  /**
    * A class with no badges is scored out of three, not four.
    *
    * @covers ::computeStatus

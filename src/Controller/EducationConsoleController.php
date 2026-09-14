@@ -29,6 +29,15 @@ use Symfony\Component\HttpFoundation\Request;
 class EducationConsoleController extends ControllerBase {
 
   /**
+   * Days of history the "Badges owed after class" tile and list cover.
+   *
+   * Longer than the 30-day wrap-up window because an unissued badge blocks a
+   * member for as long as it stays unissued; the summer 2026 metal classes
+   * were 80 days old when staff noticed.
+   */
+  public const BADGES_OWED_DAYS = 180;
+
+  /**
    * Seconds of history the webform tiles count (90 days, per StaleReviewNudge).
    */
   private const RECENT_HORIZON = 7776000;
@@ -77,6 +86,10 @@ class EducationConsoleController extends ControllerBase {
     $signed = $this->agreementsSigned($now);
     $invited = \Drupal::service('instructor_companion.invite')->pending();
     $closeout = $this->postEventStatus->closeoutBacklog();
+    // Badge-awarding classes whose attendees are still not checked out, over a
+    // longer horizon than the wrap-up list: a member stays stuck until this
+    // happens, so it must not scroll off after 30 days.
+    $badges_owed = $this->postEventStatus->closeoutBacklog(self::BADGES_OWED_DAYS, 40, 0, 0, TRUE);
     $low_rated = $this->postEventStatus->lowRatedEvaluations();
 
     $build = [
@@ -171,6 +184,13 @@ class EducationConsoleController extends ControllerBase {
         Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'closeout']),
         $closeout ? (string) $this->t('oldest: @age', ['@age' => $this->age((int) min(array_filter(array_column($closeout, 'ended'))), $now)]) : NULL
       ),
+      'badges_owed' => $this->tile(
+        $this->t('Badges owed after class'),
+        count($badges_owed),
+        $this->t('classes with students not checked out, last @days days', ['@days' => self::BADGES_OWED_DAYS]),
+        Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'badges-owed']),
+        $badges_owed ? (string) $this->t('oldest: @age', ['@age' => $this->age((int) min(array_filter(array_column($badges_owed, 'ended'))), $now)]) : NULL
+      ),
       'low_rated' => $this->tile(
         $this->t('Evaluations to read'),
         count($low_rated),
@@ -209,6 +229,9 @@ class EducationConsoleController extends ControllerBase {
       $build['low_rated'] = $this->lowRatedTable($low_rated, $now);
     }
 
+    if ($badges_owed) {
+      $build['badges_owed'] = $this->closeoutTable($badges_owed, $now, 'badges');
+    }
     if ($closeout) {
       $build['closeout'] = $this->closeoutTable($closeout, $now);
     }
@@ -373,7 +396,9 @@ class EducationConsoleController extends ControllerBase {
    * every recent class at once, plus how many attendees returned the
    * participant survey. "Remind" re-sends the post-class email.
    */
-  protected function closeoutTable(array $rows, int $now, bool $older = FALSE): array {
+  protected function closeoutTable(array $rows, int $now, string $mode = 'recent'): array {
+    $older = $mode === 'older';
+    $badges = $mode === 'badges';
     $table_rows = [];
     foreach ($rows as $row) {
       $remind_url = Url::fromRoute('instructor_companion.closeout_remind', ['event_id' => $row['event_id']]);
@@ -406,24 +431,42 @@ class EducationConsoleController extends ControllerBase {
         'action' => [
           'data' => [
             '#type' => 'dropbutton',
-            '#links' => [
+            '#links' => array_filter([
               'remind' => ['title' => $this->t('Remind instructor'), 'url' => $remind_url],
+              // Staff can run the class checkout themselves when the
+              // instructor never will (the route allows staff as well).
+              'checkout' => $badges ? [
+                'title' => $this->t('Class checkout (issue badges)'),
+                'url' => Url::fromRoute('instructor_companion.class_checkout', ['event_id' => $row['event_id']]),
+              ] : NULL,
               'hub' => [
                 'title' => $this->t('Open wrap-up page'),
                 'url' => Url::fromRoute('instructor_companion.post_event_hub', ['event_id' => $row['event_id']]),
               ],
-            ],
+            ]),
           ],
         ],
       ];
     }
 
+    if ($badges) {
+      $heading = $this->t('Badges owed after class');
+      $note = $this->t(
+        'Badge-awarding classes from the last @days days where at least one
+         student has neither been checked out by the instructor nor holds the
+         badge. Until this happens the student cannot use the tool, so it is
+         listed separately from the rest of the wrap-up. "Class checkout"
+         opens the same page the instructor uses; a staff member can mark the
+         students complete on their behalf.',
+        ['@days' => self::BADGES_OWED_DAYS]
+      );
+    }
     return [
       '#type' => 'container',
-      '#attributes' => ['class' => ['education-console__closeout'], 'id' => 'closeout'],
-      'heading' => ['#markup' => '<h2>' . ($older ? $this->t('Older outstanding classes') : $this->t('Classes to close out')) . '</h2>'],
+      '#attributes' => ['class' => ['education-console__closeout'], 'id' => $badges ? 'badges-owed' : 'closeout'],
+      'heading' => ['#markup' => '<h2>' . ($badges ? $heading : ($older ? $this->t('Older outstanding classes') : $this->t('Classes to close out'))) . '</h2>'],
       'note' => [
-        '#markup' => '<p class="education-console__held-note">' . ($older ? $this->t(
+        '#markup' => '<p class="education-console__held-note">' . ($badges ? $note : ($older ? $this->t(
           'Classes that ended more than 30 days ago with wrap-up still outstanding, newest first. Older records may predate task tracking: review the class before reminding the instructor. Classes with no counted participants are excluded.'
         ) : $this->t(
           'Classes from the last 30 days whose instructor still owes wrap-up.
@@ -432,7 +475,7 @@ class EducationConsoleController extends ControllerBase {
            Evaluations counts the participant Event Feedback survey, which the
            attendees are asked for separately — a low number there is not the
            instructor\'s doing.'
-        )) . '</p>',
+        ))) . '</p>',
       ],
       'table' => [
         '#type' => 'table',
@@ -467,7 +510,7 @@ class EducationConsoleController extends ControllerBase {
         '#title' => $this->t('← Back to Education'),
         '#url' => Url::fromRoute('instructor_companion.education_console'),
       ],
-      'classes' => $this->closeoutTable(array_slice($rows, 0, $page_size), \Drupal::time()->getRequestTime(), TRUE),
+      'classes' => $this->closeoutTable(array_slice($rows, 0, $page_size), \Drupal::time()->getRequestTime(), 'older'),
     ];
     if ($page > 0) {
       $build['previous'] = [

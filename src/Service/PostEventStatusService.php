@@ -222,6 +222,24 @@ class PostEventStatusService {
   }
 
   /**
+   * Whether a computed status still has the badge step outstanding.
+   *
+   * Pure — unit tested. TRUE only when the class awards badges and at least
+   * one attendee/badge pair has neither a class checkout nor the badge.
+   *
+   * @param array $status
+   *   A ::computeStatus() result.
+   */
+  public static function owesBadges(array $status): bool {
+    foreach ($status['steps'] ?? [] as $step) {
+      if (($step['key'] ?? '') === self::STEP_BADGES) {
+        return !empty($step['applicable']) && empty($step['complete']);
+      }
+    }
+    return FALSE;
+  }
+
+  /**
    * Classes that have ended with wrap-up still outstanding.
    *
    * The staff-side counterpart to the instructor's post-event hub: the same
@@ -237,13 +255,17 @@ class PostEventStatusService {
    *   Exclude classes newer than this age. Zero includes all ended classes.
    * @param int $offset
    *   Number of outstanding classes to skip for pagination.
+   * @param bool $badges_only
+   *   Restrict to classes that award a badge and still have attendees not
+   *   checked out. This is the step that leaves a member stuck (feedback and
+   *   payment only affect the instructor), so staff need it on its own.
    *
    * @return array<int, array>
    *   Newest-ended first. Each row: event_id, title, uid, instructor,
    *   ended (timestamp), status (see ::getStatus()), attendees (int),
    *   evaluations (int) — participant Event Feedback responses for the class.
    */
-  public function closeoutBacklog(int $days = 30, int $limit = 60, int $older_than_days = 0, int $offset = 0): array {
+  public function closeoutBacklog(int $days = 30, int $limit = 60, int $older_than_days = 0, int $offset = 0, bool $badges_only = FALSE): array {
     $now = \Drupal::time()->getRequestTime();
     $since = $days > 0 ? date('Y-m-d H:i:s', $now - $days * 86400) : '1970-01-01 00:00:00';
     $until = date('Y-m-d H:i:s', $now - $older_than_days * 86400);
@@ -264,6 +286,14 @@ class PostEventStatusService {
     if ($types) {
       $q->condition('e.event_type_id', $types, 'IN');
     }
+    if ($badges_only) {
+      // Cheap pre-filter: only classes that award a badge at all, so the
+      // per-event status queries below run over a fraction of the calendar.
+      $badged = $this->database->select('civicrm_event__field_civi_event_badges', 'eb')
+        ->fields('eb', ['entity_id'])
+        ->condition('eb.deleted', 0);
+      $q->condition('e.id', $badged, 'IN');
+    }
     $q->orderBy('ended', 'DESC');
 
     $evaluations = $this->evaluationSummaries($since);
@@ -282,6 +312,9 @@ class PostEventStatusService {
       }
       $status = $this->getStatus($event_id, $uid);
       if ($status['all_complete']) {
+        continue;
+      }
+      if ($badges_only && !self::owesBadges($status)) {
         continue;
       }
       if ($offset > 0) {
@@ -530,13 +563,24 @@ class PostEventStatusService {
     if (!$uids || !$badge_tids) {
       return 0;
     }
+    // A pair is done when the instructor's class checkout stamped it, OR the
+    // member already holds the badge from any source (a facilitator checkout
+    // before or after the class, a legacy grant). Nothing is owed to someone
+    // who has the badge, so listing them as "still to check off" was noise:
+    // it kept classes on the staff backlog after every student was badged.
     $q = $this->database->select('node__field_member_to_badge', 'm');
+    $q->innerJoin('node_field_data', 'n', 'n.nid = m.entity_id AND n.status = 1');
     $q->innerJoin('node__field_badge_requested', 'b', 'm.entity_id = b.entity_id');
-    $q->innerJoin('node__field_class_completed_date', 'c', 'm.entity_id = c.entity_id');
+    $q->leftJoin('node__field_class_completed_date', 'c', 'm.entity_id = c.entity_id');
+    $q->leftJoin('node__field_badge_status', 'st', 'm.entity_id = st.entity_id');
     $q->addExpression('COUNT(DISTINCT CONCAT(m.field_member_to_badge_target_id, :sep, b.field_badge_requested_target_id))', 'pairs', [':sep' => '-']);
     $q->condition('m.field_member_to_badge_target_id', $uids, 'IN');
     $q->condition('b.field_badge_requested_target_id', $badge_tids, 'IN');
-    $q->isNotNull('c.field_class_completed_date_value');
+    $done = $q->orConditionGroup()
+      ->isNotNull('c.field_class_completed_date_value')
+      ->condition('st.field_badge_status_value', ['', 'active'], 'IN')
+      ->isNull('st.field_badge_status_value');
+    $q->condition($done);
     return (int) $q->execute()->fetchField();
   }
 
