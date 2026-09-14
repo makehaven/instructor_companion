@@ -67,6 +67,7 @@ closeout_event_types:
   - 6
   - 16
 proposal_staff_contact_uid: 0
+follower_notice_enabled: true
 session_evaluation_enabled: true
 session_evaluation_delay_hours: 24
 session_evaluation_subject: 'Thank you for attending [event_title]!'

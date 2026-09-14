@@ -155,6 +155,18 @@ services:
     tags:
       - { name: event_subscriber }
 
+  instructor_companion.course_follower_notifier:
+    class: Drupal\instructor_companion\Service\CourseFollowerNotifier
+    arguments:
+      - '@database'
+      - '@config.factory'
+      - '@state'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+      - '@request_stack'
+      - '@path_alias.manager'
+
   instructor_companion.proposal_deactivate_subscriber:
     class: Drupal\instructor_companion\EventSubscriber\ProposalDeactivateSubscriber
     arguments:

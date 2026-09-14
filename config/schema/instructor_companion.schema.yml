@@ -56,6 +56,9 @@ instructor_companion.settings:
     attendance_prompt_offset_minutes:
       type: integer
       label: 'Minutes after the start time before prompting for attendance'
+    follower_notice_enabled:
+      type: boolean
+      label: 'Email course followers when a new run of the course opens'
     session_evaluation_enabled:
       type: boolean
       label: 'Send the attendee evaluation for multi-session classes after the last session'

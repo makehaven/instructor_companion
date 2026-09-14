@@ -38,3 +38,10 @@ services:
       - '@instructor_companion.attendance_manager'
     tags:
       - { name: drush.command }
+  instructor_companion.follower_commands:
+    class: \Drupal\instructor_companion\Commands\FollowerCommands
+    arguments:
+      - '@instructor_companion.course_follower_notifier'
+      - '@state'
+    tags:
+      - { name: drush.command }

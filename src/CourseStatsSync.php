@@ -49,6 +49,9 @@ class CourseStatsSync {
       $q->fields('e', ['id', 'start_date', 'max_participants']);
       $q->condition('f.field_parent_course_target_id', $id);
       $q->condition('e.is_active', 1);
+      // The CiviCRM event template a course clones from is linked to the
+      // course too; it is not a run (it made "3 cohorts so far" out of two).
+      $q->condition('e.is_template', 0);
       $events = $q->execute()->fetchAll();
 
       foreach ($events as $e) {
