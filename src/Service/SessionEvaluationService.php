@@ -255,8 +255,11 @@ class SessionEvaluationService {
       if (isset($sent_map[$event_id]) || !$this->sessions->isMultiSession($event_id)) {
         continue;
       }
-      // Mark up-front so a mid-loop failure cannot double-send.
+      // Mark up-front AND persist now: run() swallows exceptions, so a
+      // failure part-way through must not leave this event unclaimed for the
+      // next cron to send again.
       $sent_map[$event_id] = ['t' => $now, 'sent' => 0];
+      $this->state->set(self::SENT_STATE_KEY, $sent_map);
 
       $type = (int) $row['type'];
       // Audience = what the reminder for this type would have used; without a
@@ -274,8 +277,10 @@ class SessionEvaluationService {
       $count = 0;
       foreach ($this->audience($event_id, $schedules[$schedule_id]) as $p) {
         // Someone CiviCRM already wrote to (a class whose sessions were added
-        // after its first-session reminder went out) is not asked twice.
-        if ($this->hasForeignLogRow($schedule_id, $p['participant_id'])) {
+        // after its first-session reminder went out) is not asked twice, and
+        // neither is anyone we stamped on an earlier, interrupted pass.
+        if ($this->hasForeignLogRow($schedule_id, $p['participant_id'])
+          || $this->hasOwnSentRow($schedule_id, $p['participant_id'])) {
           continue;
         }
         if ($this->email($p, $event_id, (string) $row['title'], $type)) {
@@ -284,6 +289,7 @@ class SessionEvaluationService {
         }
       }
       $sent_map[$event_id]['sent'] = $count;
+      $this->state->set(self::SENT_STATE_KEY, $sent_map);
       $total += $count;
       $this->logger->notice('Evaluation sent to @n attendee(s) of multi-session event @e after its last session.', [
         '@n' => $count,
@@ -308,7 +314,8 @@ class SessionEvaluationService {
       $now = $this->time->getRequestTime();
       $count = 0;
       foreach ($this->audience($event_id, $def) as $p) {
-        if ($this->hasForeignLogRow($sid, $p['participant_id'])) {
+        if ($this->hasForeignLogRow($sid, $p['participant_id'])
+          || $this->hasOwnSentRow($sid, $p['participant_id'])) {
           continue;
         }
         if ($this->email($p, $event_id, $title, $type)) {
@@ -399,6 +406,24 @@ class SessionEvaluationService {
       ->condition('l.action_schedule_id', $schedule_id)
       ->condition('l.entity_table', 'civicrm_participant')
       ->condition('l.entity_id', $participant_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+  }
+
+  /**
+   * Whether we already stamped a send for this participant.
+   *
+   * Running sendNow() twice, or a cron pass that died after some emails,
+   * must not write to the same person again.
+   */
+  protected function hasOwnSentRow(int $schedule_id, int $participant_id): bool {
+    return (bool) $this->database->select('civicrm_action_log', 'l')
+      ->fields('l', ['id'])
+      ->condition('l.action_schedule_id', $schedule_id)
+      ->condition('l.entity_table', 'civicrm_participant')
+      ->condition('l.entity_id', $participant_id)
+      ->condition('l.message', self::SENT_MARKER)
       ->range(0, 1)
       ->execute()
       ->fetchField();
