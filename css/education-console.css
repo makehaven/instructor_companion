@@ -152,3 +152,14 @@ a.education-console__tile:focus-visible {
   line-height: 1.5;
   min-width: 24rem;
 }
+
+/* ── Instructor roster (/admin/education/roster) ─────────────────── */
+.education-roster__filters { display: flex; flex-wrap: wrap; gap: .25rem 1rem; list-style: none; padding: 0; margin: 0 0 .75rem; }
+.education-roster__filters a.is-active { font-weight: 700; text-decoration: underline; }
+.education-roster__table td { vertical-align: top; }
+.education-roster__num { text-align: right; white-space: nowrap; }
+.education-roster__row--inactive td { color: #6b6b6b; }
+.education-roster__missing { color: #a12222; font-weight: 600; }
+.education-roster__toggle { font-size: .85em; }
+.ec-chip--active { background: #e1efe3; color: #2f6b3a; }
+.ec-chip--inactive { background: #ececec; color: #555; }

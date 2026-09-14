@@ -2,6 +2,7 @@
 
 namespace Drupal\instructor_companion\Controller;
 
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Datetime\DateFormatterInterface;
@@ -122,9 +123,19 @@ class EducationConsoleController extends ControllerBase {
       return $age ? (string) $this->t('oldest: @age', ['@age' => $age]) : NULL;
     };
 
+    $active_instructors = $this->activeInstructorCount();
+
     $build['tiles'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['education-console__tiles']],
+      'roster' => $this->tile(
+        $this->t('Active instructors'),
+        $active_instructors,
+        $this->t('the roster — approve, deactivate, fix profiles'),
+        Url::fromRoute('instructor_companion.roster'),
+        NULL,
+        TRUE
+      ),
       'proposals' => $this->tile(
         $this->t('Session proposals'),
         count($proposals),
@@ -163,7 +174,7 @@ class EducationConsoleController extends ControllerBase {
       'low_rated' => $this->tile(
         $this->t('Evaluations to read'),
         count($low_rated),
-        $this->t('rated @n or lower, last 90 days', ['@n' => \Drupal\instructor_companion\Service\PostEventStatusService::LOW_RATING]),
+        $this->t('rated @n or lower, last 90 days', ['@n' => PostEventStatusService::LOW_RATING]),
         Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'low-rated']),
         $low_rated ? (string) $this->t('newest: @age ago', ['@age' => $this->age((int) $low_rated[0]['created'], $now)]) : NULL
       ),
@@ -217,6 +228,7 @@ class EducationConsoleController extends ControllerBase {
       '#title' => $this->t('More'),
       '#attributes' => ['class' => ['education-console__links']],
       '#items' => [
+        $this->link($this->t('Instructor roster (who is approved to teach, who actually does, whose public page is incomplete)'), Url::fromRoute('instructor_companion.roster')),
         $this->link($this->t('Prospective instructors (the onboarding lists above, plus members who said they would teach)'), Url::fromRoute('instructor_companion.prospective_instructors')),
         $this->link($this->t('Instructor dashboard (what instructors see)'), Url::fromRoute('instructor_companion.dashboard')),
         $this->link($this->t('Notification & email settings'), Url::fromRoute('instructor_companion.settings')),
@@ -253,7 +265,7 @@ class EducationConsoleController extends ControllerBase {
     if ($eval['lowest'] !== NULL && $eval['lowest'] <= PostEventStatusService::LOW_RATING) {
       $build['flag'] = [
         '#markup' => ' <span class="education-console__eval--low">'
-          . $this->t('⚠ lowest @n/5', ['@n' => $eval['lowest']]) . '</span>',
+        . $this->t('⚠ lowest @n/5', ['@n' => $eval['lowest']]) . '</span>',
       ];
     }
     elseif ($eval['average'] !== NULL) {
@@ -342,7 +354,7 @@ class EducationConsoleController extends ControllerBase {
   /**
    * Staff action: re-send the post-class reminder for one class.
    */
-  public function remindCloseout(int $event_id): \Symfony\Component\HttpFoundation\RedirectResponse {
+  public function remindCloseout(int $event_id): RedirectResponse {
     $sent = \Drupal::service('instructor_companion.post_event_reminder')->remindNow($event_id);
     if ($sent) {
       $this->messenger()->addStatus($this->t('Reminder sent to the instructor.'));
@@ -798,6 +810,26 @@ class EducationConsoleController extends ControllerBase {
    */
   protected function link($title, Url $url): array {
     return ['#type' => 'link', '#title' => $title, '#url' => $url];
+  }
+
+  /**
+   * How many instructor profiles are staff-approved on a live account.
+   *
+   * Reads field_instructor_status = active. Cheap; feeds the roster tile.
+   */
+  protected function activeInstructorCount(): int {
+    try {
+      $q = $this->database->select('profile', 'p');
+      $q->join('profile__field_instructor_status', 's', 's.entity_id = p.profile_id');
+      $q->join('users_field_data', 'u', 'u.uid = p.uid');
+      $q->condition('p.type', 'instructor')->condition('p.status', 1)
+        ->condition('u.status', 1)
+        ->condition('s.field_instructor_status_value', 'active');
+      return (int) $q->countQuery()->execute()->fetchField();
+    }
+    catch (\Throwable $e) {
+      return 0;
+    }
   }
 
 }

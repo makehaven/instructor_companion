@@ -289,3 +289,27 @@ instructor_companion.older_closeout:
     _permission: 'access education console'
   options:
     _admin_route: TRUE
+
+instructor_companion.roster:
+  path: '/admin/education/roster'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorRosterController::build'
+    _title: 'Instructor roster'
+  requirements:
+    _permission: 'access education console'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.roster_status:
+  path: '/admin/education/roster/{profile}/status/{status}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorRosterController::setStatus'
+  requirements:
+    _permission: 'access education console'
+    _csrf_token: 'TRUE'
+    status: 'active|inactive'
+  options:
+    _admin_route: TRUE
+    parameters:
+      profile:
+        type: 'entity:profile'
