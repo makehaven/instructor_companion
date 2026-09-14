@@ -184,8 +184,19 @@ class InstructorDashboardController extends ControllerBase {
       'Instructor Handbook' => $config->get('instructor_handbook_url'),
     ];
 
+    // "Log Hours" used to open a blank timesheet, so most hours arrived with
+    // no class attached (the per-class link lives in a row dropdown nobody
+    // opens). Point it at the latest class that has no request yet.
+    $suggested_event = $this->suggestUnpaidEvent((int) $current_user->id());
+    if ($suggested_event) {
+      $toolkit_links['Log Hours'] = $this->buildToolkitUrlWithQuery($config->get('log_hours_url'), [
+        'event' => $suggested_event['id'],
+        'description' => $this->t('Instructor payment for @event', ['@event' => $suggested_event['label']]),
+      ]);
+    }
+
     foreach ($toolkit_links as $label => $value) {
-      $url = $this->buildToolkitUrl($value);
+      $url = $value instanceof Url ? $value : $this->buildToolkitUrl($value);
       if ($url) {
         $toolkit_items[] = [
           '#type' => 'link',
@@ -601,6 +612,47 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     return $banner;
+  }
+
+  /**
+   * The instructor's most recent started class with no payment request yet.
+   *
+   * @return array|null
+   *   ['id' => int, 'label' => string] or NULL.
+   */
+  protected function suggestUnpaidEvent(int $uid): ?array {
+    $db = \Drupal::database();
+    $q = $db->select('civicrm_event', 'e');
+    $q->fields('e', ['id', 'title', 'start_date']);
+    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+    $q->condition('i.field_civi_event_instructor_target_id', $uid);
+    $q->condition('e.is_template', 0);
+    $q->condition('e.start_date', date('Y-m-d H:i:s'), '<=');
+    $q->condition('e.start_date', date('Y-m-d H:i:s', strtotime('-90 days')), '>=');
+    $q->orderBy('e.start_date', 'DESC');
+    $q->range(0, 20);
+    $events = $q->execute()->fetchAllAssoc('id');
+    if (!$events) {
+      return NULL;
+    }
+    $requested = [];
+    if ($db->schema()->tableExists('payment_request__field_event')) {
+      $r = $db->select('payment_request__field_event', 'fe');
+      $r->addField('fe', 'field_event_target_id');
+      $r->innerJoin('payment_request__field_payee', 'fp', 'fp.entity_id = fe.entity_id AND fp.deleted = 0');
+      $r->condition('fe.deleted', 0);
+      $r->condition('fe.bundle', 'payment');
+      $r->condition('fp.field_payee_target_id', $uid);
+      $r->condition('fe.field_event_target_id', array_keys($events), 'IN');
+      $requested = array_map('intval', $r->execute()->fetchCol());
+    }
+    foreach ($events as $id => $row) {
+      if (!in_array((int) $id, $requested, TRUE)) {
+        $date = $this->formatEventDate((string) $row->start_date);
+        return ['id' => (int) $id, 'label' => $row->title . ($date ? ' (' . $date . ')' : '')];
+      }
+    }
+    return NULL;
   }
 
   /**
