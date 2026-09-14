@@ -8,6 +8,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\instructor_companion\Service\SessionSchedule;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 
 /**
@@ -463,6 +464,24 @@ class InstructorDashboardController extends ControllerBase {
       $all_event_ids = array_unique(array_merge(array_keys($upcoming_events), array_keys($completed_events)));
       $payment_status_by_event = $this->getPaymentStatusSummaryByEvent((int) $current_user->id(), $all_event_ids);
       $post_event_status = \Drupal::service('instructor_companion.post_event_status');
+      $sessions = \Drupal::service('instructor_companion.sessions');
+      $now_local = date('Y-m-d H:i:s');
+
+      // A multi-session class that has started but still has meetings ahead
+      // is neither upcoming nor finished: it stays in the top table as
+      // "in progress" so the instructor keeps the attendance button and is
+      // not asked to wrap up a class that is one-third done.
+      $in_progress_rows = [];
+      foreach ($completed_events as $event_id => $event) {
+        if ($sessions->hasSessionAfter((int) $event_id, $now_local)) {
+          $in_progress_rows[] = $this->buildEventRow(
+            $event,
+            $payment_status_by_event[$event_id] ?? $this->t('No requests logged'),
+            FALSE
+          );
+          unset($completed_events[$event_id]);
+        }
+      }
 
       foreach ($upcoming_events as $event_id => $event) {
         $upcoming_rows[] = $this->buildEventRow(
@@ -471,6 +490,7 @@ class InstructorDashboardController extends ControllerBase {
           FALSE
         );
       }
+      $upcoming_rows = array_merge($in_progress_rows, $upcoming_rows);
 
       foreach ($completed_events as $event_id => $event) {
         $completed_rows[] = $this->buildEventRow(
@@ -626,6 +646,22 @@ class InstructorDashboardController extends ControllerBase {
 
     $capacity = $event->get('max_participants')->value ?? '∞';
     $formatted_date = $this->formatEventDate((string) $event->get('start_date')->value);
+    $sessions = \Drupal::service('instructor_companion.sessions');
+    $schedule = $sessions->getSchedule($event_id);
+    $now_local = date('Y-m-d H:i:s');
+    $date_cell = $formatted_date;
+    $current_session = NULL;
+    if (count($schedule) > 1) {
+      $current_session = $sessions->currentSession($event_id, $now_local);
+      $next = $sessions->nextSession($event_id, $now_local);
+      $started = $schedule[0]['start'] <= $now_local;
+      $date_cell = $formatted_date . '<br><small class="ic-session-shape">'
+        . SessionSchedule::summary($schedule);
+      if ($started && $next) {
+        $date_cell .= ' · ' . $this->t('in progress, next @when', ['@when' => SessionSchedule::label($next['start'], 'D M j')]);
+      }
+      $date_cell .= '</small>';
+    }
 
     $roster_url = Url::fromUri('internal:/civicrm/event/participant', [
       'query' => [
@@ -666,10 +702,14 @@ class InstructorDashboardController extends ControllerBase {
     // class started, because the row moved to "Recent / Completed" and the
     // post-class hub took over as the primary action. That was precisely
     // backwards: the start of the session is when attendance is accurate.
-    if (!\Drupal::service('instructor_companion.post_event_status')->isAttendanceConfirmed($event_id)) {
+    $attendance_session = $current_session ? $current_session['start'] : NULL;
+    if (!\Drupal::service('instructor_companion.post_event_status')->isAttendanceConfirmed($event_id, $attendance_session)) {
       $links = ['attendance' => [
-        'title' => $this->t('Take attendance'),
-        'url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => $event_id]),
+        'title' => $current_session
+          ? $this->t('Take attendance (session @n of @c)', ['@n' => $current_session['index'] + 1, '@c' => $current_session['count']])
+          : $this->t('Take attendance'),
+        'url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => $event_id],
+          $attendance_session ? ['query' => ['session' => $attendance_session]] : []),
       ]] + $links;
     }
 
@@ -711,7 +751,7 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     return [
-      'date' => $formatted_date,
+      'date' => ['data' => ['#markup' => $date_cell]],
       'title' => $event->label(),
       'enrolled' => "$enrolled_count / $capacity",
       'payments' => ['data' => ['#markup' => (string) $payment_status]],
@@ -739,30 +779,33 @@ class InstructorDashboardController extends ControllerBase {
     $now = \Drupal::time()->getRequestTime();
     $window_start = date('Y-m-d H:i:s', $now - self::LIVE_CLASS_HOURS * 3600);
 
-    $q = \Drupal::database()->select('civicrm_event', 'e');
-    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
-    $q->addField('e', 'id', 'event_id');
-    $q->addField('e', 'title', 'title');
-    $q->addField('e', 'start_date', 'start_date');
-    $q->condition('i.field_civi_event_instructor_target_id', $uid);
-    $q->condition('e.is_active', 1);
-    $q->condition('e.is_template', 0);
-    $q->where('e.start_date BETWEEN :lo AND :hi', [':lo' => $window_start, ':hi' => date('Y-m-d H:i:s', $now)]);
     // Same scope as the at-start email and the console: a meetup is hosted,
     // not taught, and a program's first session is not the moment to take
-    // attendance for the cohort.
+    // attendance for the cohort. Any SESSION of a class counts as live.
     $types = \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes();
-    if ($types) {
-      $q->condition('e.event_type_id', $types, 'IN');
-    }
-    $q->orderBy('e.start_date', 'DESC');
-    $q->range(0, 1);
-    $row = $q->execute()->fetchObject();
+    $live = \Drupal::service('instructor_companion.sessions')->sessionsStartingBetween(
+      $window_start,
+      date('Y-m-d H:i:s', $now),
+      function ($q) use ($uid, $types) {
+        $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+        $q->addField('e', 'title', 'title');
+        $q->condition('i.field_civi_event_instructor_target_id', $uid);
+        $q->condition('e.is_active', 1);
+        $q->condition('e.is_template', 0);
+        if ($types) {
+          $q->condition('e.event_type_id', $types, 'IN');
+        }
+      }
+    );
+    usort($live, static fn(array $a, array $b): int => strcmp($b['session']['start'], $a['session']['start']));
+    $row = $live ? (object) $live[0] : NULL;
 
     $post_event_status = \Drupal::service('instructor_companion.post_event_status');
-    if (!$row || $post_event_status->isAttendanceConfirmed((int) $row->event_id)) {
+    if (!$row || $post_event_status->isAttendanceConfirmed((int) $row->event_id, $row->session['start'])) {
       return NULL;
     }
+    $session = $row->session;
+    $multi = ($session['count'] ?? 1) > 1;
 
     $registered = $post_event_status->countedParticipants((int) $row->event_id);
 
@@ -771,7 +814,9 @@ class InstructorDashboardController extends ControllerBase {
       '#attributes' => ['class' => ['instructor-live-class']],
       'heading' => [
         '#markup' => '<h2 class="instructor-live-class__title">'
-        . $this->t('Happening now: @title', ['@title' => $row->title]) . '</h2>',
+        . ($multi
+          ? $this->t('Happening now: @title (session @n of @c)', ['@title' => $row->title, '@n' => $session['index'] + 1, '@c' => $session['count']])
+          : $this->t('Happening now: @title', ['@title' => $row->title])) . '</h2>',
       ],
       'body' => [
         '#markup' => '<p class="instructor-live-class__body">' . $this->t(
@@ -784,7 +829,8 @@ class InstructorDashboardController extends ControllerBase {
       'button' => [
         '#type' => 'link',
         '#title' => $this->t('Take attendance'),
-        '#url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => (int) $row->event_id]),
+        '#url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => (int) $row->event_id],
+          $multi ? ['query' => ['session' => $session['start']]] : []),
         '#attributes' => ['class' => ['button', 'button--primary', 'button--large', 'instructor-live-class__button']],
       ],
     ];
@@ -1169,11 +1215,15 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     // CiviCRM stores civicrm_event.start_date in the site's local timezone
-    // (not UTC). Values may arrive as "Y-m-d H:i:s" or ISO 8601
-    // (for example "2026-02-15T20:00:00").
+    // ("Y-m-d H:i:s"). The Drupal civicrm_event entity exposes the same
+    // column as ISO 8601 in UTC ("2026-02-15T20:00:00" for 3 pm Eastern).
     try {
       $tz = new \DateTimeZone($site_timezone);
-      $date = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $start_date_value, $tz);
+      // A "T" value is the Drupal entity's copy, which civicrm_entity has
+      // already converted to UTC; a plain value is CiviCRM's own local time.
+      $date = str_contains($start_date_value, 'T')
+        ? \DateTimeImmutable::createFromFormat('Y-m-d\TH:i:s', substr($start_date_value, 0, 19), new \DateTimeZone('UTC'))
+        : \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $start_date_value, $tz);
       if (!$date) {
         $date = new \DateTimeImmutable($start_date_value, $tz);
       }

@@ -227,6 +227,72 @@ This view filters the "Materials" list to only show items marked as "Class Suppl
 5.  Click **Roster** -> Should open the CiviCRM participant list.
 6.  Click **Submit Feedback** -> Should open the Webform with `?event_id=...` pre-filled.
 
+## Classes that meet more than once (sessions)
+
+A workshop that meets several times — stained glass over six Saturdays, rug
+tufting over two Sundays — is **one CiviCRM event whose start/end are the
+first meeting**. The calendar, digest and listings keep showing that single
+date. The other meetings live in the multi-value Drupal field
+`field_civi_event_sessions` ("Sessions", all meetings including the first) on
+the event's Drupal edit form.
+
+`\Drupal\instructor_companion\Service\SessionSchedule`
+(`instructor_companion.sessions`) is the one answer to "when does this class
+meet, and when is it over?". Every consumer that used to key off `end_date`
+asks it instead:
+
+| Consumer | Before | Now |
+|---|---|---|
+| At-start attendance prompt | first session only | every session, 15 min in (`event_id@session` keys in state) |
+| Post-class wrap-up reminder (48–72 h) | after session 1 | after the last session |
+| Education console "classes to close out" | listed after session 1 | listed after the last session; `ended` = last session end |
+| Instructor dashboard | class moved to "completed" the minute session 1 started | stays in the top table as *in progress, next …* until the last session |
+| Post-class hub | wrap-up steps from day one | banner "still running: next …, last …" until the class is over |
+| Attendee evaluation | CiviCRM reminder 24 h after session 1 | held in CiviCRM, sent from Drupal 24 h after the last session |
+
+**Attendance is per session.** `instructor_companion_attendance` keeps one row
+per (event, session, participant) each time the instructor saves a session.
+The CiviCRM participant status is *derived*: present at any session =
+Attended, never present = No-show. Saving week 2 can never erase week 1, and
+the date each person first turned up is kept. The attendance form takes
+`?session=<local start>`; without it, the session that started most recently.
+The dashboard, hub and emails link to the right one.
+
+**Entering sessions.** On the event edit form, "Fill in sessions from a weekly
+pattern" (count + days between) generates the list from the start date; the
+first session must equal the start date (validated). Moving the start date
+moves the whole list by the same number of days — from the Drupal form or from
+CiviCRM's own event form (`hook_civicrm_pre/post`). Copying an event in
+CiviCRM ("Copy Event") now also copies the Drupal-side fields — course,
+instructor, badges, image, areas of interest, staff contact, sessions — onto
+the copy (`EventCopySync`); before this, every one of them was re-entered by
+hand on every copy. A course node can carry *Sessions per class* and *Days
+between sessions*; instances scheduled from the course get their list
+generated, and the generator defaults to the course's shape.
+
+**Evaluation for multi-session classes.** CiviCRM scheduled reminders can only
+follow the four CiviCRM event dates, so for events with a session list
+`SessionEvaluationService` pre-inserts `civicrm_action_log` rows (message
+`[instructor_companion] Held: …`) that make CiviCRM's "Thanks for Attending!"
+reminders skip those participants, then emails the same audience from Drupal
+24 h after the last session (subject/body/link on the settings page, tokens
+`[first_name]`, `[event_title]`, `[evaluation_url]`) and stamps the rows
+`Sent by Drupal`. Someone CiviCRM already wrote to (sessions added after a
+first-session reminder went out) is not asked twice. Single-session classes are
+untouched. Switch: *Send the attendee evaluation after the last session* on
+`/admin/config/makerspace/instructor-companion`.
+
+**civicrm_entity quirk.** `CiviEntityStorage::initFieldValues()` treats every
+datetime-type field on a CiviCRM entity as local time and converts it to UTC
+on load — wrong for a Drupal field that already stores UTC (the Sessions list
+read four hours late and drifted on every save). `hook_civicrm_event_load()`
+re-reads the stored values. The same quirk is why the dashboard's
+`formatEventDate()` treats an ISO "T" value as UTC and a plain value as local.
+
+Drush: `ic-sessions <event>` (schedule + attendance), `ic-set-sessions <event>
+"<dates>" | generate --count=N [--interval=7] | "" --clear`, and
+`ic-session-eval [--event=N]` (run the hold/send pass now, or send one class).
+
 ## Two-stage badge prerequisites
 
 Configured prerequisite badges must be published and pending or earned before

@@ -103,7 +103,15 @@ class PostEventStatusService {
     protected Connection $database,
     protected StateInterface $state,
     protected ConfigFactoryInterface $configFactory,
+    protected ?SessionSchedule $sessions = NULL,
   ) {}
+
+  /**
+   * The session schedule (lazy: older service definitions omit it).
+   */
+  protected function sessions(): SessionSchedule {
+    return $this->sessions ??= \Drupal::service('instructor_companion.sessions');
+  }
 
   /**
    * Returns the full post-event status for an event + instructor.
@@ -122,18 +130,60 @@ class PostEventStatusService {
   /**
    * Records that the instructor has confirmed attendance for an event.
    */
-  public function confirmAttendance(int $event_id, int $uid): void {
+  public function confirmAttendance(int $event_id, int $uid, ?string $session_start = NULL): void {
     $map = (array) $this->state->get(self::ATTENDANCE_STATE_KEY, []);
-    $map[$event_id] = ['uid' => $uid, 'time' => \Drupal::time()->getRequestTime()];
+    $entry = (array) ($map[$event_id] ?? []);
+    $entry['uid'] = $uid;
+    $entry['time'] = \Drupal::time()->getRequestTime();
+    if ($session_start !== NULL) {
+      $entry['sessions'][substr($session_start, 0, 19)] = $entry['time'];
+    }
+    $map[$event_id] = $entry;
     $this->state->set(self::ATTENDANCE_STATE_KEY, $map);
   }
 
   /**
    * Whether attendance has been confirmed for an event.
+   *
+   * With a session start: whether THAT session has been saved. Without: any
+   * session (the legacy, event-level question).
    */
-  public function isAttendanceConfirmed(int $event_id): bool {
+  public function isAttendanceConfirmed(int $event_id, ?string $session_start = NULL): bool {
     $map = (array) $this->state->get(self::ATTENDANCE_STATE_KEY, []);
-    return !empty($map[$event_id]);
+    if (empty($map[$event_id])) {
+      return FALSE;
+    }
+    if ($session_start === NULL) {
+      return TRUE;
+    }
+    $key = substr($session_start, 0, 19);
+    if (!empty($map[$event_id]['sessions'][$key])) {
+      return TRUE;
+    }
+    // Rows saved before sessions existed carry no session key: they were the
+    // first session by definition.
+    if (empty($map[$event_id]['sessions'])) {
+      $schedule = $this->sessions()->getSchedule($event_id);
+      return $schedule && substr($schedule[0]['start'], 0, 16) === substr($key, 0, 16);
+    }
+    return FALSE;
+  }
+
+  /**
+   * Sessions of an event with attendance saved, as local starts.
+   *
+   * @return string[]
+   */
+  public function attendanceSessionsConfirmed(int $event_id): array {
+    $map = (array) $this->state->get(self::ATTENDANCE_STATE_KEY, []);
+    if (empty($map[$event_id])) {
+      return [];
+    }
+    if (!empty($map[$event_id]['sessions'])) {
+      return array_keys($map[$event_id]['sessions']);
+    }
+    $schedule = $this->sessions()->getSchedule($event_id);
+    return $schedule ? [$schedule[0]['start']] : [];
   }
 
   /**
@@ -173,7 +223,7 @@ class PostEventStatusService {
       'label' => self::LABELS[self::STEP_ATTENDANCE],
       'applicable' => TRUE,
       'complete' => $attendance_complete,
-      'detail' => $attendance_complete ? 'Confirmed' : 'Not yet confirmed',
+      'detail' => (string) ($s['attendance_detail'] ?? ($attendance_complete ? 'Confirmed' : 'Not yet confirmed')),
     ];
     $steps[self::STEP_BADGES] = [
       'key' => self::STEP_BADGES,
@@ -270,37 +320,35 @@ class PostEventStatusService {
     $since = $days > 0 ? date('Y-m-d H:i:s', $now - $days * 86400) : '1970-01-01 00:00:00';
     $until = date('Y-m-d H:i:s', $now - $older_than_days * 86400);
 
-    $q = $this->database->select('civicrm_event', 'e');
-    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
-    $q->addField('e', 'id', 'event_id');
-    $q->addField('e', 'title', 'title');
-    $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
-    $q->addExpression('COALESCE(e.end_date, e.start_date)', 'ended');
-    $q->where('COALESCE(e.end_date, e.start_date) BETWEEN :lo AND :hi', [':lo' => $since, ':hi' => $until]);
-    if ($older_than_days > 0) {
-      $q->where('COALESCE(e.end_date, e.start_date) < :cutoff', [':cutoff' => $until]);
-    }
-    $q->condition('e.is_active', 1);
-    $q->condition('e.is_template', 0);
     $types = self::closeoutEventTypes();
-    if ($types) {
-      $q->condition('e.event_type_id', $types, 'IN');
-    }
-    if ($badges_only) {
-      // Cheap pre-filter: only classes that award a badge at all, so the
-      // per-event status queries below run over a fraction of the calendar.
-      $badged = $this->database->select('civicrm_event__field_civi_event_badges', 'eb')
-        ->fields('eb', ['entity_id'])
-        ->condition('eb.deleted', 0);
-      $q->condition('e.id', $badged, 'IN');
-    }
-    $q->orderBy('ended', 'DESC');
+    $scope = function ($q) use ($types, $badges_only) {
+      $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $q->addField('e', 'title', 'title');
+      $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
+      $q->condition('e.is_active', 1);
+      $q->condition('e.is_template', 0);
+      if ($types) {
+        $q->condition('e.event_type_id', $types, 'IN');
+      }
+      if ($badges_only) {
+        // Cheap pre-filter: only classes that award a badge at all, so the
+        // per-event status queries below run over a fraction of the calendar.
+        $badged = $this->database->select('civicrm_event__field_civi_event_badges', 'eb')
+          ->fields('eb', ['entity_id'])
+          ->condition('eb.deleted', 0);
+        $q->condition('e.id', $badged, 'IN');
+      }
+    };
+    // "Ended" is the end of the LAST session, so a six-week class does not
+    // land here after week one. Newest-ended first.
+    $ended = $this->sessions()->endedBetween($since, $until, $scope);
 
     $evaluations = $this->evaluationSummaries($since);
     $user_storage = $this->entityTypeManager->getStorage('user');
     $rows = [];
 
-    foreach ($q->execute() as $row) {
+    foreach ($ended as $row) {
+      $row = (object) $row;
       $event_id = (int) $row->event_id;
       $uid = (int) $row->uid;
       if (!$uid) {
@@ -500,8 +548,16 @@ class PostEventStatusService {
     $participant_uids = $badge_tids ? array_keys($this->getParticipantUids($event_id)) : [];
     $payment = $this->getPaymentSignal($event_id, $instructor_uid);
 
+    $schedule = $this->sessions()->getSchedule($event_id);
+    $attendance_detail = NULL;
+    if (count($schedule) > 1) {
+      $confirmed = $this->attendanceSessionsConfirmed($event_id);
+      $attendance_detail = sprintf('Saved for %d of %d sessions', count($confirmed), count($schedule));
+    }
+
     return [
       'attendance_confirmed' => $this->isAttendanceConfirmed($event_id),
+      'attendance_detail' => $attendance_detail,
       'badges_applicable' => $badge_tids !== [],
       'badges_total_pairs' => count($participant_uids) * count($badge_tids),
       'badges_done_pairs' => $this->countCheckedOutPairs($participant_uids, $badge_tids)

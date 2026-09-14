@@ -67,3 +67,20 @@ closeout_event_types:
   - 6
   - 16
 proposal_staff_contact_uid: 0
+session_evaluation_enabled: true
+session_evaluation_delay_hours: 24
+session_evaluation_subject: 'Thank you for attending [event_title]!'
+session_evaluation_body: |
+  Hello [first_name],
+
+  Thank you for joining us at MakeHaven for [event_title]. We loved having you and hope you found it both fun and inspiring.
+
+  We are always looking to improve. Could you take a couple of minutes to tell us how it went? As a thank-you you will receive a $5 discount code for your next class or meetup after completing the form.
+
+  Share your feedback on [event_title]:
+  [evaluation_url]
+
+  Thanks again, and we hope to see you back soon.
+
+  The MakeHaven Team
+session_evaluation_url: 'https://www.makehaven.org/event/evaluation/[event_type_id]?event_id=[event_id]'

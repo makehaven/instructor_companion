@@ -13,6 +13,8 @@ use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\webform\WebformSubmissionInterface;
 
+require_once __DIR__ . '/includes/sessions.inc';
+
 /**
  * Implements hook_cron().
  */
@@ -26,6 +28,9 @@ function instructor_companion_cron() {
   \Drupal::service('instructor_companion.attendance_prompt')->run();
   // Nudge instructors who still have post-class tasks ~48h after the class.
   \Drupal::service('instructor_companion.post_event_reminder')->run();
+  // Multi-session classes: hold CiviCRM's first-session evaluation and send
+  // it from here after the last session instead.
+  \Drupal::service('instructor_companion.session_evaluation')->run();
   // Weekly digest to staff of interest/proposal submissions stuck unreviewed.
   \Drupal::service('instructor_companion.stale_review_nudge')->run();
 }
@@ -445,7 +450,19 @@ function instructor_companion_mail($key, &$message, $params) {
         '@n' => $params['registered'],
       ]);
       $message['body'][] = t('You can re-save it later if someone turns up late.');
-      $message['body'][] = t('The rest of the wrap-up — badges, feedback and your payment request — can wait until afterwards; we will remind you.');
+      if (!empty($params['multi_session'])) {
+        $message['body'][] = t('This class meets more than once: each session is saved on its own, so ticking today never undoes an earlier week. What we are really recording is who never came at all, and when each person first did.');
+        $message['body'][] = t('Badges, feedback and your payment request come after the last session; we will remind you then.');
+      }
+      else {
+        $message['body'][] = t('The rest of the wrap-up — badges, feedback and your payment request — can wait until afterwards; we will remind you.');
+      }
+      break;
+
+    case 'session_evaluation':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = (string) $params['subject'];
+      $message['body'][] = (string) $params['body'];
       break;
 
     case 'post_event_reminder':
@@ -693,6 +710,7 @@ function instructor_companion_add_badge_warning(array &$form, array $missing_bad
  *    scheduling through here; the shallow prefill loses reminders.
  */
 function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  instructor_companion_sessions_form_alter($form, $form_state);
   $query = \Drupal::request()->query;
   $template_id = $query->get('template_id');
   $course_id = $query->get('course_id');
@@ -991,6 +1009,14 @@ function instructor_companion_form_alter(array &$form, FormStateInterface $form_
     instructor_companion_form_civicrm_event_civicrm_event_add_form_alter($form, $form_state, $form_id);
     return;
   }
+  // Same for the edit form: every real event is a bundle
+  // (`civicrm_event_ticketed_workshop_edit_form`), so the named edit alter —
+  // badge warning, session helper — never fired on one until this.
+  if (preg_match('/^civicrm_event_[a-z0-9_]+_edit_form$/', $form_id)
+      && $form_id !== 'civicrm_event_civicrm_event_edit_form') {
+    instructor_companion_form_civicrm_event_civicrm_event_edit_form_alter($form, $form_state, $form_id);
+    return;
+  }
 
   if (!str_starts_with($form_id, 'webform_submission_webform_497_')
     || !str_ends_with($form_id, '_add_form')) {
@@ -1049,6 +1075,7 @@ function instructor_companion_form_alter(array &$form, FormStateInterface $form_
  * badge for any badge this event awards.
  */
 function instructor_companion_form_civicrm_event_civicrm_event_edit_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  instructor_companion_sessions_form_alter($form, $form_state);
   $event = $form_state->getFormObject()->getEntity();
   if (!$event->hasField('field_civi_event_badges') || $event->get('field_civi_event_badges')->isEmpty()) {
     return;

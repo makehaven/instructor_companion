@@ -205,6 +205,46 @@ class SettingsForm extends ConfigFormBase {
         ],
       ];
 
+      $form['closeout']['session_evaluation'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Classes that meet more than once'),
+        '#open' => FALSE,
+        '#description' => $this->t('A class with a Sessions list on its event (stained glass over six Saturdays, rug tufting over two) is one event whose start date is the first meeting. Attendance is asked for at every session, and the wrap-up reminder, the console backlog and the attendee evaluation wait for the last one. CiviCRM\'s own "Thanks for attending" reminder can only follow the first date, so for these classes it is held and the evaluation below is sent from here instead.'),
+      ];
+      $form['closeout']['session_evaluation']['session_evaluation_enabled'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Send the attendee evaluation after the last session'),
+        '#default_value' => (bool) ($config->get('session_evaluation_enabled') ?? TRUE),
+        '#description' => $this->t('Off means CiviCRM\'s reminder goes out after the first session as before, and nothing is held.'),
+      ];
+      $form['closeout']['session_evaluation']['session_evaluation_delay_hours'] = [
+        '#type' => 'number',
+        '#title' => $this->t('Hours after the last session'),
+        '#min' => 1,
+        '#max' => 168,
+        '#default_value' => $config->get('session_evaluation_delay_hours') ?: \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
+        '#description' => $this->t('CiviCRM\'s reminders use 24.'),
+      ];
+      $form['closeout']['session_evaluation']['session_evaluation_subject'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Subject'),
+        '#default_value' => $config->get('session_evaluation_subject') ?: 'Thank you for attending [event_title]!',
+        '#maxlength' => 200,
+      ];
+      $form['closeout']['session_evaluation']['session_evaluation_body'] = [
+        '#type' => 'textarea',
+        '#title' => $this->t('Body'),
+        '#default_value' => $config->get('session_evaluation_body') ?: \Drupal\instructor_companion\Service\SessionEvaluationService::defaultBody(),
+        '#rows' => 12,
+        '#description' => $this->t('Plain text. Tokens: <code>[first_name]</code>, <code>[event_title]</code>, <code>[evaluation_url]</code> (must appear).'),
+      ];
+      $form['closeout']['session_evaluation']['session_evaluation_url'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Evaluation link'),
+        '#default_value' => $config->get('session_evaluation_url') ?: \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_URL,
+        '#description' => $this->t('Path or URL; <code>[event_type_id]</code> and <code>[event_id]</code> are replaced. Matches the link in CiviCRM reminder "Thanks for Attending!".'),
+      ];
+
       $form['closeout']['closeout_event_types'] = [
         '#type' => 'checkboxes',
         '#title' => $this->t('Event types that owe wrap-up'),
@@ -229,6 +269,9 @@ class SettingsForm extends ConfigFormBase {
    */
   public function validateForm(array &$form, FormStateInterface $form_state) {
     parent::validateForm($form, $form_state);
+    if ($form_state->hasValue('session_evaluation_body') && !str_contains((string) $form_state->getValue('session_evaluation_body'), '[evaluation_url]')) {
+      $form_state->setErrorByName('session_evaluation_body', $this->t('The evaluation body must contain [evaluation_url] — without it there is nothing to fill in.'));
+    }
     if (!str_contains((string) $form_state->getValue('invite_body'), '[invite:link]')) {
       $form_state->setErrorByName('invite_body', $this->t('The invite body must contain [invite:link] — without it the email has no way in.'));
     }
@@ -249,6 +292,21 @@ class SettingsForm extends ConfigFormBase {
       ->set('attendance_prompt_offset_minutes', $form_state->hasValue('attendance_prompt_offset_minutes')
         ? (int) $form_state->getValue('attendance_prompt_offset_minutes')
         : $this->config('instructor_companion.settings')->get('attendance_prompt_offset_minutes'))
+      ->set('session_evaluation_enabled', $form_state->hasValue('session_evaluation_enabled')
+        ? (bool) $form_state->getValue('session_evaluation_enabled')
+        : $this->config('instructor_companion.settings')->get('session_evaluation_enabled'))
+      ->set('session_evaluation_delay_hours', $form_state->hasValue('session_evaluation_delay_hours')
+        ? (int) $form_state->getValue('session_evaluation_delay_hours')
+        : $this->config('instructor_companion.settings')->get('session_evaluation_delay_hours'))
+      ->set('session_evaluation_subject', $form_state->hasValue('session_evaluation_subject')
+        ? trim((string) $form_state->getValue('session_evaluation_subject'))
+        : $this->config('instructor_companion.settings')->get('session_evaluation_subject'))
+      ->set('session_evaluation_body', $form_state->hasValue('session_evaluation_body')
+        ? (string) $form_state->getValue('session_evaluation_body')
+        : $this->config('instructor_companion.settings')->get('session_evaluation_body'))
+      ->set('session_evaluation_url', $form_state->hasValue('session_evaluation_url')
+        ? trim((string) $form_state->getValue('session_evaluation_url'))
+        : $this->config('instructor_companion.settings')->get('session_evaluation_url'))
       ->set('closeout_event_types', $form_state->hasValue('closeout_event_types')
         ? array_values(array_map('intval', array_filter((array) $form_state->getValue('closeout_event_types'))))
         : $this->config('instructor_companion.settings')->get('closeout_event_types'))

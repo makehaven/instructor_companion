@@ -5,6 +5,7 @@ namespace Drupal\instructor_companion\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\PostEventStatusService;
+use Drupal\instructor_companion\Service\SessionSchedule;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -19,13 +20,17 @@ class PostEventHubController extends ControllerBase {
 
   public function __construct(
     protected PostEventStatusService $postEventStatus,
+    protected ?SessionSchedule $sessions = NULL,
   ) {}
 
   /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container): static {
-    return new static($container->get('instructor_companion.post_event_status'));
+    return new static(
+      $container->get('instructor_companion.post_event_status'),
+      $container->get('instructor_companion.sessions'),
+    );
   }
 
   /**
@@ -47,15 +52,33 @@ class PostEventHubController extends ControllerBase {
     $build['#cache']['max-age'] = 0;
 
     $date = $this->formatEventDate((string) $event->get('start_date')->value);
+    $sessions = $this->sessions;
+    $schedule = $sessions ? $sessions->getSchedule($event_id) : [];
+    $shape = count($schedule) > 1
+      ? ' <span class="peh-date">· ' . SessionSchedule::summary($schedule) . '</span>'
+      : '';
     $build['header'] = [
       '#markup' => '<div class="peh-header">'
       . '<h2>' . $this->t('Post-Class Tasks') . '</h2>'
       . '<p class="peh-event">' . $event->label()
-      . ($date ? ' <span class="peh-date">· ' . $date . '</span>' : '') . '</p>'
+      . ($date ? ' <span class="peh-date">· ' . $date . '</span>' : '') . $shape . '</p>'
       . '<p class="peh-progress"><span class="peh-pill">' . $status['progress'] . ' '
       . $this->t('done') . '</span></p>'
       . '</div>',
     ];
+
+    $now_local = date('Y-m-d H:i:s');
+    if ($sessions && $sessions->hasSessionAfter($event_id, $now_local)) {
+      $next = $sessions->nextSession($event_id, $now_local);
+      $last = end($schedule);
+      $build['in_progress'] = [
+        '#markup' => '<div class="messages messages--status peh-inprogress">'
+        . $this->t('This class is still running: next session @next, last session @last. Attendance can be saved for each session now; badges, feedback and the payment request are due after the last one — we will remind you then.', [
+          '@next' => $next ? SessionSchedule::label($next['start']) : '',
+          '@last' => SessionSchedule::label($last['start']),
+        ]) . '</div>',
+      ];
+    }
 
     if ($status['all_complete']) {
       $build['done'] = [
@@ -225,7 +248,10 @@ class PostEventHubController extends ControllerBase {
     }
     try {
       $tz = new \DateTimeZone($tz_name);
-      $date = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $start_date_value, $tz)
+      // Entity values ("T", UTC) vs CiviCRM's own local strings.
+      $date = (str_contains($start_date_value, 'T')
+        ? \DateTimeImmutable::createFromFormat('Y-m-d\TH:i:s', substr($start_date_value, 0, 19), new \DateTimeZone('UTC'))
+        : \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $start_date_value, $tz))
         ?: new \DateTimeImmutable($start_date_value, $tz);
       return $date->setTimezone($tz)->format('D, M j, Y \a\t g:ia T');
     }

@@ -61,7 +61,15 @@ class AttendancePromptService {
     protected ConfigFactoryInterface $configFactory,
     protected TimeInterface $time,
     protected LoggerInterface $logger,
+    protected ?SessionSchedule $sessions = NULL,
   ) {}
+
+  /**
+   * The session schedule (lazy for older service definitions).
+   */
+  protected function sessions(): SessionSchedule {
+    return $this->sessions ??= \Drupal::service('instructor_companion.sessions');
+  }
 
   /**
    * Cron entry point.
@@ -73,40 +81,46 @@ class AttendancePromptService {
     $now = $this->time->getRequestTime();
     [$lower, $upper] = $this->dueWindow($now);
 
-    $q = $this->database->select('civicrm_event', 'e');
-    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
-    $q->addField('e', 'id', 'event_id');
-    $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
-    $q->where('e.start_date >= :lo AND e.start_date <= :hi', [':lo' => $lower, ':hi' => $upper]);
-    $q->condition('e.is_active', 1);
-    $q->condition('e.is_template', 0);
     $types = PostEventStatusService::closeoutEventTypes();
-    if ($types) {
-      $q->condition('e.event_type_id', $types, 'IN');
-    }
+    // Every SESSION gets its own prompt: week 3 of a six-week class is a
+    // door moment just like week 1.
+    $due = $this->sessions()->sessionsStartingBetween($lower, $upper, function ($q) use ($types) {
+      $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
+      $q->condition('e.is_active', 1);
+      $q->condition('e.is_template', 0);
+      if ($types) {
+        $q->condition('e.event_type_id', $types, 'IN');
+      }
+    });
 
     $sent = $this->prune((array) $this->state->get(self::SENT_STATE_KEY, []), $now);
     $prompted = 0;
 
-    foreach ($q->execute() as $row) {
-      $event_id = (int) $row->event_id;
-      $uid = (int) $row->uid;
-      if (isset($sent[$event_id]) || !$uid) {
+    foreach ($due as $row) {
+      $event_id = (int) $row['event_id'];
+      $uid = (int) $row['uid'];
+      $session = $row['session'];
+      // First session keeps the bare event id as its key so records written
+      // before sessions existed still count; later sessions are keyed by
+      // their start.
+      $key = $session['index'] === 0 ? (string) $event_id : $event_id . '@' . $session['start'];
+      if (isset($sent[$key]) || !$uid) {
         continue;
       }
       // Mark up-front so a mid-loop failure cannot double-send.
-      $sent[$event_id] = ['t' => $now, 'sent' => FALSE];
+      $sent[$key] = ['t' => $now, 'sent' => FALSE];
 
       // Nothing to take attendance for.
       if (!$this->postEventStatus->countedParticipants($event_id)) {
         continue;
       }
       // Already done — some instructors are ahead of us.
-      if ($this->postEventStatus->isAttendanceConfirmed($event_id)) {
+      if ($this->postEventStatus->isAttendanceConfirmed($event_id, $session['start'])) {
         continue;
       }
-      if ($this->send($event_id, $uid)) {
-        $sent[$event_id]['sent'] = TRUE;
+      if ($this->send($event_id, $uid, $session)) {
+        $sent[$key]['sent'] = TRUE;
         $prompted++;
       }
     }
@@ -161,16 +175,20 @@ class AttendancePromptService {
   /**
    * Emails the instructor a direct link to the attendance list.
    */
-  protected function send(int $event_id, int $uid): bool {
+  protected function send(int $event_id, int $uid, ?array $session = NULL): bool {
     $user = $this->entityTypeManager->getStorage('user')->load($uid);
     if (!$user || !$user->getEmail()) {
+      $this->logger->warning('Attendance prompt for event @e skipped: instructor uid @u has no email.', ['@e' => $event_id, '@u' => $uid]);
       return FALSE;
     }
     $event = $this->entityTypeManager->getStorage('civicrm_event')->load($event_id);
     if (!$event) {
+      $this->logger->warning('Attendance prompt skipped: event @e could not be loaded.', ['@e' => $event_id]);
       return FALSE;
     }
 
+    $multi = $session && ($session['count'] ?? 1) > 1;
+    $query = $multi ? ['session' => $session['start']] : [];
     $result = $this->mailManager->mail(
       'instructor_companion',
       'attendance_prompt',
@@ -178,14 +196,20 @@ class AttendancePromptService {
       $user->getPreferredLangcode(),
       [
         'instructor_name' => $user->getDisplayName(),
-        'event_label' => $event->label(),
+        'event_label' => $multi
+          ? $event->label() . ' (session ' . ($session['index'] + 1) . ' of ' . $session['count'] . ')'
+          : $event->label(),
         'attendance_url' => Url::fromRoute('instructor_companion.attendance',
-          ['event_id' => $event_id], ['absolute' => TRUE])->toString(),
+          ['event_id' => $event_id], ['absolute' => TRUE, 'query' => $query])->toString(),
         'registered' => $this->postEventStatus->countedParticipants($event_id),
+        'multi_session' => $multi,
       ],
       NULL,
       TRUE,
     );
+    if (empty($result['result'])) {
+      $this->logger->warning('Attendance prompt for event @e to @mail did not send (mail system returned no result).', ['@e' => $event_id, '@mail' => $user->getEmail()]);
+    }
     return !empty($result['result']);
   }
 

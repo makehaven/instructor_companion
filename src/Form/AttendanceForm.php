@@ -9,6 +9,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\AttendanceManager;
 use Drupal\instructor_companion\Service\PostEventStatusService;
+use Drupal\instructor_companion\Service\SessionSchedule;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -19,12 +20,19 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * row) and again afterwards from the post-event hub to fix late arrivals or
  * someone who was missed. Saving stamps an attendance-confirmed flag so the
  * hub's step-1 ticks green and the +48h reminder stops nagging about it.
+ *
+ * Multi-session classes: the form records ONE session at a time (`?session=`
+ * local start, defaulting to the session that started most recently). Each
+ * session's ticks are kept separately; the CiviCRM status is derived from all
+ * of them, so re-taking week 2 cannot erase week 1. What staff care about is
+ * who never came at all, and when each person first did — both shown here.
  */
 class AttendanceForm extends FormBase {
 
   public function __construct(
     protected AttendanceManager $attendance,
     protected PostEventStatusService $postEventStatus,
+    protected SessionSchedule $sessions,
     protected AccountProxyInterface $currentUser,
     protected EntityTypeManagerInterface $entityTypeManager,
   ) {}
@@ -36,6 +44,7 @@ class AttendanceForm extends FormBase {
     return new static(
       $container->get('instructor_companion.attendance_manager'),
       $container->get('instructor_companion.post_event_status'),
+      $container->get('instructor_companion.sessions'),
       $container->get('current_user'),
       $container->get('entity_type.manager'),
     );
@@ -60,31 +69,120 @@ class AttendanceForm extends FormBase {
       throw new NotFoundHttpException();
     }
 
-    $form['#attached']['library'][] = 'instructor_companion/dashboard';
-    $form['event_id'] = ['#type' => 'value', '#value' => $event_id];
+    $schedule = $this->sessions->getSchedule($event_id);
+    $multi = count($schedule) > 1;
+    $now = date(SessionSchedule::LOCAL_FORMAT);
 
+    // Which session is being recorded.
+    $requested = (string) ($this->getRequest()->query->get('session') ?? '');
+    $session = $requested !== '' ? $this->sessions->findSession($event_id, $requested) : NULL;
+    $session = $session ?? $this->sessions->currentSession($event_id, $now) ?? [
+      'start' => (string) $event->get('start_date')->value,
+      'index' => 0,
+      'count' => 1,
+    ];
+    $session_start = $session['start'];
+
+    $form['#attached']['library'][] = 'instructor_companion/dashboard';
+    $form['#cache']['max-age'] = 0;
+    $form['event_id'] = ['#type' => 'value', '#value' => $event_id];
+    $form['session_start'] = ['#type' => 'value', '#value' => $session_start];
+
+    $intro = $multi
+      ? $this->t('Check everyone who is here for <strong>session @n of @count</strong> (@when). Each session is saved on its own, so this never undoes an earlier week. You can come back and fix it if someone arrives late.', [
+        '@n' => $session['index'] + 1,
+        '@count' => $session['count'],
+        '@when' => SessionSchedule::label($session_start),
+      ])
+      : $this->t('Check everyone who showed up. You can come back and fix this later if someone arrives late or you miss a name.');
     $form['intro'] = [
       '#markup' => '<div class="attendance-intro"><h2>'
       . $this->t('Attendance: @label', ['@label' => $event->label()])
-      . '</h2><p>' . $this->t('Check everyone who showed up. You can come back and fix this later if someone arrives late or you miss a name.') . '</p></div>',
+      . '</h2><p>' . $intro . '</p></div>',
     ];
 
+    if ($multi) {
+      $marks = $this->attendance->getMarks($event_id);
+      $links = [];
+      foreach ($schedule as $s) {
+        $taken = isset($marks[$s['start']]);
+        $is_current = substr($s['start'], 0, 16) === substr($session_start, 0, 16);
+        $text = $this->t('@n. @when', ['@n' => $s['index'] + 1, '@when' => SessionSchedule::label($s['start'])])
+          . ($taken ? ' ✓' : ($s['start'] > $now ? ' ·' : ' ◷'));
+        $links[] = [
+          '#type' => 'link',
+          '#title' => $text,
+          '#url' => Url::fromRoute('instructor_companion.attendance', ['event_id' => $event_id], [
+            'query' => ['session' => $s['start']],
+          ]),
+          '#attributes' => [
+            'class' => [
+              'button',
+              'button--small',
+              $is_current ? 'button--primary' : 'button--secondary',
+              'attendance-session-pill',
+            ],
+          ],
+        ];
+      }
+      $form['session_picker'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['attendance-sessions']],
+        'label' => ['#markup' => '<p class="attendance-sessions-label">' . $this->t('Sessions (✓ saved, ◷ past and not yet saved):') . '</p>'],
+        'links' => $links,
+      ];
+    }
+
     $roster = $this->attendance->getRoster($event_id);
+    $marks = $marks ?? $this->attendance->getMarks($event_id);
+    $summary = AttendanceManager::summarize($marks);
+    $this_session = $marks[$session_start] ?? NULL;
+    $sessions_saved = count($marks);
+
     $options = [];
     $default = [];
     foreach ($roster as $row) {
       $pid = $row['participant_id'];
-      $suffix = $row['is_attended'] ? '' : ' (' . $row['status_name'] . ')';
-      $options[$pid] = $row['name'] . $suffix;
-      if ($row['is_attended']) {
-        $default[] = $pid;
+      $label = $row['name'];
+      if ($multi) {
+        $sum = $summary[$pid] ?? NULL;
+        if ($sum && $sum['attended']) {
+          $label .= ' <span class="attendance-note">' . $this->t('@p of @s so far · first came @d', [
+            '@p' => $sum['present'],
+            '@s' => $sessions_saved,
+            '@d' => SessionSchedule::label($sum['first'], 'M j'),
+          ]) . '</span>';
+        }
+        elseif ($sessions_saved && $session['index'] > 0) {
+          $label .= ' <span class="attendance-note attendance-note--never">' . $this->t('not yet attended') . '</span>';
+        }
+      }
+      elseif (!$row['is_attended']) {
+        $label .= ' (' . $row['status_name'] . ')';
+      }
+      $options[$pid] = $label;
+
+      // Default ticks: this session's saved marks if it was saved; for the
+      // first session of a never-saved class fall back to the CiviCRM status
+      // (pre-sessions data); a fresh later session starts empty.
+      if ($this_session !== NULL) {
+        if (!empty($this_session[$pid])) {
+          $default[] = $pid;
+        }
+      }
+      elseif (!$multi || ($session['index'] === 0 && !$sessions_saved)) {
+        if ($row['is_attended']) {
+          $default[] = $pid;
+        }
       }
     }
 
     if ($options) {
       $form['present'] = [
         '#type' => 'checkboxes',
-        '#title' => $this->t('Who attended?'),
+        '#title' => $multi
+          ? $this->t('Who is here for session @n?', ['@n' => $session['index'] + 1])
+          : $this->t('Who attended?'),
         '#options' => $options,
         '#default_value' => $default,
         '#attributes' => ['class' => ['attendance-checklist']],
@@ -115,7 +213,9 @@ class AttendanceForm extends FormBase {
     $form['actions'] = ['#type' => 'actions'];
     $form['actions']['submit'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Save attendance'),
+      '#value' => $multi
+        ? $this->t('Save session @n attendance', ['@n' => $session['index'] + 1])
+        : $this->t('Save attendance'),
       '#button_type' => 'primary',
     ];
     $form['actions']['back'] = [
@@ -133,11 +233,13 @@ class AttendanceForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void {
     $event_id = (int) $form_state->getValue('event_id');
+    $session_start = (string) $form_state->getValue('session_start');
     $all = array_map('intval', (array) $form_state->getValue('all_participant_ids'));
     $present = array_values(array_filter(array_map('intval', (array) $form_state->getValue('present'))));
+    $uid = (int) $this->currentUser->id();
 
     if ($all) {
-      $changed = $this->attendance->applyAttendance($all, $present);
+      $changed = $this->attendance->recordSession($event_id, $session_start, $all, $present, $uid);
       $this->messenger()->addStatus($this->t('Attendance saved: @p present, @n change(s) recorded.', [
         '@p' => count($present),
         '@n' => $changed,
@@ -147,7 +249,7 @@ class AttendanceForm extends FormBase {
     $walk_in = trim((string) $form_state->getValue('walk_in_email'));
     if ($walk_in !== '') {
       $contact_id = $this->attendance->findContactIdByAccountEmail($walk_in);
-      if ($contact_id && $this->attendance->addWalkIn($event_id, $contact_id)) {
+      if ($contact_id && $this->attendance->addWalkIn($event_id, $contact_id, $session_start, $uid)) {
         $this->messenger()->addStatus($this->t('Added @email as a walk-in (marked attended).', ['@email' => $walk_in]));
       }
       else {
@@ -155,7 +257,19 @@ class AttendanceForm extends FormBase {
       }
     }
 
-    $this->postEventStatus->confirmAttendance($event_id, (int) $this->currentUser->id());
+    $this->postEventStatus->confirmAttendance($event_id, $uid, $session_start);
+
+    // A multi-session class with more sessions ahead goes back to the
+    // dashboard; the wrap-up hub is for when it is over.
+    $now = date(SessionSchedule::LOCAL_FORMAT);
+    if ($this->sessions->hasSessionAfter($event_id, $now)) {
+      $next = $this->sessions->nextSession($event_id, $now);
+      if ($next) {
+        $this->messenger()->addStatus($this->t('Next session: @when.', ['@when' => SessionSchedule::label($next['start'])]));
+      }
+      $form_state->setRedirect('instructor_companion.dashboard');
+      return;
+    }
     $form_state->setRedirect('instructor_companion.post_event_hub', ['event_id' => $event_id]);
   }
 

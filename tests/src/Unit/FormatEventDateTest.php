@@ -58,10 +58,14 @@ class FormatEventDateTest extends UnitTestCase {
   }
 
   /**
-   * ISO 8601 format is also parsed as site-local, not UTC.
+   * ISO 8601 is the Drupal entity's copy, already converted to UTC.
+   *
+   * The civicrm_entity module converts CiviCRM's local start_date to UTC, so
+   * 6:30 pm Eastern arrives as "2026-07-04T22:30:00". Parsing that as local
+   * showed every dashboard time four hours late (a 10 am class as 2 pm).
    */
-  public function testIsoFormatParsedAsSiteLocal(): void {
-    $result = $this->controller->exposedFormatEventDate('2026-07-04T18:30:00');
+  public function testIsoFormatIsUtcFromTheEntity(): void {
+    $result = $this->controller->exposedFormatEventDate('2026-07-04T22:30:00');
     $this->assertStringContainsString('6:30pm', $result);
     $this->assertStringContainsString('Jul 4, 2026', $result);
   }

@@ -37,6 +37,12 @@ services:
       - '@datetime.time'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.sessions:
+    class: Drupal\instructor_companion\Service\SessionSchedule
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+
   instructor_companion.post_event_status:
     class: Drupal\instructor_companion\Service\PostEventStatusService
     arguments:
@@ -44,6 +50,7 @@ services:
       - '@database'
       - '@state'
       - '@config.factory'
+      - '@instructor_companion.sessions'
 
   instructor_companion.attendance_manager:
     class: Drupal\instructor_companion\Service\AttendanceManager
@@ -63,6 +70,7 @@ services:
       - '@config.factory'
       - '@datetime.time'
       - '@logger.channel.instructor_companion'
+      - '@instructor_companion.sessions'
 
   instructor_companion.post_event_reminder:
     class: Drupal\instructor_companion\Service\PostEventReminderService
@@ -73,6 +81,27 @@ services:
       - '@instructor_companion.post_event_status'
       - '@plugin.manager.mail'
       - '@config.factory'
+      - '@logger.channel.instructor_companion'
+      - '@instructor_companion.sessions'
+
+  instructor_companion.event_copy_sync:
+    class: Drupal\instructor_companion\Service\EventCopySync
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@instructor_companion.sessions'
+      - '@messenger'
+      - '@logger.channel.instructor_companion'
+
+  instructor_companion.session_evaluation:
+    class: Drupal\instructor_companion\Service\SessionEvaluationService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@instructor_companion.sessions'
+      - '@plugin.manager.mail'
+      - '@config.factory'
+      - '@datetime.time'
       - '@logger.channel.instructor_companion'
 
   instructor_companion.proposal_notifier:

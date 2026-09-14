@@ -53,7 +53,15 @@ class PostEventReminderService {
     protected MailManagerInterface $mailManager,
     protected ConfigFactoryInterface $configFactory,
     protected LoggerInterface $logger,
+    protected ?SessionSchedule $sessions = NULL,
   ) {}
+
+  /**
+   * The session schedule (lazy for older service definitions).
+   */
+  protected function sessions(): SessionSchedule {
+    return $this->sessions ??= \Drupal::service('instructor_companion.sessions');
+  }
 
   /**
    * Cron entry point. Cheap on every run (the window query is tiny).
@@ -62,30 +70,28 @@ class PostEventReminderService {
     $now = \Drupal::time()->getRequestTime();
     [$lower, $upper] = self::dueWindow($now);
 
-    $q = $this->database->select('civicrm_event', 'e');
-    $q->addField('e', 'id', 'event_id');
-    $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
-    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
-    $q->where('COALESCE(e.end_date, e.start_date) >= :lo AND COALESCE(e.end_date, e.start_date) <= :hi', [
-      ':lo' => $lower,
-      ':hi' => $upper,
-    ]);
-    $q->condition('e.is_active', 1);
-    $q->condition('e.is_template', 0);
     // Only classes that actually owe wrap-up. A meetup host owes no badges or
     // payment and a program's first session ends nothing, so reminding them
     // just teaches everyone that this email is noise.
     $types = PostEventStatusService::closeoutEventTypes();
-    if ($types) {
-      $q->condition('e.event_type_id', $types, 'IN');
-    }
-    $candidates = $q->execute()->fetchAll();
+    // "Over" means the end of the LAST session (SessionSchedule), so a
+    // six-week workshop is not asked to wrap up after week one.
+    $candidates = $this->sessions()->endedBetween($lower, $upper, function ($q) use ($types) {
+      $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
+      $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $q->condition('e.is_active', 1);
+      $q->condition('e.is_template', 0);
+      if ($types) {
+        $q->condition('e.event_type_id', $types, 'IN');
+      }
+    });
 
     $sent = (array) $this->state->get(self::SENT_STATE_KEY, []);
     $sent = $this->prune($sent, $now);
     $processed = 0;
 
     foreach ($candidates as $row) {
+      $row = (object) $row;
       $event_id = (int) $row->event_id;
       $uid = (int) $row->uid;
       if (isset($sent[$event_id]) || !$uid) {

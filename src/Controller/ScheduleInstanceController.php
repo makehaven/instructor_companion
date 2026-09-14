@@ -105,6 +105,18 @@ class ScheduleInstanceController extends ControllerBase {
       $source = $this->findMostRecentPastEvent((int) $node->id());
       $this->writeDrupalFields($new_event_id, $node, $source);
 
+      // A course that meets more than once (Sessions / Days between on the
+      // course) gets its session list generated from the placeholder start;
+      // the edit form moves the whole list when the real date is set.
+      $session_count = $node->hasField('field_session_count') ? (int) $node->get('field_session_count')->value : 0;
+      if ($session_count > 1) {
+        $interval = $node->hasField('field_session_interval_days') ? max(1, (int) $node->get('field_session_interval_days')->value) : 7;
+        \Drupal::service('instructor_companion.sessions')->setSessions(
+          $new_event_id,
+          \Drupal\instructor_companion\Service\SessionSchedule::generate($start->format('Y-m-d H:i:s'), $session_count, $interval)
+        );
+      }
+
       \Drupal::logger('instructor_companion')->info('Cloned event @new from template @tpl for course @c (@title)', [
         '@new' => $new_event_id,
         '@tpl' => $template_id,

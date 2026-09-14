@@ -56,3 +56,18 @@ instructor_companion.settings:
     attendance_prompt_offset_minutes:
       type: integer
       label: 'Minutes after the start time before prompting for attendance'
+    session_evaluation_enabled:
+      type: boolean
+      label: 'Send the attendee evaluation for multi-session classes after the last session'
+    session_evaluation_delay_hours:
+      type: integer
+      label: 'Hours after the last session before the evaluation is sent'
+    session_evaluation_subject:
+      type: label
+      label: 'Evaluation email subject'
+    session_evaluation_body:
+      type: text
+      label: 'Evaluation email body'
+    session_evaluation_url:
+      type: string
+      label: 'Evaluation link pattern'

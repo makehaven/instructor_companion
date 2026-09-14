@@ -6,6 +6,34 @@
  */
 
 /**
+ * Implements hook_schema().
+ */
+function instructor_companion_schema() {
+  $schema['instructor_companion_attendance'] = [
+    'description' => 'Per-session attendance marks. One row per (event, session, participant) each time an instructor saves a session; the CiviCRM participant status (Attended / No-show) is derived from these, never the other way round.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'event_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'civicrm_event.id'],
+      'session_start' => ['type' => 'varchar', 'length' => 19, 'not null' => TRUE, 'description' => 'Local Y-m-d H:i:s start of the session (matches civicrm_event.start_date conventions).'],
+      'participant_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'civicrm_participant.id'],
+      'contact_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'present' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0],
+      'recorded_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Drupal uid who saved this session.'],
+      'recorded' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp of the save.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'event_session_participant' => ['event_id', 'session_start', 'participant_id'],
+    ],
+    'indexes' => [
+      'event' => ['event_id'],
+      'participant' => ['participant_id'],
+    ],
+  ];
+  return $schema;
+}
+
+/**
  * Set default notification email if missing.
  */
 function instructor_companion_update_9001() {
@@ -586,4 +614,49 @@ function instructor_companion_update_9015() {
     return 'At-class-start attendance prompt enabled (15 minutes after the start time).';
   }
   return 'Attendance prompt already configured; left alone.';
+}
+
+/**
+ * Per-session attendance: install the marks table.
+ *
+ * Attendance used to be one CiviCRM participant status per person per event,
+ * so saving a second session's roster rewrote the first: a student present
+ * at session 1 and absent at session 2 became a No-show. The status is now
+ * derived from accumulated marks (present at ANY session = Attended), and the
+ * date they first turned up is kept.
+ */
+function instructor_companion_update_9016() {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('instructor_companion_attendance')) {
+    return 'Attendance table already present.';
+  }
+  $definition = instructor_companion_schema()['instructor_companion_attendance'];
+  $schema->createTable('instructor_companion_attendance', $definition);
+  return 'Created instructor_companion_attendance (per-session marks).';
+}
+
+/**
+ * Multi-session classes: defaults for the Drupal-sent attendee evaluation.
+ */
+function instructor_companion_update_9017() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  $defaults = [
+    'session_evaluation_enabled' => TRUE,
+    'session_evaluation_delay_hours' => \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
+    'session_evaluation_subject' => 'Thank you for attending [event_title]!',
+    'session_evaluation_body' => \Drupal\instructor_companion\Service\SessionEvaluationService::defaultBody(),
+    'session_evaluation_url' => 'https://www.makehaven.org/event/evaluation/[event_type_id]?event_id=[event_id]',
+  ];
+  $set = [];
+  foreach ($defaults as $key => $value) {
+    if ($config->get($key) === NULL || $config->get($key) === '') {
+      $config->set($key, $value);
+      $set[] = $key;
+    }
+  }
+  if ($set) {
+    $config->save();
+    return 'Session evaluation defaults set: ' . implode(', ', $set) . '.';
+  }
+  return 'Session evaluation already configured; left alone.';
 }

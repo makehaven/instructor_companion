@@ -29,3 +29,12 @@ services:
       - '@database'
     tags:
       - { name: drush.command }
+
+  instructor_companion.session_commands:
+    class: \Drupal\instructor_companion\Commands\SessionCommands
+    arguments:
+      - '@instructor_companion.sessions'
+      - '@instructor_companion.session_evaluation'
+      - '@instructor_companion.attendance_manager'
+    tags:
+      - { name: drush.command }

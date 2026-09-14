@@ -228,3 +228,12 @@
     padding: 1rem;
   }
 }
+
+/* Multi-session classes ------------------------------------------------- */
+.ic-session-shape { color: #555; }
+.attendance-sessions { margin: 0 0 1rem; }
+.attendance-sessions-label { margin: 0 0 .35rem; font-size: .9em; color: #555; }
+.attendance-sessions .attendance-session-pill { margin: 0 .35rem .35rem 0; }
+.attendance-note { display: inline-block; margin-left: .5rem; font-size: .85em; color: #555; }
+.attendance-note--never { color: #8b1919; }
+.peh-inprogress { margin: 0 0 1rem; }
