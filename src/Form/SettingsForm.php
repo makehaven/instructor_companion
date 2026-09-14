@@ -49,6 +49,14 @@ class SettingsForm extends ConfigFormBase {
       '#default_value' => $default_contact_uid ? User::load($default_contact_uid) : NULL,
     ];
 
+    $form['slack_channel'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Slack channel for education notices'),
+      '#description' => $this->t('Where new workshop proposals, instructor-interest submissions and post-class shop reports are posted, via the shared Slack Connector webhook. Use the channel name, e.g. <code>#education-team</code>; the channel must exist. Leave empty to post to the webhook\'s default channel.'),
+      '#default_value' => $config->get('slack_channel'),
+      '#maxlength' => 80,
+    ];
+
     $form['toolkit_links'] = [
       '#type' => 'details',
       '#title' => $this->t('Instructor toolkit links'),
@@ -233,6 +241,7 @@ class SettingsForm extends ConfigFormBase {
     $this->config('instructor_companion.settings')
       ->set('notification_email', $form_state->getValue('notification_email'))
       ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
+      ->set('slack_channel', trim((string) $form_state->getValue('slack_channel')))
       ->set('orientation_step_enabled', (bool) $form_state->getValue('orientation_step_enabled'))
       ->set('attendance_prompt_enabled', $form_state->hasValue('attendance_prompt_enabled')
         ? (bool) $form_state->getValue('attendance_prompt_enabled')

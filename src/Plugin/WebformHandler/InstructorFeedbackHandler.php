@@ -2,6 +2,7 @@
 
 namespace Drupal\instructor_companion\Plugin\WebformHandler;
 
+use Drupal\instructor_companion\Service\ProposalNotifier;
 use Drupal\webform\Plugin\WebformHandlerBase;
 use Drupal\webform\WebformSubmissionInterface;
 
@@ -128,7 +129,6 @@ class InstructorFeedbackHandler extends WebformHandlerBase {
     }
 
     $payload = [
-      'channel' => '#shop-updates',
       'blocks' => [
         [
           'type' => 'section',
@@ -136,6 +136,12 @@ class InstructorFeedbackHandler extends WebformHandlerBase {
         ],
       ],
     ];
+    // Same configured channel as the proposal/interest notices (the old
+    // hardcoded #shop-updates does not exist in the workspace).
+    $channel = ProposalNotifier::configuredChannel(\Drupal::configFactory());
+    if ($channel !== '') {
+      $payload['channel'] = $channel;
+    }
 
     try {
       \Drupal::httpClient()->post($webhook_url, [

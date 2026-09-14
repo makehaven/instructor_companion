@@ -25,13 +25,11 @@ class ProposalNotifier {
   public const HANDLED_WEBFORMS = [
     'webform_497' => [
       'label' => 'Workshop Proposal',
-      'channel' => '#workshop-proposals',
       'queue_route' => 'instructor_companion.workshop_proposal_queue',
       'icon' => '🎓',
     ],
     'webform_14366' => [
       'label' => 'Instructor Interest',
-      'channel' => '#workshop-proposals',
       'queue_route' => 'instructor_companion.instructor_interest_queue',
       'icon' => '👋',
     ],
@@ -67,7 +65,6 @@ class ProposalNotifier {
     $text = $this->buildMessageText($submission, $meta);
 
     $payload = [
-      'channel' => $meta['channel'],
       'blocks' => [
         [
           'type' => 'section',
@@ -75,6 +72,14 @@ class ProposalNotifier {
         ],
       ],
     ];
+    // The channel used to be hardcoded to #workshop-proposals, which no
+    // longer exists: every post since at least 2026-08-21 died with
+    // channel_not_found. Staff choose the channel in the module settings; an
+    // empty value lets the webhook's own default channel apply.
+    $channel = self::configuredChannel($this->configFactory);
+    if ($channel !== '') {
+      $payload['channel'] = $channel;
+    }
 
     try {
       $this->httpClient->post($webhook_url, [
@@ -145,6 +150,19 @@ class ProposalNotifier {
       $review_url,
       $queue_url,
     );
+  }
+
+  /**
+   * The Slack channel this module posts to, normalised to "#name".
+   *
+   * Empty when unset, meaning "let the webhook's default channel decide".
+   */
+  public static function configuredChannel(ConfigFactoryInterface $config_factory): string {
+    $channel = trim((string) $config_factory->get('instructor_companion.settings')->get('slack_channel'));
+    if ($channel === '') {
+      return '';
+    }
+    return '#' . ltrim($channel, '#');
   }
 
   /**

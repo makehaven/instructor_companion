@@ -1,4 +1,5 @@
 notification_email: 'education@makehaven.org'
+slack_channel: '#education-team'
 emergency_procedures_url: '/event-emergency'
 instructor_handbook_url: '/instructor-handbook'
 request_reimbursement_url: '/payback?account=6652'
