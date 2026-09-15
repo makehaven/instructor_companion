@@ -84,6 +84,49 @@ function _instructor_companion_maybe_release_holds(EntityInterface $entity) {
 }
 
 /**
+ * Implements hook_ENTITY_TYPE_insert() for flagging.
+ *
+ * "Notify Me" on a program page also puts the member in the program's
+ * CiviCRM interest group, so the coordinator can mail everyone who asked.
+ */
+function instructor_companion_flagging_insert(\Drupal\Core\Entity\EntityInterface $flagging) {
+  _instructor_companion_interest_group_sync($flagging, TRUE);
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_delete() for flagging.
+ */
+function instructor_companion_flagging_delete(\Drupal\Core\Entity\EntityInterface $flagging) {
+  _instructor_companion_interest_group_sync($flagging, FALSE);
+}
+
+/**
+ * Mirrors a course_interest flag on a program into its CiviCRM group.
+ */
+function _instructor_companion_interest_group_sync(\Drupal\Core\Entity\EntityInterface $flagging, bool $added): void {
+  if ($flagging->bundle() !== \Drupal\instructor_companion\Service\CourseFollowerNotifier::FLAG_ID
+    || $flagging->getFlaggableType() !== 'node') {
+    return;
+  }
+  try {
+    /** @var \Drupal\instructor_companion\Service\CourseInterestGroups $groups */
+    $groups = \Drupal::service('instructor_companion.course_interest_groups');
+    $nid = (int) $flagging->getFlaggableId();
+    if (!$groups->appliesTo($nid)) {
+      return;
+    }
+    $cid = $groups->contactForUser((int) $flagging->getOwnerId());
+    if ($cid) {
+      $added ? $groups->add($nid, $cid) : $groups->remove($nid, $cid);
+    }
+  }
+  catch (\Throwable $e) {
+    // The flag itself must never fail because CiviCRM did.
+    \Drupal::logger('instructor_companion')->warning('Interest group sync skipped for flagging @id: @m', ['@id' => $flagging->id(), '@m' => $e->getMessage()]);
+  }
+}
+
+/**
  * Implements hook_civicrm_event_insert().
  */
 function instructor_companion_civicrm_event_insert(\Drupal\Core\Entity\EntityInterface $entity) {

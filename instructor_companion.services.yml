@@ -166,6 +166,14 @@ services:
       - '@logger.channel.instructor_companion'
       - '@request_stack'
       - '@path_alias.manager'
+      - '@instructor_companion.course_interest_groups'
+
+  instructor_companion.course_interest_groups:
+    class: Drupal\instructor_companion\Service\CourseInterestGroups
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@logger.channel.instructor_companion'
 
   instructor_companion.proposal_deactivate_subscriber:
     class: Drupal\instructor_companion\EventSubscriber\ProposalDeactivateSubscriber

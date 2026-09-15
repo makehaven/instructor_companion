@@ -6,6 +6,7 @@ namespace Drupal\instructor_companion\Commands;
 
 use Drupal\Core\State\StateInterface;
 use Drupal\instructor_companion\Service\CourseFollowerNotifier;
+use Drupal\instructor_companion\Service\CourseInterestGroups;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -16,6 +17,7 @@ final class FollowerCommands extends DrushCommands {
   public function __construct(
     private readonly CourseFollowerNotifier $notifier,
     private readonly StateInterface $state,
+    private readonly CourseInterestGroups $groups,
   ) {
     parent::__construct();
   }
@@ -32,14 +34,31 @@ final class FollowerCommands extends DrushCommands {
    */
   public function followers(int $nid): void {
     $rows = $this->notifier->followers($nid);
-    if (!$rows) {
-      $this->io()->writeln("Course $nid: nobody is following it.");
-      return;
-    }
-    $this->io()->writeln("Course $nid: " . count($rows) . ' follower(s)');
+    $this->io()->writeln("Course $nid: " . count($rows) . ' follower(s) via Notify Me');
     foreach ($rows as $f) {
       $this->io()->writeln(sprintf('  uid %d  %s  %s', $f['uid'], $f['name'], $f['email']));
     }
+    if ($this->groups->appliesTo($nid)) {
+      $members = $this->groups->members($nid);
+      $url = $this->groups->groupUrl($nid);
+      $this->io()->writeln('CiviCRM interest group: ' . count($members) . ' contact(s)' . ($url ? " — $url" : ' (no group yet; run ic-interest-groups-sync)'));
+      foreach ($members as $m) {
+        $this->io()->writeln(sprintf('  contact %d  %s  %s', $m['contact_id'], $m['name'], $m['email']));
+      }
+      $this->io()->writeln('To notify (de-duplicated): ' . count($this->notifier->audience($nid)));
+    }
+  }
+
+  /**
+   * Creates a CiviCRM interest group for every program and adds its followers.
+   *
+   * @command instructor-companion:interest-groups-sync
+   * @aliases ic-interest-groups-sync
+   * @usage instructor-companion:interest-groups-sync
+   */
+  public function interestGroupsSync(): void {
+    $stats = $this->groups->syncAll();
+    $this->io()->success(sprintf('%d program group(s) in place; %d follower(s) newly added.', $stats['groups'], $stats['added']));
   }
 
   /**
@@ -56,7 +75,7 @@ final class FollowerCommands extends DrushCommands {
     $state = (array) $this->state->get(CourseFollowerNotifier::STATE_KEY, []);
     $this->io()->writeln('Enabled: ' . ($this->notifier->isEnabled() ? 'yes' : 'no') . ' · seeded: ' . (empty($state['_seeded']) ? 'NO (first run records open events without sending)' : date('Y-m-d H:i', (int) $state['_seeded'])));
     foreach ($events as $id => $e) {
-      $followers = count($this->notifier->followers($e['course_nid']));
+      $followers = count($this->notifier->audience($e['course_nid']));
       $done = isset($state[$id]) ? 'already notified (' . (int) ($state[$id]['sent'] ?? 0) . ' sent' . (!empty($state[$id]['seeded']) ? ', seeded' : '') . ')' : "would email $followers follower(s)";
       $this->io()->writeln(sprintf('  event %d %s "%s" ← course %d "%s" (%s): %s', $id, substr($e['start'], 0, 16), $e['title'], $e['course_nid'], $e['course_title'], CourseFollowerNotifier::noun($e['course_type']), $done));
     }

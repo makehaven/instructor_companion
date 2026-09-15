@@ -51,7 +51,40 @@ final class CourseFollowerNotifier {
     private readonly LoggerInterface $logger,
     private readonly RequestStack $requestStack,
     private readonly AliasManagerInterface $aliasManager,
+    private readonly ?CourseInterestGroups $groups = NULL,
   ) {}
+
+  /**
+   * Everyone to tell about a course: followers plus the CiviCRM interest group.
+   *
+   * De-duplicated by email so a member who also used the form gets one mail.
+   *
+   * @return array<string, array{name:string,email:string}>
+   *   Keyed by lower-cased email.
+   */
+  public function audience(int $course_nid): array {
+    $out = [];
+    foreach ($this->followers($course_nid) as $f) {
+      $out[mb_strtolower($f['email'])] = ['name' => $f['name'], 'email' => $f['email']];
+    }
+    if ($this->groups) {
+      try {
+        foreach ($this->groups->members($course_nid) as $m) {
+          $key = mb_strtolower($m['email']);
+          if (!isset($out[$key])) {
+            $out[$key] = ['name' => $m['name'], 'email' => $m['email']];
+          }
+        }
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Interest group for course @n could not be read: @m', [
+          '@n' => $course_nid,
+          '@m' => $e->getMessage(),
+        ]);
+      }
+    }
+    return $out;
+  }
 
   /**
    * The site's absolute base, even from drush cron where there is no host.
@@ -104,7 +137,7 @@ final class CourseFollowerNotifier {
       $notified[$event_id] = ['t' => $this->time->getRequestTime(), 'sent' => 0];
       $this->state->set(self::STATE_KEY, $notified);
       $count = 0;
-      foreach ($this->followers((int) $row['course_nid']) as $f) {
+      foreach ($this->audience((int) $row['course_nid']) as $f) {
         if ($this->email($f, $row)) {
           $count++;
         }
@@ -123,10 +156,10 @@ final class CourseFollowerNotifier {
   }
 
   /**
-   * Events that are public, active, not templates, in the future, with a course.
+   * Public, active, non-template, future events that belong to a course.
    *
    * @return array<int, array>
-   *   event id => ['id', 'title', 'start', 'course_nid', 'course_title', 'course_type'].
+   *   event id => id, title, start, course_nid, course_title, course_type.
    */
   public function openEvents(): array {
     $q = $this->database->select('civicrm_event', 'e');
@@ -161,6 +194,7 @@ final class CourseFollowerNotifier {
    * People following a course: active accounts with an email.
    *
    * @return array<int, array{uid:int,name:string,email:string}>
+   *   Keyed by uid.
    */
   public function followers(int $course_nid): array {
     $q = $this->database->select('flagging', 'f');
@@ -196,20 +230,23 @@ final class CourseFollowerNotifier {
    * Builds the subject and body for one follower. Pure; unit tested.
    *
    * @return array{subject:string, body:string}
+   *   Subject and plain-text body.
    */
   public static function compose(string $name, array $event, string $register_url, string $course_url): array {
     $noun = self::noun($event['course_type']);
     $start = strtotime($event['start']) ?: 0;
     $when = $start ? date('l, F j, Y \a\t g:i A', $start) : '';
     $subject = sprintf('%s: a new %s is open', $event['course_title'], $noun);
+    $starts = $when !== '' ? ' starts ' . $when : '';
     $lines = [
       sprintf('Hi %s,', $name),
       '',
-      sprintf('You asked to hear when %s next runs. It does: %s%s.', $event['course_title'], $event['title'], $when !== '' ? ' starts ' . $when : ''),
+      sprintf('You asked to hear when %s next runs. It does: %s%s.', $event['course_title'], $event['title'], $starts),
       '',
       sprintf('Details and registration: %s', $register_url),
       '',
-      sprintf('Places are limited and you are hearing first. If you no longer want these emails, open the program page and click Following to stop: %s', $course_url),
+      'Places are limited and you are hearing first. If you no longer want these emails, open the program page',
+      sprintf('and click Following to stop: %s', $course_url),
       '',
       'The MakeHaven Team',
       'www.makehaven.org',
@@ -235,7 +272,10 @@ final class CourseFollowerNotifier {
       TRUE
     );
     if (empty($result['result'])) {
-      $this->logger->warning('Course follower notice to @mail about event @e did not send.', ['@mail' => $follower['email'], '@e' => $event['id']]);
+      $this->logger->warning('Course follower notice to @mail about event @e did not send.', [
+        '@mail' => $follower['email'],
+        '@e' => $event['id'],
+      ]);
       return FALSE;
     }
     return TRUE;

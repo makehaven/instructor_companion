@@ -210,6 +210,9 @@ class EducationConsoleController extends ControllerBase {
 
     $build['attention'] = $this->needsAttentionTable($proposals, $interest, $ideas, $now);
 
+    // Who wants to hear about each program: the coordinator's outreach list.
+    $build['program_interest'] = $this->programInterestTable();
+
     // Onboarding in progress — the same three lists as Prospective
     // Instructors, rendered here so nobody has to know a second page exists.
     $build['onboarding'] = [
@@ -537,6 +540,78 @@ class EducationConsoleController extends ControllerBase {
    * Workload tiles read green at zero ("nothing waiting"); tiles where the
    * count is the good news ($count_is_good) read green when positive.
    */
+  /**
+   * One row per program: interest-list size, followers, and where to mail it.
+   *
+   * JR (2026-09-14): "make it easy for our coordinator to reach out and invite
+   * people to join the program when it is going to run." The CiviCRM group
+   * link opens the contacts; Send a mailing goes to CiviMail with that group
+   * as the audience.
+   */
+  protected function programInterestTable(): array {
+    $rows = [];
+    /** @var \Drupal\instructor_companion\Service\CourseInterestGroups $groups */
+    $groups = \Drupal::service('instructor_companion.course_interest_groups');
+    /** @var \Drupal\instructor_companion\Service\CourseFollowerNotifier $notifier */
+    $notifier = \Drupal::service('instructor_companion.course_follower_notifier');
+    $nids = \Drupal::entityQuery('node')->accessCheck(FALSE)
+      ->condition('type', 'course')
+      ->condition('status', 1)
+      ->condition('field_course_type', 'program')
+      ->condition('field_publicly_listed', 1)
+      ->sort('title')
+      ->execute();
+    foreach (\Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids) as $node) {
+      $nid = (int) $node->id();
+      $followers = count($notifier->followers($nid));
+      try {
+        $group_count = $groups->count($nid);
+        $group_url = $groups->groupUrl($nid);
+      }
+      catch (\Throwable $e) {
+        $group_count = 0;
+        $group_url = NULL;
+      }
+      $upcoming = (int) ($node->get('field_stat_upcoming')->value ?? 0);
+      $last = (string) ($node->get('field_stat_last_run')->value ?? '');
+      $actions = [
+        '#type' => 'container',
+        'page' => ['#type' => 'link', '#title' => $this->t('Program page'), '#url' => $node->toUrl(), '#attributes' => ['class' => ['button', 'button--small']]],
+      ];
+      if ($group_url) {
+        $actions['group'] = ['#type' => 'link', '#title' => $this->t('Open list in CiviCRM'), '#url' => Url::fromUserInput($group_url), '#attributes' => ['class' => ['button', 'button--small']]];
+        $actions['mail'] = ['#type' => 'link', '#title' => $this->t('Send a mailing'), '#url' => Url::fromUserInput('/civicrm/a/#/mailing/new'), '#attributes' => ['class' => ['button', 'button--small', 'button--primary'], 'title' => (string) $this->t('CiviMail: choose the "Program interest" group as the recipients')]];
+      }
+      $rows[] = [
+        ['data' => ['#markup' => '<strong>' . htmlspecialchars($node->label()) . '</strong>']],
+        $upcoming > 0 ? $this->t('@n upcoming', ['@n' => $upcoming]) : ($last !== '' ? $this->t('last ran @d', ['@d' => substr($last, 0, 10)]) : $this->t('never run')),
+        $group_count,
+        $followers,
+        ['data' => $actions],
+      ];
+    }
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__program-interest'], 'id' => 'program-interest'],
+      'heading' => ['#markup' => '<h2>' . $this->t('Program interest lists') . '</h2>'],
+      'note' => [
+        '#markup' => '<p class="education-console__held-note">' . $this->t(
+          'Everyone who asked to hear when a program next runs: members who pressed
+           Notify Me on the program page and visitors who left an email. Each list is
+           a CiviCRM group named "Program interest: …". When a cohort is published
+           under the program, the site emails the whole list once; to invite people
+           earlier or by hand, open the list in CiviCRM or send it a mailing.'
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [$this->t('Program'), $this->t('Status'), $this->t('Interest list'), $this->t('of which Notify Me'), $this->t('Actions')],
+        '#rows' => $rows,
+        '#empty' => $this->t('No published programs.'),
+      ],
+    ];
+  }
+
   protected function tile($label, int $count, $sublabel, Url $url, ?string $age_line, bool $count_is_good = FALSE): array {
     $classes = ['education-console__tile'];
     if ($count_is_good ? $count > 0 : $count === 0) {

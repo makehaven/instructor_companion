@@ -43,5 +43,6 @@ services:
     arguments:
       - '@instructor_companion.course_follower_notifier'
       - '@state'
+      - '@instructor_companion.course_interest_groups'
     tags:
       - { name: drush.command }
