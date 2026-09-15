@@ -573,6 +573,14 @@ class EducationConsoleController extends ControllerBase {
         $group_url = NULL;
       }
       $upcoming = (int) ($node->get('field_stat_upcoming')->value ?? 0);
+      $mode = $node->hasField('field_offering_mode') ? (string) ($node->get('field_offering_mode')->value ?? '') : '';
+      $mode_labels = [
+        'public_schedule' => $this->t('public schedule'),
+        'interest_list' => $this->t('interest list'),
+        'partner_groups' => $this->t('for partner groups'),
+        'partner_delivered' => $this->t('running with a partner'),
+        'paused' => $this->t('not offered'),
+      ];
       $last = (string) ($node->get('field_stat_last_run')->value ?? '');
       $actions = [
         '#type' => 'container',
@@ -584,7 +592,8 @@ class EducationConsoleController extends ControllerBase {
       }
       $rows[] = [
         ['data' => ['#markup' => '<strong>' . htmlspecialchars($node->label()) . '</strong>']],
-        $upcoming > 0 ? $this->t('@n upcoming', ['@n' => $upcoming]) : ($last !== '' ? $this->t('last ran @d', ['@d' => substr($last, 0, 10)]) : $this->t('never run')),
+        ($upcoming > 0 ? $this->t('@n upcoming', ['@n' => $upcoming]) : ($last !== '' ? $this->t('last ran @d', ['@d' => substr($last, 0, 10)]) : $this->t('never run')))
+        . ($mode !== '' ? ' · ' . ($mode_labels[$mode] ?? $mode) : ''),
         $group_count,
         $followers,
         ['data' => $actions],
@@ -605,7 +614,7 @@ class EducationConsoleController extends ControllerBase {
       ],
       'table' => [
         '#type' => 'table',
-        '#header' => [$this->t('Program'), $this->t('Status'), $this->t('Interest list'), $this->t('of which Notify Me'), $this->t('Actions')],
+        '#header' => [$this->t('Program'), $this->t('Status · offering mode'), $this->t('Interest list'), $this->t('of which Notify Me'), $this->t('Actions')],
         '#rows' => $rows,
         '#empty' => $this->t('No published programs.'),
       ],

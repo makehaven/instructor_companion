@@ -12,6 +12,7 @@ use Drupal\node\Entity\Node;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\webform\WebformSubmissionInterface;
+use Drupal\instructor_companion\Service\CourseFollowerNotifier;
 
 require_once __DIR__ . '/includes/sessions.inc';
 
@@ -89,22 +90,22 @@ function _instructor_companion_maybe_release_holds(EntityInterface $entity) {
  * "Notify Me" on a program page also puts the member in the program's
  * CiviCRM interest group, so the coordinator can mail everyone who asked.
  */
-function instructor_companion_flagging_insert(\Drupal\Core\Entity\EntityInterface $flagging) {
+function instructor_companion_flagging_insert(EntityInterface $flagging) {
   _instructor_companion_interest_group_sync($flagging, TRUE);
 }
 
 /**
  * Implements hook_ENTITY_TYPE_delete() for flagging.
  */
-function instructor_companion_flagging_delete(\Drupal\Core\Entity\EntityInterface $flagging) {
+function instructor_companion_flagging_delete(EntityInterface $flagging) {
   _instructor_companion_interest_group_sync($flagging, FALSE);
 }
 
 /**
  * Mirrors a course_interest flag on a program into its CiviCRM group.
  */
-function _instructor_companion_interest_group_sync(\Drupal\Core\Entity\EntityInterface $flagging, bool $added): void {
-  if ($flagging->bundle() !== \Drupal\instructor_companion\Service\CourseFollowerNotifier::FLAG_ID
+function _instructor_companion_interest_group_sync(EntityInterface $flagging, bool $added): void {
+  if ($flagging->bundle() !== CourseFollowerNotifier::FLAG_ID
     || $flagging->getFlaggableType() !== 'node') {
     return;
   }
@@ -122,7 +123,10 @@ function _instructor_companion_interest_group_sync(\Drupal\Core\Entity\EntityInt
   }
   catch (\Throwable $e) {
     // The flag itself must never fail because CiviCRM did.
-    \Drupal::logger('instructor_companion')->warning('Interest group sync skipped for flagging @id: @m', ['@id' => $flagging->id(), '@m' => $e->getMessage()]);
+    \Drupal::logger('instructor_companion')->warning('Interest group sync skipped for flagging @id: @m', [
+      '@id' => $flagging->id(),
+      '@m' => $e->getMessage(),
+    ]);
   }
 }
 
@@ -1352,6 +1356,31 @@ function instructor_companion_views_pre_view(\Drupal\views\ViewExecutable $view,
 function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $view, \Drupal\views\Plugin\views\query\QueryPluginBase $query): void {
   if ($view->id() === 'instructors') {
     _instructor_companion_gate_instructors_directory($view, $query);
+    return;
+  }
+
+  if ($view->id() === 'public_program_catalog') {
+    // The catalog leads with what someone can act on today: enrolling
+    // programs first (an upcoming linked event), then by offering mode —
+    // interest list, partner groups, partner-delivered, paused — then title.
+    // field_offering_mode may not be installed yet on an environment whose
+    // config import has not run; the sort degrades to upcoming + title.
+    $query->orderby = [];
+    $upcoming = $query->ensureTable('node__field_stat_upcoming');
+    $query->addOrderBy(NULL, "COALESCE($upcoming.field_stat_upcoming_value, 0) > 0", 'DESC', 'program_enrolling_sort');
+    if (\Drupal::database()->schema()->tableExists('node__field_offering_mode')) {
+      $configuration = [
+        'table' => 'node__field_offering_mode',
+        'field' => 'entity_id',
+        'left_table' => 'node_field_data',
+        'left_field' => 'nid',
+        'type' => 'LEFT',
+      ];
+      $join = \Drupal::service('plugin.manager.views.join')->createInstance('standard', $configuration);
+      $mode = $query->addTable('node__field_offering_mode', NULL, $join, 'program_mode');
+      $query->addOrderBy(NULL, "FIELD(COALESCE($mode.field_offering_mode_value, 'public_schedule'), 'public_schedule', 'interest_list', 'partner_groups', 'partner_delivered', 'paused')", 'ASC', 'program_mode_sort');
+    }
+    $query->addOrderBy('node_field_data', 'title', 'ASC', 'program_title_sort');
     return;
   }
 
