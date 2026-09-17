@@ -163,3 +163,66 @@ a.education-console__tile:focus-visible {
 .education-roster__toggle { font-size: .85em; }
 .ec-chip--active { background: #e1efe3; color: #2f6b3a; }
 .ec-chip--inactive { background: #ececec; color: #555; }
+
+/* Goal-progress strip: sits above the work queues and answers "on track?",
+   where the queues answer "what needs doing". A goal tile shows a value
+   rather than a count, and states green when the goal is met, amber when
+   attention is due, and an em dash when the figure could not be read. */
+
+.education-console__goals {
+  margin: 0 0 2rem;
+  padding: 18px 20px 6px;
+  border: 1px solid var(--gin-border-color, #d4d4d8);
+  border-radius: 8px;
+  background: var(--gin-bg-app, #f7f7f8);
+}
+
+.education-console__goals > h2 {
+  margin: 0;
+}
+
+.education-console__goals-note {
+  max-width: 70ch;
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--gin-color-text-light, #666);
+}
+
+.education-console__goals .education-console__tiles {
+  margin: 1rem 0 1.25rem;
+}
+
+a.education-console__tile--goal .education-console__tile-count {
+  font-size: 1.7rem;
+}
+
+.education-console__tile--attention .education-console__tile-count {
+  color: var(--gin-color-warning, #a45c00);
+}
+
+.education-console__waitlist {
+  margin-top: 0.5rem;
+}
+
+.education-console__waitlist h3 {
+  margin: 0 0 2px;
+  font-size: 1rem;
+}
+
+.education-console__waitlist table {
+  margin-top: 0.75rem;
+}
+
+.education-console__waitlist td:nth-child(2),
+.education-console__waitlist td:nth-child(3),
+.education-console__waitlist th:nth-child(2),
+.education-console__waitlist th:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.education-console__goals-link {
+  display: inline-block;
+  margin: 0.5rem 0 1rem;
+  font-weight: 600;
+}
