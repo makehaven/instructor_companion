@@ -336,3 +336,58 @@ instructor_companion.workshops_console:
     _permission: 'access education console'
   options:
     _admin_route: TRUE
+
+instructor_companion.waitlist_event:
+  path: '/admin/education/workshops/{event_id}/waitlist'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WaitlistController::eventList'
+    _title_callback: '\Drupal\instructor_companion\Controller\WaitlistController::eventTitle'
+  requirements:
+    _permission: 'access education console'
+    event_id: '\d+'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.waitlist_remove:
+  path: '/admin/education/workshops/{event_id}/waitlist/{participant}/remove'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WaitlistController::remove'
+  requirements:
+    _permission: 'access education console'
+    _csrf_token: 'TRUE'
+    event_id: '\d+'
+    participant: '\d+'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.waitlist_leave:
+  path: '/waitlist/leave/{contact}/{course}/{hash}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WaitlistController::leave'
+    _title: 'Waiting list'
+  requirements:
+    _access: 'TRUE'
+    contact: '\d+'
+    course: '\d+'
+  options:
+    no_cache: TRUE
+
+instructor_companion.workshops_unpaid:
+  path: '/admin/education/workshops/unpaid'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WorkshopsConsoleController::unpaid'
+    _title: 'Workshop seats with no payment record'
+  requirements:
+    _permission: 'access education console'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.roster_nudge:
+  path: '/admin/education/roster/nudge-incomplete'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\InstructorRosterController::nudgeIncomplete'
+  requirements:
+    _permission: 'access education console'
+    _csrf_token: 'TRUE'
+  options:
+    _admin_route: TRUE

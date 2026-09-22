@@ -167,6 +167,7 @@ services:
       - '@request_stack'
       - '@path_alias.manager'
       - '@instructor_companion.course_interest_groups'
+      - '@instructor_companion.waitlist'
 
   instructor_companion.course_interest_groups:
     class: Drupal\instructor_companion\Service\CourseInterestGroups
@@ -234,3 +235,22 @@ services:
       - '@database'
       - '@datetime.time'
       - '@state'
+
+  instructor_companion.waitlist:
+    class: Drupal\instructor_companion\Service\WaitlistManager
+    arguments:
+      - '@database'
+      - '@logger.channel.instructor_companion'
+      - '@datetime.time'
+      - '@private_key'
+
+  instructor_companion.profile_nudge:
+    class: Drupal\instructor_companion\Service\InstructorProfileNudge
+    arguments:
+      - '@entity_type.manager'
+      - '@instructor_companion.approval_gate'
+      - '@state'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'

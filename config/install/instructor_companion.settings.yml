@@ -146,3 +146,20 @@ cloned_reminder_titles:
   - 'Thanks for Attending!'
   - 'eval'
   - 'Instructor Post-Event Evaluation'
+profile_nudge_subject: 'Your MakeHaven instructor page is missing [missing]'
+profile_nudge_body: |
+  Hi [first_name],
+
+  Your instructor page on makehaven.org is now the first thing people see when they decide whether to sign up for your class — and right now it is missing [missing].
+
+  It takes about five minutes. Add it here:
+  [edit_url]
+
+  This is what visitors see today:
+  [public_url]
+
+  A photo of you (in the shop is ideal) and three or four sentences about what you make and what you like teaching are all it needs. If you would rather send them to us, reply to this email and we will put them up for you.
+
+  Thanks for teaching at MakeHaven,
+  The Education Team
+  education@makehaven.org

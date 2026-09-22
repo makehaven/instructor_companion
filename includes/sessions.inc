@@ -134,6 +134,10 @@ function instructor_companion_civicrm_pre($op, $objectName, $id, &$params) {
  * When the start moved, moves a session list that began on the old start.
  */
 function instructor_companion_civicrm_post($op, $objectName, $objectId, &$objectRef) {
+  if ($objectName === 'Participant' && in_array($op, ['create', 'edit'], TRUE) && $objectId) {
+    _instructor_companion_participant_post((int) $objectId, $objectRef);
+    return;
+  }
   if ($objectName !== 'Event' || $op !== 'edit' || !$objectId) {
     return;
   }
@@ -364,4 +368,49 @@ function instructor_companion_sessions_validate(array &$form, FormStateInterface
  */
 function instructor_companion_sessions_presubmit(array &$form, FormStateInterface $form_state): void {
   _instructor_companion_sessions_form_saving(TRUE);
+}
+
+/**
+ * A participant got a counted seat: drop their other waitlists for the course.
+ *
+ * Runs after CiviCRM's commit so the row is visible on Drupal's connection.
+ * The status/contact/event come from the saved object when present, else
+ * from the row itself (an edit may carry only the changed columns).
+ */
+function _instructor_companion_participant_post(int $participant_id, $objectRef): void {
+  $status = is_object($objectRef) && !empty($objectRef->status_id) ? (int) $objectRef->status_id : 0;
+  $contact = is_object($objectRef) && !empty($objectRef->contact_id) ? (int) $objectRef->contact_id : 0;
+  $event = is_object($objectRef) && !empty($objectRef->event_id) ? (int) $objectRef->event_id : 0;
+  $runner = static function () use ($participant_id, $status, $contact, $event) {
+    try {
+      if (!$status || !$contact || !$event) {
+        $row = \Drupal::database()->select('civicrm_participant', 'p')
+          ->fields('p', ['status_id', 'contact_id', 'event_id'])
+          ->condition('p.id', $participant_id)
+          ->execute()->fetchAssoc();
+        if (!$row) {
+          return;
+        }
+        $status = (int) $row['status_id'];
+        $contact = (int) $row['contact_id'];
+        $event = (int) $row['event_id'];
+      }
+      if (!in_array($status, \Drupal\instructor_companion\Service\WaitlistManager::COUNTED_STATUSES, TRUE)) {
+        return;
+      }
+      \Drupal::service('instructor_companion.waitlist')->onCountedRegistration($contact, $event);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('instructor_companion')->error('Waitlist tidy for participant @p failed: @m', [
+        '@p' => $participant_id,
+        '@m' => $e->getMessage(),
+      ]);
+    }
+  };
+  if (class_exists('CRM_Core_Transaction') && \CRM_Core_Transaction::isActive()) {
+    \CRM_Core_Transaction::addCallback(\CRM_Core_Transaction::PHASE_POST_COMMIT, $runner);
+  }
+  else {
+    $runner();
+  }
 }

@@ -54,5 +54,6 @@ services:
       - '@instructor_companion.event_hygiene'
       - '@state'
       - '@datetime.time'
+      - '@instructor_companion.profile_nudge'
     tags:
       - { name: drush.command }

@@ -531,6 +531,7 @@ function instructor_companion_mail($key, &$message, $params) {
     case 'attendee_join_offer':
     case 'attendee_badge_nudge':
     case 'abandoned_registration':
+    case 'instructor_profile_nudge':
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = (string) $params['subject'];
       $message['body'][] = (string) $params['body'];
@@ -591,6 +592,14 @@ function _instructor_companion_teach_this_cta(array &$build, EntityInterface $en
     return;
   }
 
+  // A course that already has an active instructor is not recruiting. The
+  // education manager (2026-09-22): every course page offering "could you
+  // teach this?" reads as if nobody does; show it only where it is true.
+  if (_instructor_companion_course_has_active_instructor((int) $entity->id())) {
+    $build['#cache']['tags'][] = 'instructor_companion:course_instructors';
+    return;
+  }
+
   $account = \Drupal::currentUser();
   $roles = $account->getRoles();
 
@@ -627,6 +636,41 @@ function _instructor_companion_teach_this_cta(array &$build, EntityInterface $en
       'tags' => $entity->getCacheTags(),
     ],
   ];
+}
+
+/**
+ * Whether any instructor on the course's runs (last 24 months or upcoming)
+ * has an active instructor profile.
+ */
+function _instructor_companion_course_has_active_instructor(int $nid): bool {
+  $cache = &drupal_static(__FUNCTION__, []);
+  if (isset($cache[$nid])) {
+    return $cache[$nid];
+  }
+  $db = \Drupal::database();
+  foreach (['civicrm_event__field_parent_course', 'civicrm_event__field_civi_event_instructor', 'profile__field_instructor_status'] as $table) {
+    if (!$db->schema()->tableExists($table)) {
+      return $cache[$nid] = FALSE;
+    }
+  }
+  $q = $db->select('civicrm_event__field_parent_course', 'pc');
+  $q->innerJoin('civicrm_event', 'e', 'e.id = pc.entity_id');
+  $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'i.entity_id = e.id AND i.deleted = 0');
+  $q->innerJoin('profile', 'p', "p.uid = i.field_civi_event_instructor_target_id AND p.type = 'instructor' AND p.status = 1");
+  $q->innerJoin('profile__field_instructor_status', 's', "s.entity_id = p.profile_id AND s.field_instructor_status_value = 'active'");
+  $q->addExpression('COUNT(DISTINCT i.field_civi_event_instructor_target_id)', 'n');
+  $q->condition('pc.field_parent_course_target_id', $nid)
+    ->condition('pc.deleted', 0)
+    ->condition('e.is_template', 0)
+    ->condition('e.is_active', 1)
+    ->condition('e.start_date', date('Y-m-d H:i:s', strtotime('-24 months')), '>=');
+  try {
+    $cache[$nid] = (int) $q->execute()->fetchField() > 0;
+  }
+  catch (\Throwable $e) {
+    $cache[$nid] = FALSE;
+  }
+  return $cache[$nid];
 }
 
 function instructor_companion_entity_extra_field_info() {

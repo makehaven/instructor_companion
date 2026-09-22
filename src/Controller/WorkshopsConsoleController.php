@@ -10,6 +10,7 @@ use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\AbandonedRegistrationService;
 use Drupal\instructor_companion\Service\EventHygieneService;
 use Drupal\instructor_companion\Service\WorkshopInsightsService;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -97,6 +98,7 @@ class WorkshopsConsoleController extends ControllerBase {
 
     $build['runs'] = $this->runsTable($runs, $now);
     $build['demand'] = $this->demandTable($demand);
+    $build['waitlists'] = WaitlistController::create(\Drupal::getContainer())->howItWorks();
     $build['followups'] = $this->followupsBlock($sent, $missing_expiry);
 
     $build['links'] = [
@@ -132,11 +134,12 @@ class WorkshopsConsoleController extends ControllerBase {
       $event_url = Url::fromUri('internal:/civicrm/event/manage/settings?reset=1&action=update&id=' . $r['id']);
       $seats = $r['cap'] > 0 ? $r['sold'] . ' / ' . $r['cap'] : (string) $r['sold'];
       $extras = [];
+      $wl_url = Url::fromRoute('instructor_companion.waitlist_event', ['event_id' => $r['id']])->toString();
       if ($r['waiting']) {
-        $extras[] = $this->formatPlural($r['waiting'], '1 waiting', '@count waiting');
+        $extras[] = '<a href="' . $wl_url . '">' . $this->formatPlural($r['waiting'], '1 waiting', '@count waiting') . '</a>';
       }
       if ($r['offered']) {
-        $extras[] = $this->formatPlural($r['offered'], '1 offered, unpaid', '@count offered, unpaid');
+        $extras[] = '<a href="' . $wl_url . '">' . $this->formatPlural($r['offered'], '1 offered, unpaid', '@count offered, unpaid') . '</a>';
       }
       if ($r['abandoned']) {
         $extras[] = $this->formatPlural($r['abandoned'], '1 stalled at payment', '@count stalled at payment');
@@ -288,6 +291,52 @@ class WorkshopsConsoleController extends ControllerBase {
    */
   protected function link($title, Url $url): array {
     return ['#markup' => '<a href="' . $url->toString() . '">' . $title . '</a>'];
+  }
+
+  /**
+   * Workshop registrations this year with no payment attached, one per row.
+   */
+  public function unpaid(Request $request): array {
+    $now = \Drupal::time()->getRequestTime();
+    $start = strtotime(date('Y-01-01 00:00:00', $now));
+    $rows_data = $this->insights->seatsWithoutPayment($start, $now);
+    $rows = [];
+    foreach ($rows_data as $r) {
+      $rows[] = [
+        'when' => $this->dateFormatter->format($r['start'], 'custom', 'j M Y'),
+        'what' => ['data' => ['#markup' => '<a href="/civicrm/event/manage/settings?reset=1&action=update&id=' . $r['event_id'] . '">' . htmlspecialchars($r['title']) . '</a>']],
+        'who' => ['data' => ['#markup' => '<a href="/civicrm/contact/view?reset=1&cid=' . $r['contact_id'] . '">' . htmlspecialchars($r['name']) . '</a>']],
+        'status' => $r['status'],
+        'registered' => $r['registered'] ? $this->dateFormatter->format($r['registered'], 'custom', 'j M Y') : '—',
+        'source' => $r['source'] !== '' ? $r['source'] : '—',
+      ];
+    }
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console']],
+      '#attached' => ['library' => ['instructor_companion/education_console']],
+      '#cache' => ['max-age' => 0],
+      'crumb' => ['#markup' => '<p class="education-console__crumb"><a href="' . Url::fromRoute('instructor_companion.education_console')->toString() . '">← Education console</a> · <a href="' . Url::fromRoute('instructor_companion.workshops_console')->toString() . '">Workshops</a></p>'],
+      'intro' => [
+        '#markup' => '<p class="education-console__intro">' . $this->t(
+          'Counted Ticketed Workshop registrations since 1 January with no CiviCRM payment record attached. Each is one of three things: a seat that was comped or paid offline (fine, but it should be a known decision), a registration CiviCRM never linked to its contribution, or an attendee who owes. The "Source" column is what the registration form or staff wrote when creating it. Member-only Build & Badge classes are free and are not listed.'
+        ) . '</p>',
+      ],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'when' => $this->t('Class date'),
+          'what' => $this->t('Class'),
+          'who' => $this->t('Person'),
+          'status' => $this->t('Status'),
+          'registered' => $this->t('Registered'),
+          'source' => $this->t('Source'),
+        ],
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['education-console__table']],
+        '#empty' => $this->t('Every workshop registration this year has a payment record.'),
+      ],
+    ];
   }
 
 }

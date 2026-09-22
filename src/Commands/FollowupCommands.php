@@ -9,6 +9,7 @@ use Drupal\Core\State\StateInterface;
 use Drupal\instructor_companion\Service\AbandonedRegistrationService;
 use Drupal\instructor_companion\Service\AttendeeFollowupService;
 use Drupal\instructor_companion\Service\EventHygieneService;
+use Drupal\instructor_companion\Service\InstructorProfileNudge;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -22,6 +23,7 @@ final class FollowupCommands extends DrushCommands {
     private readonly EventHygieneService $hygiene,
     private readonly StateInterface $state,
     private readonly TimeInterface $time,
+    private readonly ?InstructorProfileNudge $profileNudge = NULL,
   ) {
     parent::__construct();
   }
@@ -151,6 +153,32 @@ final class FollowupCommands extends DrushCommands {
     if (!empty($options['apply'])) {
       $n = $this->hygiene->backfillWaitlistExpiry();
       $this->io()->success("expiration_time set to $hours h on $n row(s). CiviCRM's 'Update Participant Statuses' job now expires unpaid offers and moves to the next person.");
+    }
+  }
+
+  /**
+   * Lists active instructors with an incomplete public page, or nudges them.
+   *
+   * @command instructor-companion:profile-nudge
+   * @aliases ic-profile-nudge
+   * @option send Actually send (default: report only).
+   * @usage instructor-companion:profile-nudge
+   * @usage instructor-companion:profile-nudge --send
+   */
+  public function profileNudge(array $options = ['send' => FALSE]): void {
+    if (!$this->profileNudge) {
+      $this->io()->error('Profile nudge service unavailable.');
+      return;
+    }
+    $rows = $this->profileNudge->incomplete();
+    $due = $this->profileNudge->due();
+    $this->io()->writeln(sprintf('%d active instructor(s) with an incomplete page; %d due a nudge (not emailed in %d days)', count($rows), count($due), InstructorProfileNudge::REPEAT_DAYS));
+    foreach ($rows as $r) {
+      $this->io()->writeln(sprintf('  %-26s %-34s missing %-14s %s', $r['name'], $r['email'], implode('+', $r['missing']), $r['last_nudged'] ? 'nudged ' . date('Y-m-d', $r['last_nudged']) : 'never nudged'));
+    }
+    if (!empty($options['send'])) {
+      $n = $this->profileNudge->sendAll();
+      $this->io()->success("Sent $n nudge(s).");
     }
   }
 
