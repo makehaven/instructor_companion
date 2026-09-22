@@ -85,3 +85,64 @@ session_evaluation_body: |
 
   The MakeHaven Team
 session_evaluation_url: 'https://www.makehaven.org/event/evaluation/[event_type_id]?event_id=[event_id]'
+followup_enabled: true
+followup_delay_days: 7
+followup_event_types:
+  - 6
+  - 16
+  - 8
+followup_join_url: '/join-makehaven'
+followup_tour_url: '/visit'
+followup_join_subject: "Enjoyed [event_title]? Here's what's next at MakeHaven"
+followup_join_body: |
+  Hi [first_name],
+
+  It was great to have you at [event_title]. If you'd like to keep making, there are two easy next steps.
+
+  Take a free tour. See the whole shop — wood, metal, textiles, electronics, laser cutters and more — and ask anything:
+  [tour_url]
+
+  Become a member. Members get the tools, the community and the member rate on classes like the one you just took:
+  [join_url]
+
+  Questions? Reply to this email and a real person will answer.
+
+  The MakeHaven Team
+  www.makehaven.org
+followup_badge_subject: 'Your [badge_name] badge is waiting'
+followup_badge_body: |
+  Hi [first_name],
+
+  You took [event_title], which covers the [badge_name] badge. The badge is still marked pending on your account, which means the last step has not been recorded yet.
+
+  What to do: the badge page shows what is left — usually the short online quiz, or the instructor's sign-off from the class:
+  [badge_url]
+
+  If you finished the class and the quiz, reply to this email or write education@makehaven.org and we will sort it out.
+
+  Once the badge is active you can use the tool during open hours and book it on the calendar.
+
+  The MakeHaven Team
+  www.makehaven.org
+abandoned_followup_enabled: true
+abandoned_after_hours: 24
+abandoned_subject: 'Your seat in [event_title] is still open'
+abandoned_body: |
+  Hi [first_name],
+
+  You started registering for [event_title] ([event_date]) but the payment did not go through, so you are not yet on the list. A seat is still open.
+
+  Finish your registration here:
+  [register_url]
+
+  If you changed your mind, no action is needed and this is the only reminder you will get. If something went wrong on the payment page, reply to this email and we will help.
+
+  The MakeHaven Team
+  www.makehaven.org
+waitlist_offer_hours: 48
+cloned_reminder_titles:
+  - '3 days Later Reminder'
+  - 'Thanks for attending'
+  - 'Thanks for Attending!'
+  - 'eval'
+  - 'Instructor Post-Event Evaluation'

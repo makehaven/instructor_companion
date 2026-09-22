@@ -254,6 +254,106 @@ class SettingsForm extends ConfigFormBase {
       ];
     }
 
+    $followup_types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
+    $form['followup'] = [
+      '#type' => 'details',
+      '#title' => $this->t('After the class: the follow-up loop'),
+      '#open' => FALSE,
+      '#description' => $this->t('CiviCRM\'s type-level "Thanks for Attending!" reminder asks every attendee for the survey 24 hours after a class; that stays. A week after the <em>last</em> session this module sends at most one more email per attendee: a join / tour offer to someone with no member account, or "your badge is waiting" to a member whose badge request for the class\'s badge is still pending. Instructors and hosts never get either. Separately, a registration that stalled at payment gets one "your seat is still open" email a day later while a seat is open, and waitlisted events get an offer window so an unpaid waitlist offer cannot hold a seat forever. Dry runs: <code>drush ic-followups</code>, <code>drush ic-abandoned</code>, <code>drush ic-waitlist-expiry</code>, <code>drush ic-reminder-cleanup</code>.'),
+    ];
+    $form['followup']['followup_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Send the post-class follow-up'),
+      '#default_value' => (bool) ($config->get('followup_enabled') ?? TRUE),
+    ];
+    $form['followup']['followup_delay_days'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Days after the last session'),
+      '#min' => 1,
+      '#max' => 30,
+      '#default_value' => $config->get('followup_delay_days') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::DEFAULT_DELAY_DAYS,
+      '#description' => $this->t('The survey email goes out at 24 hours; this one should not compete with it.'),
+    ];
+    if ($followup_types) {
+      $form['followup']['followup_event_types'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Event types whose attendees get it'),
+        '#options' => $followup_types,
+        '#default_value' => \Drupal::service('instructor_companion.attendee_followup')->eventTypes(),
+        '#description' => $this->t('Meetups are worth including: a meetup attendee who is not a member is exactly the person the join offer is for.'),
+      ];
+    }
+    $form['followup']['followup_join_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Join page'),
+      '#default_value' => $config->get('followup_join_url') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::DEFAULT_JOIN_URL,
+    ];
+    $form['followup']['followup_tour_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Tour page'),
+      '#default_value' => $config->get('followup_tour_url') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::DEFAULT_TOUR_URL,
+    ];
+    $form['followup']['followup_join_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Join / tour offer — subject'),
+      '#default_value' => $config->get('followup_join_subject') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::defaultJoinSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['followup']['followup_join_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Join / tour offer — body'),
+      '#default_value' => $config->get('followup_join_body') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::defaultJoinBody(),
+      '#rows' => 12,
+      '#description' => $this->t('Plain text. Tokens: <code>[first_name]</code>, <code>[event_title]</code>, <code>[join_url]</code>, <code>[tour_url]</code>.'),
+    ];
+    $form['followup']['followup_badge_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Badge nudge — subject'),
+      '#default_value' => $config->get('followup_badge_subject') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::defaultBadgeSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['followup']['followup_badge_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Badge nudge — body'),
+      '#default_value' => $config->get('followup_badge_body') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::defaultBadgeBody(),
+      '#rows' => 12,
+      '#description' => $this->t('Plain text. Tokens: <code>[first_name]</code>, <code>[event_title]</code>, <code>[badge_name]</code>, <code>[badge_url]</code>.'),
+    ];
+    $form['followup']['abandoned_followup_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Email a registration that stalled at payment'),
+      '#default_value' => (bool) ($config->get('abandoned_followup_enabled') ?? TRUE),
+      '#description' => $this->t('Once per attempt, only while the class is more than six hours away and a seat is open, never to someone who has registered since.'),
+    ];
+    $form['followup']['abandoned_after_hours'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Hours after the attempt'),
+      '#min' => 1,
+      '#max' => 168,
+      '#default_value' => $config->get('abandoned_after_hours') ?: \Drupal\instructor_companion\Service\AbandonedRegistrationService::DEFAULT_AFTER_HOURS,
+    ];
+    $form['followup']['abandoned_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Stalled registration — subject'),
+      '#default_value' => $config->get('abandoned_subject') ?: \Drupal\instructor_companion\Service\AbandonedRegistrationService::defaultSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['followup']['abandoned_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Stalled registration — body'),
+      '#default_value' => $config->get('abandoned_body') ?: \Drupal\instructor_companion\Service\AbandonedRegistrationService::defaultBody(),
+      '#rows' => 10,
+      '#description' => $this->t('Plain text. Tokens: <code>[first_name]</code>, <code>[event_title]</code>, <code>[event_date]</code>, <code>[register_url]</code> (must appear).'),
+    ];
+    $form['followup']['waitlist_offer_hours'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Waitlist offer window (hours)'),
+      '#min' => 0,
+      '#max' => 720,
+      '#default_value' => $config->get('waitlist_offer_hours') ?? \Drupal\instructor_companion\Service\EventHygieneService::DEFAULT_WAITLIST_OFFER_HOURS,
+      '#description' => $this->t('Written to the event\'s expiration time when a waitlisted event is copied or has none. CiviCRM offers a freed seat to the next person and emails them; with a window it also takes the seat back if they do not pay, and offers it to the next. 0 leaves events alone.'),
+    ];
+
     $form['orientation_step_enabled'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Require the orientation video and quiz'),
@@ -321,6 +421,22 @@ class SettingsForm extends ConfigFormBase {
       ->set('invite_subject', $form_state->getValue('invite_subject'))
       ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
+      ->set('followup_enabled', (bool) $form_state->getValue('followup_enabled'))
+      ->set('followup_delay_days', (int) $form_state->getValue('followup_delay_days'))
+      ->set('followup_event_types', $form_state->hasValue('followup_event_types')
+        ? array_values(array_map('intval', array_filter((array) $form_state->getValue('followup_event_types'))))
+        : $config->get('followup_event_types'))
+      ->set('followup_join_url', (string) $form_state->getValue('followup_join_url'))
+      ->set('followup_tour_url', (string) $form_state->getValue('followup_tour_url'))
+      ->set('followup_join_subject', (string) $form_state->getValue('followup_join_subject'))
+      ->set('followup_join_body', (string) $form_state->getValue('followup_join_body'))
+      ->set('followup_badge_subject', (string) $form_state->getValue('followup_badge_subject'))
+      ->set('followup_badge_body', (string) $form_state->getValue('followup_badge_body'))
+      ->set('abandoned_followup_enabled', (bool) $form_state->getValue('abandoned_followup_enabled'))
+      ->set('abandoned_after_hours', (int) $form_state->getValue('abandoned_after_hours'))
+      ->set('abandoned_subject', (string) $form_state->getValue('abandoned_subject'))
+      ->set('abandoned_body', (string) $form_state->getValue('abandoned_body'))
+      ->set('waitlist_offer_hours', (int) $form_state->getValue('waitlist_offer_hours'))
       ->save();
 
     parent::submitForm($form, $form_state);

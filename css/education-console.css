@@ -226,3 +226,39 @@ a.education-console__tile--goal .education-console__tile-count {
   margin: 0.5rem 0 1rem;
   font-weight: 600;
 }
+
+/* /admin/education/workshops */
+.education-console__crumb {
+  margin: 0 0 0.5rem;
+}
+
+.education-console__pace {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--gin-bg-layer2, #f1f1f3);
+}
+
+.education-console__pace--behind,
+.education-console__pace--empty {
+  background: #fbe9e7;
+  color: #8b1919;
+}
+
+.education-console__pace--watch {
+  background: #fff4dc;
+  color: #7a5200;
+}
+
+.education-console__pace--full,
+.education-console__pace--waitlist {
+  background: #e6f2ea;
+  color: #1f5c38;
+}
+
+.education-console__row--gap td:last-child {
+  color: #8b1919;
+}

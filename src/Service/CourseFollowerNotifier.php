@@ -83,7 +83,76 @@ final class CourseFollowerNotifier {
         ]);
       }
     }
+    foreach ($this->waitlisted($course_nid) as $w) {
+      $key = mb_strtolower($w['email']);
+      if (!isset($out[$key])) {
+        $out[$key] = ['name' => $w['name'], 'email' => $w['email'], 'reason' => 'waitlist'];
+      }
+    }
     return $out;
+  }
+
+  /**
+   * People turned away from an earlier run who never got a later seat.
+   *
+   * Waitlisted, offered-and-unpaid, or expired, on an active run in the last
+   * year, with no counted registration on any run of the course that starts
+   * after the one they waited for.
+   *
+   * In the twelve months to 2026-09-22, 119 people were waitlisted and only
+   * 34 ever got a seat at a rerun. A waitlist is per event; the course is
+   * the thing that runs again.
+   *
+   * @return array<int, array{name:string,email:string,contact_id:int}>
+   *   One row per email.
+   */
+  public function waitlisted(int $course_nid): array {
+    foreach (['civicrm_participant', 'civicrm_email', 'civicrm_event__field_parent_course'] as $table) {
+      if (!$this->database->schema()->tableExists($table)) {
+        return [];
+      }
+    }
+    $now = $this->time->getRequestTime();
+    $q = $this->database->select('civicrm_participant', 'p');
+    $q->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $q->innerJoin('civicrm_event__field_parent_course', 'pc', 'pc.entity_id = e.id AND pc.deleted = 0');
+    $q->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+    $q->innerJoin('civicrm_email', 'em', 'em.contact_id = c.id AND em.is_primary = 1');
+    $q->addField('p', 'contact_id', 'contact_id');
+    $q->addField('em', 'email', 'email');
+    $q->addField('c', 'first_name', 'first_name');
+    $q->addField('c', 'display_name', 'display_name');
+    $q->condition('pc.field_parent_course_target_id', $course_nid)
+      ->condition('p.is_test', 0)
+      ->condition('p.status_id', [7, 9, 12], 'IN')
+      ->condition('e.is_template', 0)
+      ->condition('e.is_active', 1)
+      ->condition('e.start_date', date('Y-m-d H:i:s', $now - 365 * 86400), '>=')
+      ->condition('c.is_deleted', 0)
+      ->condition('c.is_deceased', 0)
+      ->condition('c.do_not_email', 0)
+      ->condition('c.is_opt_out', 0)
+      ->condition('em.on_hold', 0)
+      ->condition('em.email', '', '<>');
+    $q->where('NOT EXISTS (SELECT 1 FROM {civicrm_participant} p2
+      INNER JOIN {civicrm_event} e2 ON e2.id = p2.event_id
+      INNER JOIN {civicrm_event__field_parent_course} pc2 ON pc2.entity_id = e2.id AND pc2.deleted = 0
+      WHERE p2.contact_id = p.contact_id AND p2.is_test = 0 AND p2.status_id IN (1, 2, 5, 14, 15)
+        AND pc2.field_parent_course_target_id = :course AND e2.start_date > e.start_date)', [':course' => $course_nid]);
+    $out = [];
+    foreach ($q->execute() as $r) {
+      $key = mb_strtolower((string) $r->email);
+      if (isset($out[$key])) {
+        continue;
+      }
+      $first = trim((string) $r->first_name);
+      $out[$key] = [
+        'contact_id' => (int) $r->contact_id,
+        'name' => $first !== '' ? $first : (string) $r->display_name,
+        'email' => (string) $r->email,
+      ];
+    }
+    return array_values($out);
   }
 
   /**
@@ -232,21 +301,30 @@ final class CourseFollowerNotifier {
    * @return array{subject:string, body:string}
    *   Subject and plain-text body.
    */
-  public static function compose(string $name, array $event, string $register_url, string $course_url): array {
+  public static function compose(string $name, array $event, string $register_url, string $course_url, string $reason = 'follower'): array {
     $noun = self::noun($event['course_type']);
     $start = strtotime($event['start']) ?: 0;
     $when = $start ? date('l, F j, Y \a\t g:i A', $start) : '';
-    $subject = sprintf('%s: a new %s is open', $event['course_title'], $noun);
     $starts = $when !== '' ? ' starts ' . $when : '';
+    if ($reason === 'waitlist') {
+      $subject = sprintf('%s: another %s is open — you were on the waiting list', $event['course_title'], $noun);
+      $opening = sprintf('You were on the waiting list for %s and did not get a seat. Another %s is open: %s%s.', $event['course_title'], $noun, $event['title'], $starts);
+      $closing = 'Places are limited and you are hearing first because you waited last time. This is a one-off note for this class, not a subscription.';
+    }
+    else {
+      $subject = sprintf('%s: a new %s is open', $event['course_title'], $noun);
+      $opening = sprintf('You asked to hear when %s next runs. It does: %s%s.', $event['course_title'], $event['title'], $starts);
+      $closing = 'Places are limited and you are hearing first. If you no longer want these emails, open the program page'
+        . "\n" . sprintf('and click Following to stop: %s', $course_url);
+    }
     $lines = [
       sprintf('Hi %s,', $name),
       '',
-      sprintf('You asked to hear when %s next runs. It does: %s%s.', $event['course_title'], $event['title'], $starts),
+      $opening,
       '',
       sprintf('Details and registration: %s', $register_url),
       '',
-      'Places are limited and you are hearing first. If you no longer want these emails, open the program page',
-      sprintf('and click Following to stop: %s', $course_url),
+      $closing,
       '',
       'The MakeHaven Team',
       'www.makehaven.org',
@@ -261,7 +339,7 @@ final class CourseFollowerNotifier {
     $base = $this->baseUrl();
     $register_url = $base . '/civicrm/event/info?id=' . (int) $event['id'] . '&reset=1';
     $course_url = $base . $this->aliasManager->getAliasByPath('/node/' . (int) $event['course_nid']);
-    $message = self::compose($follower['name'], $event, $register_url, $course_url);
+    $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'));
     $result = $this->mailManager->mail(
       'instructor_companion',
       self::MAIL_KEY,

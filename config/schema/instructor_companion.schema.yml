@@ -74,3 +74,54 @@ instructor_companion.settings:
     session_evaluation_url:
       type: string
       label: 'Evaluation link pattern'
+    followup_enabled:
+      type: boolean
+      label: 'Send the post-class follow-up (join offer / badge nudge)'
+    followup_delay_days:
+      type: integer
+      label: 'Days after the last session before the follow-up'
+    followup_event_types:
+      type: sequence
+      label: 'CiviCRM event types whose attendees get the follow-up'
+      sequence:
+        type: integer
+        label: 'Event type id'
+    followup_join_url:
+      type: string
+      label: 'Join page path or URL'
+    followup_tour_url:
+      type: string
+      label: 'Tour page path or URL'
+    followup_join_subject:
+      type: label
+      label: 'Join offer subject'
+    followup_join_body:
+      type: text
+      label: 'Join offer body'
+    followup_badge_subject:
+      type: label
+      label: 'Badge nudge subject'
+    followup_badge_body:
+      type: text
+      label: 'Badge nudge body'
+    abandoned_followup_enabled:
+      type: boolean
+      label: 'Email a registration that stalled at payment'
+    abandoned_after_hours:
+      type: integer
+      label: 'Hours after the attempt before the email'
+    abandoned_subject:
+      type: label
+      label: 'Stalled registration subject'
+    abandoned_body:
+      type: text
+      label: 'Stalled registration body'
+    waitlist_offer_hours:
+      type: integer
+      label: 'Hours an unpaid waitlist offer stays open (0 = leave events alone)'
+    cloned_reminder_titles:
+      type: sequence
+      label: 'Per-event reminder titles switched off after a CiviCRM copy'
+      sequence:
+        type: string
+        label: 'Title'

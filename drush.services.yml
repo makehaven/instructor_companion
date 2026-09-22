@@ -46,3 +46,13 @@ services:
       - '@instructor_companion.course_interest_groups'
     tags:
       - { name: drush.command }
+  instructor_companion.followup_commands:
+    class: \Drupal\instructor_companion\Commands\FollowupCommands
+    arguments:
+      - '@instructor_companion.attendee_followup'
+      - '@instructor_companion.abandoned_registration'
+      - '@instructor_companion.event_hygiene'
+      - '@state'
+      - '@datetime.time'
+    tags:
+      - { name: drush.command }

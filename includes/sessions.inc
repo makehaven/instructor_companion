@@ -85,6 +85,13 @@ function instructor_companion_civicrm_copy($objectName, &$object, $original_id =
   $runner = static function () use ($source_id, $new_id) {
     try {
       \Drupal::service('instructor_companion.event_copy_sync')->copyDrupalFields($source_id, $new_id);
+      // CiviCRM's copy also cloned the event's per-event reminders. The
+      // "3 days later" / "eval" ones were replaced by the type-level
+      // "Thanks for Attending!" in 2026-08; left on, attendees get two
+      // survey emails. And a waitlisted copy gets the offer window.
+      $hygiene = \Drupal::service('instructor_companion.event_hygiene');
+      $hygiene->disableClonedReminders($new_id);
+      $hygiene->ensureWaitlistExpiry($new_id);
     }
     catch (\Throwable $e) {
       \Drupal::logger('instructor_companion')->error('Event copy sync @s → @t failed: @m', [

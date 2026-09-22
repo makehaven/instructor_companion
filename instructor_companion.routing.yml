@@ -326,3 +326,13 @@ instructor_companion.course_interest_form:
     parameters:
       node:
         type: entity:node
+
+instructor_companion.workshops_console:
+  path: '/admin/education/workshops'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WorkshopsConsoleController::build'
+    _title: 'Workshops'
+  requirements:
+    _permission: 'access education console'
+  options:
+    _admin_route: TRUE

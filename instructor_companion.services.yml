@@ -196,3 +196,41 @@ services:
     class: Drupal\instructor_companion\EventSubscriber\PostWorkshopRedirectSubscriber
     tags:
       - { name: event_subscriber }
+
+  instructor_companion.event_hygiene:
+    class: Drupal\instructor_companion\Service\EventHygieneService
+    arguments:
+      - '@database'
+      - '@config.factory'
+      - '@logger.channel.instructor_companion'
+
+  instructor_companion.attendee_followup:
+    class: Drupal\instructor_companion\Service\AttendeeFollowupService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+      - '@instructor_companion.sessions'
+      - '@request_stack'
+      - '@path_alias.manager'
+
+  instructor_companion.abandoned_registration:
+    class: Drupal\instructor_companion\Service\AbandonedRegistrationService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+      - '@request_stack'
+
+  instructor_companion.workshop_insights:
+    class: Drupal\instructor_companion\Service\WorkshopInsightsService
+    arguments:
+      - '@database'
+      - '@datetime.time'
+      - '@state'

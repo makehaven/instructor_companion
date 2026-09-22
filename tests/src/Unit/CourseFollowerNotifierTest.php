@@ -63,4 +63,25 @@ class CourseFollowerNotifierTest extends UnitTestCase {
     $this->assertStringContainsString('It does: Intro to Sewing.', $m['body']);
   }
 
+  /**
+   * @covers ::compose
+   */
+  public function testWaitlistedPeopleGetTheirOwnOpening(): void {
+    $event = [
+      'id' => 978,
+      'title' => 'Intro to Sewing: Get to Know Your Machine',
+      'start' => '2026-10-15 18:00:00',
+      'course_nid' => 40260,
+      'course_title' => 'Intro to Sewing',
+      'course_type' => 'workshop',
+    ];
+    $out = CourseFollowerNotifier::compose('Pat', $event, 'https://example.org/reg', 'https://example.org/course', 'waitlist');
+    $this->assertStringContainsString('you were on the waiting list', $out['subject']);
+    $this->assertStringContainsString('did not get a seat', $out['body']);
+    $this->assertStringContainsString('https://example.org/reg', $out['body']);
+    $this->assertStringNotContainsString('click Following to stop', $out['body'], 'A waitlisted person never followed anything.');
+    $follower = CourseFollowerNotifier::compose('Pat', $event, 'https://example.org/reg', 'https://example.org/course');
+    $this->assertStringContainsString('You asked to hear', $follower['body']);
+  }
+
 }
