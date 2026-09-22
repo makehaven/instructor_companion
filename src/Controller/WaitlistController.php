@@ -198,7 +198,10 @@ class WaitlistController extends ControllerBase {
     $build['msg'] = [
       '#markup' => '<h1>' . $this->t('You are off the waiting list') . '</h1><p>'
       . ($n
-        ? $this->t('We removed you from @n waiting list(s) for @course. You will not hear about it again unless you sign up for a future run yourself.', ['@n' => $n, '@course' => $title])
+        ? $this->t('We removed you from @n waiting list(s) for @course. You will not hear about it again unless you sign up for a future run yourself.', [
+          '@n' => $n,
+          '@course' => $title,
+        ])
         : $this->t('You were not on a waiting list for @course any more, so nothing changed.', ['@course' => $title]))
       . '</p><p><a href="' . Url::fromUri('internal:/programs')->toString() . '">' . $this->t('See what else is coming up') . '</a></p>',
     ];

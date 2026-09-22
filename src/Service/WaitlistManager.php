@@ -211,19 +211,11 @@ class WaitlistManager {
   }
 
   /**
-   *
-   */
-
-  /**
    * Signature for one person and course on this site.
    */
   public function leaveHash(int $contact_id, int $course_nid): string {
     return self::computeLeaveHash($contact_id, $course_nid, $this->secret());
   }
-
-  /**
-   *
-   */
 
   /**
    * Whether a presented signature matches.
