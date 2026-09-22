@@ -36,6 +36,14 @@ function instructor_companion_cron() {
   \Drupal::service('instructor_companion.stale_review_nudge')->run();
   // "Notify Me" on a course page: tell followers when a new run opens.
   \Drupal::service('instructor_companion.course_follower_notifier')->run();
+  // A week after the last session: join / tour offer to non-member attendees,
+  // "your badge is waiting" to members whose badge_request is still pending.
+  \Drupal::service('instructor_companion.attendee_followup')->run();
+  // A day after a registration stalled at payment, while a seat is open.
+  \Drupal::service('instructor_companion.abandoned_registration')->run();
+  // Waitlisted events made outside the CiviCRM copy path get the offer window
+  // here, so an unpaid offer cannot hold a seat forever.
+  \Drupal::service('instructor_companion.event_hygiene')->backfillWaitlistExpiry();
 }
 
 /**
@@ -515,6 +523,14 @@ function instructor_companion_mail($key, &$message, $params) {
       break;
 
     case 'course_follower_notice':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = (string) $params['subject'];
+      $message['body'][] = (string) $params['body'];
+      break;
+
+    case 'attendee_join_offer':
+    case 'attendee_badge_nudge':
+    case 'abandoned_registration':
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = (string) $params['subject'];
       $message['body'][] = (string) $params['body'];

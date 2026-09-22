@@ -132,6 +132,60 @@ Granting the instructor role and approving door access still require
 action links the viewer cannot use, so an event manager sees those queues
 without dead buttons.
 
+### 1d. After the class: the follow-up loop (2026-09-22)
+
+Measured on live over the twelve months to 2026-09-22: 119 people were
+waitlisted and only 34 ever got a seat at a rerun; 134 registrations stalled at
+payment and nobody contacted them; the post-class email existed three times
+over (CiviCRM's type-level "Thanks for Attending!", a per-event "3 days Later
+Reminder" that every CiviCRM copy re-created, an old "eval"), none of it aware
+of who is a member; and members left badges pending after badge classes.
+Four services close those loops. All are cron-driven, seeded on first run (they
+record what is already past due without sending), switchable on the settings
+page under **After the class**, and have a dry-run Drush command.
+
+- **`AttendeeFollowupService`** — `followup_delay_days` (7) after the class's
+  *last* session (`SessionSchedule::effectiveEnd()`), each counted attendee with
+  the Attendee role gets at most one email: a **join / tour offer** if their
+  account carries no member, staff or instructor role (or they have no account),
+  or **"your badge is waiting"** if they are a member with a *pending*
+  badge_request for one of the class's badges. Everyone else gets nothing. One
+  join offer per contact per 60 days. `drush ic-followups [--event=N] [--send]`.
+  Mail keys `attendee_join_offer`, `attendee_badge_nudge`; state
+  `instructor_companion.attendee_followup_sent`.
+- **`AbandonedRegistrationService`** — a "Pending (incomplete transaction)"
+  registration `abandoned_after_hours` (24) old, on a class more than six hours
+  away with a seat open, gets one "your seat is still open" email with the
+  CiviCRM registration link — never if the contact has registered or waitlisted
+  since, never twice. `drush ic-abandoned [--send]`. Mail key
+  `abandoned_registration`; state `instructor_companion.abandoned_registration_sent`.
+- **`EventHygieneService`** — two things done to a copied event from
+  `hook_civicrm_copy()` (`includes/sessions.inc`): the cloned per-event
+  reminders whose titles are in `cloned_reminder_titles` are switched off
+  (`is_active = 0`, not deleted), and a waitlisted copy gets
+  `expiration_time = waitlist_offer_hours` (48) if it has none. Cron also
+  backfills the window onto any waitlisted template or upcoming event missing
+  it. CiviCRM's own "Update Participant Statuses" job then does the rest: it
+  already promoted waitlist → "Pending from waitlist" and emailed the person;
+  with a window it also expires an unpaid offer (register_date is reset at
+  promotion, CRM-6496) and offers the seat to the next person. One-time
+  backfills: `drush ic-reminder-cleanup [--apply]`, `drush ic-waitlist-expiry [--apply]`.
+- **`CourseFollowerNotifier::waitlisted()`** — the "a new run is open" notice now
+  also goes to people waitlisted, offered-and-unpaid or expired on an earlier run
+  of the same course in the last year who never got a later seat, with wording
+  that says why they are hearing ("you were on the waiting list"). A waitlist is
+  per event; the course is what runs again.
+
+**`/admin/education/workshops`** (`WorkshopsConsoleController`,
+`WorkshopInsightsService`) is the first sub-page of the education hub: the
+next 60 days as a worklist (seats, waiting, offered-unpaid, stalled at payment,
+a pace flag — *behind* under half full a week out, *watch* under a third two
+weeks out — and missing data: no course, no instructor, waitlist without a
+window), demand turned away by course with how many were later re-seated and
+whether anything is scheduled, and what the three crons sent this week. The
+legacy pages (`/admin/workshops`, event audit, pending-incomplete report) stay
+up and are linked from it.
+
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)
 *   **Dynamic Class List:** 
