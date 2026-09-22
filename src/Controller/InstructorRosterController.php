@@ -101,6 +101,32 @@ class InstructorRosterController extends ControllerBase {
       ) . '</p>',
     ];
 
+    // The two things staff asked to do from here (2026-09-22): bring someone
+    // in — the invite works for existing members too, it finds their account
+    // by email — and chase the people whose public page is still bare.
+    $incomplete_due = count(\Drupal::service('instructor_companion.profile_nudge')->due());
+    $build['actions'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-console__cta']],
+      'invite' => [
+        '#type' => 'link',
+        '#title' => $this->t('Add or invite an instructor'),
+        '#url' => Url::fromRoute('instructor_companion.invite_form', [], ['query' => ['destination' => '/admin/education/roster']]),
+        '#attributes' => ['class' => ['button', 'button--primary']],
+      ],
+      'nudge' => [
+        '#type' => 'link',
+        '#title' => $this->formatPlural($incomplete_due, 'Email the 1 instructor with an incomplete profile', 'Email the @count instructors with an incomplete profile'),
+        '#url' => Url::fromRoute('instructor_companion.roster_nudge'),
+        '#attributes' => ['class' => ['button'] + ($incomplete_due ? [] : ['is-disabled'])],
+      ],
+      'hint' => [
+        '#markup' => '<span class="education-console__cta-hint">' . $this->t(
+          'Invite: one email with a link that signs them in and opens the agreement; works for members and non-members alike. Nudge: one email per person listing what their page is missing, never more than once every 60 days.'
+        ) . '</span>',
+      ],
+    ];
+
     $tile = function ($label, int $count, $sub, string $show, bool $good) {
       $classes = ['education-console__tile'];
       if ($good ? $count > 0 : $count === 0) {
@@ -353,6 +379,20 @@ class InstructorRosterController extends ControllerBase {
       return [$aa, -$a['last_taught'], $a['name']] <=> [$bb, -$b['last_taught'], $b['name']];
     });
     return $rows;
+  }
+
+  /**
+   * Emails every active instructor whose page is missing a photo or bio.
+   */
+  public function nudgeIncomplete(): RedirectResponse {
+    $n = \Drupal::service('instructor_companion.profile_nudge')->sendAll();
+    if ($n) {
+      $this->messenger()->addStatus($this->formatPlural($n, 'Sent 1 profile nudge.', 'Sent @count profile nudges.'));
+    }
+    else {
+      $this->messenger()->addWarning($this->t('Nobody was due a nudge: everyone with an incomplete profile was emailed in the last 60 days.'));
+    }
+    return new RedirectResponse(Url::fromRoute('instructor_companion.roster', [], ['query' => ['show' => 'incomplete']])->toString());
   }
 
 }

@@ -354,6 +354,25 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('Written to the event\'s expiration time when a waitlisted event is copied or has none. CiviCRM offers a freed seat to the next person and emails them; with a window it also takes the seat back if they do not pay, and offers it to the next. 0 leaves events alone.'),
     ];
 
+    $form['profile_nudge'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Nudging instructors with an incomplete public page'),
+      '#open' => FALSE,
+      '#description' => $this->t('Sent from the roster button ("Email everyone with an incomplete profile") or <code>drush ic-profile-nudge --send</code>, never automatically; at most once per person every 60 days. Tokens: <code>[first_name]</code>, <code>[missing]</code> ("a photo and a short bio"), <code>[edit_url]</code>, <code>[public_url]</code>.'),
+    ];
+    $form['profile_nudge']['profile_nudge_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subject'),
+      '#default_value' => $config->get('profile_nudge_subject') ?: \Drupal\instructor_companion\Service\InstructorProfileNudge::defaultSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['profile_nudge']['profile_nudge_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Body'),
+      '#default_value' => $config->get('profile_nudge_body') ?: \Drupal\instructor_companion\Service\InstructorProfileNudge::defaultBody(),
+      '#rows' => 12,
+    ];
+
     $form['orientation_step_enabled'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Require the orientation video and quiz'),
@@ -437,6 +456,8 @@ class SettingsForm extends ConfigFormBase {
       ->set('abandoned_subject', (string) $form_state->getValue('abandoned_subject'))
       ->set('abandoned_body', (string) $form_state->getValue('abandoned_body'))
       ->set('waitlist_offer_hours', (int) $form_state->getValue('waitlist_offer_hours'))
+      ->set('profile_nudge_subject', (string) $form_state->getValue('profile_nudge_subject'))
+      ->set('profile_nudge_body', (string) $form_state->getValue('profile_nudge_body'))
       ->save();
 
     parent::submitForm($form, $form_state);

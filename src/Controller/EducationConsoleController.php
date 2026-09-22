@@ -1034,38 +1034,38 @@ class EducationConsoleController extends ControllerBase {
         '#type' => 'container',
         '#attributes' => ['class' => ['education-console__tiles']],
         'waitlist' => $this->goalTile(
-          $this->t('People waitlisted'),
+          $this->t('People waitlisted (workshops)'),
           $waitlist === NULL ? NULL : (string) $waitlist,
-          $this->t('turned away from workshops this year — each one is a class worth scheduling'),
-          Url::fromUserInput('/admin/workshops'),
+          $this->t('turned away from Ticketed Workshops this year — each one is a class worth scheduling'),
+          Url::fromRoute('instructor_companion.workshops_console', [], ['fragment' => 'demand']),
           $waitlist !== NULL && $waitlist > 0 ? 'attention' : 'clear'
         ),
         'sessions' => $this->goalTile(
-          $this->t('Sessions this month'),
+          $this->t('Workshop sessions this month'),
           $pace,
-          $this->t('against the @n a month the budget assumes', ['@n' => self::SESSIONS_TARGET_PER_MONTH]),
-          Url::fromUserInput('/admin/workshops'),
+          $this->t('Ticketed Workshops, against the @n a month the budget assumes', ['@n' => self::SESSIONS_TARGET_PER_MONTH]),
+          Url::fromRoute('instructor_companion.workshops_console'),
           $sessions === NULL ? NULL : ($sessions >= self::SESSIONS_TARGET_PER_MONTH ? 'clear' : 'attention')
         ),
         'fill' => $this->goalTile(
-          $this->t('Seats filled'),
+          $this->t('Workshop seats filled'),
           $fill === NULL ? NULL : round($fill * 100) . '%',
-          $this->t('of capacity, last 90 days — goal @n%', ['@n' => round(self::FILL_RATE_GOAL * 100)]),
+          $this->t('of capacity, Ticketed Workshops only (not meetups, programs or Build & Badge), last 90 days — goal @n%', ['@n' => round(self::FILL_RATE_GOAL * 100)]),
           Url::fromUserInput('/makerspace-dashboard/education'),
           $fill === NULL ? NULL : ($fill >= self::FILL_RATE_GOAL ? 'clear' : 'attention')
         ),
         'evaluations' => $this->goalTile(
-          $this->t('Evaluations returned'),
+          $this->t('Workshop evaluations returned'),
           $evals === NULL ? NULL : round($evals * 100) . '%',
           $this->t('of seats, last 90 days — the only quality signal there is'),
           Url::fromUserInput('/makerspace-dashboard/education'),
           $evals === NULL ? NULL : ($evals >= 0.20 ? 'clear' : 'attention')
         ),
         'unpaid' => $this->goalTile(
-          $this->t('Seats with no payment record'),
+          $this->t('Workshop seats with no payment linked'),
           $unpaid === NULL ? NULL : (string) $unpaid,
-          $this->t('this year — comped seats are fine, but each one should be a decision'),
-          Url::fromUserInput('/admin/workshops'),
+          $this->t('registrations this year with no CiviCRM payment attached — comped, paid offline, or a link the system never wrote; the list says who'),
+          Url::fromRoute('instructor_companion.workshops_unpaid'),
           $unpaid === NULL ? NULL : ($unpaid > self::UNPAID_SEATS_TOLERANCE ? 'attention' : 'clear')
         ),
       ],

@@ -186,6 +186,40 @@ whether anything is scheduled, and what the three crons sent this week. The
 legacy pages (`/admin/workshops`, event audit, pending-incomplete report) stay
 up and are linked from it.
 
+### 1e. What the education meeting asked for (2026-09-22)
+
+- **Waitlists are per course to us** (`WaitlistManager`, `WaitlistController`).
+  When a contact gets a counted seat on any run of a course
+  (`hook_civicrm_post` on Participant, post-commit), their waitlist entries on
+  the course's other runs are cancelled through the CiviCRM API — no email.
+  Staff see every event's list at `/admin/education/workshops/{event}/waitlist`
+  (joined when, offered-unpaid, expired, cancelled) with a **Remove** button,
+  and a "How waitlists work" explainer that is also on the workshops page. The
+  "another run is open" email to previously-waitlisted people carries a signed
+  one-click leave link (`/waitlist/leave/{contact}/{course}/{hash}`, HMAC over
+  the hash salt + private key) that cancels every waitlist for that course.
+- **Goal strip says what it counts**: every tile is Ticketed Workshops only
+  (not meetups, programs or Build & Badge) and says so. "Workshop seats with
+  no payment linked" now opens `/admin/education/workshops/unpaid`, one row per
+  registration with person, status and source, instead of a dashboard.
+- **Roster** (`/admin/education/roster`): "Add or invite an instructor" (the
+  invite finds an existing member's account by email) and "Email the N
+  instructors with an incomplete profile" (`InstructorProfileNudge`, once per
+  person per 60 days, `drush ic-profile-nudge [--send]`, text on the settings
+  page). Filed in Staff Tools as the one instructor list to work from; the
+  legacy Instructor List / Activity reports stay read-only.
+- **Teach-this CTA** on course pages only renders when no instructor with an
+  *active* profile has taught or is scheduled to teach a run of the course in
+  the last 24 months (`_instructor_companion_course_has_active_instructor()`).
+- Outside this module, same day: the Door badge no longer warns an
+  administer-users staffer that they are "not an issuer"
+  (`appointment_facilitator`); instructor profile pages are no longer served in
+  the admin theme to staff and members (site config
+  `theme_switcher.rule.member_only_theme`) and carry an **Edit this page**
+  button for anyone who may update them (d11 theme); the 112 unstatused
+  Workshop Proposals were marked denied on live
+  (`scripts/content-updates/2026-09-22-proposals-denied`).
+
 ### 2. Instructor Dashboard
 *   **Route:** `/instructor/dashboard` (Permission: `access content`, Role: `instructor`)
 *   **Dynamic Class List:** 

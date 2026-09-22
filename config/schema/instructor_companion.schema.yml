@@ -125,3 +125,9 @@ instructor_companion.settings:
       sequence:
         type: string
         label: 'Title'
+    profile_nudge_subject:
+      type: label
+      label: 'Incomplete instructor profile nudge subject'
+    profile_nudge_body:
+      type: text
+      label: 'Incomplete instructor profile nudge body'

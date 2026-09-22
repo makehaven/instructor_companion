@@ -52,6 +52,7 @@ final class CourseFollowerNotifier {
     private readonly RequestStack $requestStack,
     private readonly AliasManagerInterface $aliasManager,
     private readonly ?CourseInterestGroups $groups = NULL,
+    private readonly ?WaitlistManager $waitlist = NULL,
   ) {}
 
   /**
@@ -86,7 +87,12 @@ final class CourseFollowerNotifier {
     foreach ($this->waitlisted($course_nid) as $w) {
       $key = mb_strtolower($w['email']);
       if (!isset($out[$key])) {
-        $out[$key] = ['name' => $w['name'], 'email' => $w['email'], 'reason' => 'waitlist'];
+        $out[$key] = [
+          'name' => $w['name'],
+          'email' => $w['email'],
+          'reason' => 'waitlist',
+          'contact_id' => $w['contact_id'],
+        ];
       }
     }
     return $out;
@@ -301,7 +307,7 @@ final class CourseFollowerNotifier {
    * @return array{subject:string, body:string}
    *   Subject and plain-text body.
    */
-  public static function compose(string $name, array $event, string $register_url, string $course_url, string $reason = 'follower'): array {
+  public static function compose(string $name, array $event, string $register_url, string $course_url, string $reason = 'follower', string $leave_url = ''): array {
     $noun = self::noun($event['course_type']);
     $start = strtotime($event['start']) ?: 0;
     $when = $start ? date('l, F j, Y \a\t g:i A', $start) : '';
@@ -310,6 +316,9 @@ final class CourseFollowerNotifier {
       $subject = sprintf('%s: another %s is open — you were on the waiting list', $event['course_title'], $noun);
       $opening = sprintf('You were on the waiting list for %s and did not get a seat. Another %s is open: %s%s.', $event['course_title'], $noun, $event['title'], $starts);
       $closing = 'Places are limited and you are hearing first because you waited last time. This is a one-off note for this class, not a subscription.';
+      if ($leave_url !== '') {
+        $closing .= "\n\n" . sprintf('No longer interested in %s? One click takes you off its waiting list: %s', $event['course_title'], $leave_url);
+      }
     }
     else {
       $subject = sprintf('%s: a new %s is open', $event['course_title'], $noun);
@@ -339,7 +348,11 @@ final class CourseFollowerNotifier {
     $base = $this->baseUrl();
     $register_url = $base . '/civicrm/event/info?id=' . (int) $event['id'] . '&reset=1';
     $course_url = $base . $this->aliasManager->getAliasByPath('/node/' . (int) $event['course_nid']);
-    $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'));
+    $leave_url = '';
+    if (($follower['reason'] ?? '') === 'waitlist' && !empty($follower['contact_id']) && $this->waitlist) {
+      $leave_url = $this->waitlist->leaveUrl((int) $follower['contact_id'], (int) $event['course_nid']);
+    }
+    $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'), $leave_url);
     $result = $this->mailManager->mail(
       'instructor_companion',
       self::MAIL_KEY,

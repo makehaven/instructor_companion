@@ -255,4 +255,63 @@ class WorkshopInsightsService {
     return $out;
   }
 
+  /**
+   * Counted Ticketed Workshop registrations in a window with no payment row.
+   *
+   * @return array<int, array>
+   *   Rows: event_id, title, start (timestamp), contact_id, name, status,
+   *   registered (timestamp), source.
+   */
+  public function seatsWithoutPayment(int $start, int $end): array {
+    if (!$this->database->schema()->tableExists('civicrm_participant')) {
+      return [];
+    }
+    $type = (int) $this->database->query(
+      "SELECT ov.value FROM {civicrm_option_value} ov
+       INNER JOIN {civicrm_option_group} og ON og.id = ov.option_group_id AND og.name = 'event_type'
+       WHERE ov.label = 'Ticketed Workshop' LIMIT 1"
+    )->fetchField();
+    if (!$type) {
+      return [];
+    }
+    $q = $this->database->select('civicrm_participant', 'p');
+    $q->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $q->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $q->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+    $q->addField('e', 'id', 'event_id');
+    $q->addField('e', 'title', 'title');
+    $q->addField('e', 'start_date', 'start');
+    $q->addField('p', 'contact_id', 'contact_id');
+    $q->addField('p', 'register_date', 'registered');
+    $q->addField('p', 'source', 'source');
+    $q->addField('pst', 'label', 'status');
+    $q->addField('c', 'display_name', 'name');
+    $q->condition('pst.is_counted', 1)
+      ->condition('p.is_test', 0)
+      ->condition('p.role_id', '1')
+      ->condition('e.is_active', 1)
+      ->condition('e.is_template', 0)
+      ->condition('e.event_type_id', $type)
+      ->condition('e.start_date', [date('Y-m-d H:i:s', $start), date('Y-m-d H:i:s', $end)], 'BETWEEN');
+    $paid = $this->database->select('civicrm_participant_payment', 'pp');
+    $paid->addField('pp', 'participant_id');
+    $paid->where('pp.participant_id = p.id');
+    $q->notExists($paid);
+    $q->orderBy('e.start_date', 'DESC');
+    $out = [];
+    foreach ($q->execute() as $r) {
+      $out[] = [
+        'event_id' => (int) $r->event_id,
+        'title' => (string) $r->title,
+        'start' => strtotime((string) $r->start) ?: 0,
+        'contact_id' => (int) $r->contact_id,
+        'name' => (string) $r->name,
+        'status' => (string) $r->status,
+        'registered' => strtotime((string) $r->registered) ?: 0,
+        'source' => (string) ($r->source ?? ''),
+      ];
+    }
+    return $out;
+  }
+
 }
