@@ -59,6 +59,14 @@ class PostEventStatusService {
   protected const ATTENDANCE_STATE_KEY = 'instructor_companion.attendance_confirmed';
 
   /**
+   * Classes staff took off the close-out list by hand, keyed by event id.
+   *
+   * Each entry: uid, time, reason. For wrap-up handled some other way (paid
+   * outside the site, feedback by conversation) — Ashley, 2026-09-29.
+   */
+  protected const CLOSED_BY_STAFF_STATE_KEY = 'instructor_companion.closeout_closed_by_staff';
+
+  /**
    * The participant-facing Event Feedback webform (survey link in reminders).
    */
   public const EVALUATION_WEBFORM = 'webform_1181';
@@ -125,6 +133,30 @@ class PostEventStatusService {
   public function getStatus(int $event_id, int $instructor_uid): array {
     $signals = $this->gatherSignals($event_id, $instructor_uid);
     return ['event_id' => $event_id] + self::computeStatus($signals);
+  }
+
+  /**
+   * Takes a class off the close-out list and stops its reminders.
+   */
+  public function markClosedByStaff(int $event_id, int $uid, string $reason = ''): void {
+    $map = (array) $this->state->get(self::CLOSED_BY_STAFF_STATE_KEY, []);
+    $map[$event_id] = [
+      'uid' => $uid,
+      'time' => \Drupal::time()->getRequestTime(),
+      'reason' => $reason,
+    ];
+    $this->state->set(self::CLOSED_BY_STAFF_STATE_KEY, $map);
+  }
+
+  /**
+   * Who closed a class out by hand, when and why; NULL if nobody did.
+   *
+   * @return array{uid:int,time:int,reason:string}|null
+   *   The record, or NULL.
+   */
+  public function closedByStaff(int $event_id): ?array {
+    $map = (array) $this->state->get(self::CLOSED_BY_STAFF_STATE_KEY, []);
+    return $map[$event_id] ?? NULL;
   }
 
   /**
@@ -345,13 +377,16 @@ class PostEventStatusService {
 
     $evaluations = $this->evaluationSummaries($since);
     $user_storage = $this->entityTypeManager->getStorage('user');
+    // Staff closing a class out removes it from the wrap-up lists only: a
+    // student still waiting on a badge stays on the badges-owed list.
+    $closed = $badges_only ? [] : (array) $this->state->get(self::CLOSED_BY_STAFF_STATE_KEY, []);
     $rows = [];
 
     foreach ($ended as $row) {
       $row = (object) $row;
       $event_id = (int) $row->event_id;
       $uid = (int) $row->uid;
-      if (!$uid) {
+      if (!$uid || isset($closed[$event_id])) {
         continue;
       }
       $attendees = $this->countedParticipants($event_id);

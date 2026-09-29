@@ -391,3 +391,24 @@ instructor_companion.roster_nudge:
     _csrf_token: 'TRUE'
   options:
     _admin_route: TRUE
+
+instructor_companion.proposals_close_expired:
+  path: '/admin/education/proposals/close-expired'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\ExpiredProposalsCloseForm'
+    _title: 'Close past-date proposals'
+  requirements:
+    _permission: 'edit all events'
+  options:
+    _admin_route: TRUE
+
+instructor_companion.closeout_close:
+  path: '/admin/education/closeout/{event_id}/close'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\CloseoutCloseForm'
+    _title: 'Mark closed out'
+  requirements:
+    _permission: 'access education console'
+    event_id: \d+
+  options:
+    _admin_route: TRUE

@@ -45,7 +45,7 @@ class EventHygieneService {
   /**
    * Hours an unpaid waitlist offer stays open before CiviCRM expires it.
    */
-  public const DEFAULT_WAITLIST_OFFER_HOURS = 48;
+  public const DEFAULT_WAITLIST_OFFER_HOURS = 24;
 
   /**
    * CiviCRM's action-schedule mapping for "a specific event".
@@ -254,6 +254,35 @@ class EventHygieneService {
       ];
     }
     return $out;
+  }
+
+  /**
+   * Moves upcoming events and templates from one offer window to another.
+   *
+   * Only rows still carrying $from change, so a window staff typed on one
+   * event by hand survives a change of the site-wide setting. Past events are
+   * left as they ran.
+   */
+  public function restampWaitlistExpiry(int $from, int $to): int {
+    if ($from === $to || $from <= 0 || $to <= 0 || !$this->database->schema()->tableExists('civicrm_event')) {
+      return 0;
+    }
+    $q = $this->database->update('civicrm_event')
+      ->fields(['expiration_time' => $to])
+      ->condition('has_waitlist', 1)
+      ->condition('expiration_time', $from);
+    $or = $q->orConditionGroup()
+      ->condition('is_template', 1)
+      ->condition('start_date', date('Y-m-d H:i:s'), '>');
+    $n = (int) $q->condition($or)->execute();
+    if ($n) {
+      $this->logger->notice('Waitlist offer window moved from @from h to @to h on @n upcoming event(s)/template(s).', [
+        '@from' => $from,
+        '@to' => $to,
+        '@n' => $n,
+      ]);
+    }
+    return $n;
   }
 
   /**

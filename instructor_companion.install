@@ -660,3 +660,15 @@ function instructor_companion_update_9017() {
   }
   return 'Session evaluation already configured; left alone.';
 }
+
+/**
+ * Waitlist offers: 48 h back to 24 h (Ashley, 2026-09-29).
+ *
+ * The 09-22 build stamped 48 h on waitlisted events; staff had been using
+ * 24 h. Upcoming events and templates still at 48 move to 24; past events and
+ * hand-set windows are left alone. The setting itself comes from config sync.
+ */
+function instructor_companion_update_9018() {
+  $n = \Drupal::service('instructor_companion.event_hygiene')->restampWaitlistExpiry(48, 24);
+  return "Waitlist offer window 48 h -> 24 h on $n upcoming event(s)/template(s).";
+}

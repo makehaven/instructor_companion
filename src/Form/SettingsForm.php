@@ -351,7 +351,7 @@ class SettingsForm extends ConfigFormBase {
       '#min' => 0,
       '#max' => 720,
       '#default_value' => $config->get('waitlist_offer_hours') ?? \Drupal\instructor_companion\Service\EventHygieneService::DEFAULT_WAITLIST_OFFER_HOURS,
-      '#description' => $this->t('Written to the event\'s expiration time when a waitlisted event is copied or has none. CiviCRM offers a freed seat to the next person and emails them; with a window it also takes the seat back if they do not pay, and offers it to the next. 0 leaves events alone.'),
+      '#description' => $this->t('Written to the event\'s expiration time when a waitlisted event is copied or has none. CiviCRM offers a freed seat to the next person and emails them; with a window it also takes the seat back if they do not pay, and offers it to the next. Changing this moves every upcoming event and template that still has the old value; a window typed on one event by hand is left alone. 0 leaves events alone.'),
     ];
 
     $form['profile_nudge'] = [
@@ -400,7 +400,9 @@ class SettingsForm extends ConfigFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    $this->config('instructor_companion.settings')
+    $config = $this->config('instructor_companion.settings');
+    $old_hours = (int) ($config->get('waitlist_offer_hours') ?? 0);
+    $config
       ->set('notification_email', $form_state->getValue('notification_email'))
       ->set('proposal_staff_contact_uid', (int) $form_state->getValue('proposal_staff_contact'))
       ->set('slack_channel', trim((string) $form_state->getValue('slack_channel')))
@@ -459,6 +461,14 @@ class SettingsForm extends ConfigFormBase {
       ->set('profile_nudge_subject', (string) $form_state->getValue('profile_nudge_subject'))
       ->set('profile_nudge_body', (string) $form_state->getValue('profile_nudge_body'))
       ->save();
+
+    $new_hours = (int) $form_state->getValue('waitlist_offer_hours');
+    if ($old_hours !== $new_hours) {
+      $moved = \Drupal::service('instructor_companion.event_hygiene')->restampWaitlistExpiry($old_hours, $new_hours);
+      if ($moved) {
+        $this->messenger()->addStatus($this->t('Waitlist offer window changed on @n upcoming event(s) and template(s).', ['@n' => $moved]));
+      }
+    }
 
     parent::submitForm($form, $form_state);
   }

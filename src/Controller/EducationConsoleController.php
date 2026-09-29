@@ -80,6 +80,10 @@ class EducationConsoleController extends ControllerBase {
     $holds = $this->holdManager->allHolds();
     $all_proposals = $this->pendingProposals();
     $proposals = array_filter($all_proposals, fn($p) => !isset($holds[$p['id']]));
+    // A proposal whose date has passed cannot run as proposed; it is settled
+    // (usually in conversation) and only needs clearing, not a decision.
+    $expired = array_filter($proposals, fn($p) => $p['start'] && $p['start'] < $now);
+    $proposals = array_diff_key($proposals, $expired);
     $held = array_filter($all_proposals, fn($p) => isset($holds[$p['id']]));
     $interest = $this->unreviewedSubmissions('webform_14366', $now);
     $ideas = $this->unreviewedSubmissions('webform_497', $now);
@@ -213,7 +217,7 @@ class EducationConsoleController extends ControllerBase {
       ),
     ];
 
-    $build['attention'] = $this->needsAttentionTable($proposals, $interest, $ideas, $now);
+    $build['attention'] = $this->needsAttentionTable($proposals, $interest, $ideas, $now, count($expired));
 
     // Who wants to hear about each program: the coordinator's outreach list.
     $build['program_interest'] = $this->programInterestTable();
@@ -452,6 +456,14 @@ class EducationConsoleController extends ControllerBase {
                 'title' => $this->t('Open wrap-up page'),
                 'url' => Url::fromRoute('instructor_companion.post_event_hub', ['event_id' => $row['event_id']]),
               ],
+              // Wrap-up sometimes happens outside the site; staff take the
+              // class off the list instead of reminding forever.
+              'close' => $badges ? NULL : [
+                'title' => $this->t('Mark closed out'),
+                'url' => Url::fromRoute('instructor_companion.closeout_close', ['event_id' => $row['event_id']], [
+                  'query' => ['destination' => $older ? '/admin/education/closeout/older' : '/admin/education'],
+                ]),
+              ],
             ]),
           ],
         ],
@@ -480,7 +492,9 @@ class EducationConsoleController extends ControllerBase {
         ) : $this->t(
           'Classes from the last 30 days whose instructor still owes wrap-up.
            Classes nobody attended are left out. The instructor is emailed
-           automatically after the class; "Remind instructor" sends it again.
+           automatically after the class; "Remind instructor" sends it again,
+           and "Mark closed out" takes a class off the list when the wrap-up
+           was handled some other way.
            Evaluations counts the participant Event Feedback survey, which the
            attendees are asked for separately — a low number there is not the
            instructor\'s doing.'
@@ -651,7 +665,7 @@ class EducationConsoleController extends ControllerBase {
   /**
    * The merged needs-attention table: proposals, then interest, then ideas.
    */
-  protected function needsAttentionTable(array $proposals, array $interest, array $ideas, int $now): array {
+  protected function needsAttentionTable(array $proposals, array $interest, array $ideas, int $now, int $expired = 0): array {
     $rows = [];
 
     foreach ($proposals as $p) {
@@ -705,6 +719,22 @@ class EducationConsoleController extends ControllerBase {
     $rows = array_slice($rows, 0, self::LIST_LIMIT);
 
     $build['heading'] = ['#markup' => '<h2>' . $this->t('Needs attention') . '</h2>'];
+    if ($expired) {
+      $build['expired'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['education-console__note']],
+        'text' => [
+          '#markup' => $this->formatPlural($expired,
+            '1 session proposal is past its date and is not listed here.',
+            '@count session proposals are past their date and are not listed here.') . ' ',
+        ],
+        'link' => [
+          '#type' => 'link',
+          '#title' => $this->t('Close them quietly'),
+          '#url' => Url::fromRoute('instructor_companion.proposals_close_expired'),
+        ],
+      ];
+    }
     $build['table'] = [
       '#type' => 'table',
       '#header' => [
@@ -793,8 +823,8 @@ class EducationConsoleController extends ControllerBase {
    * template, has a parent course.
    *
    * @return array[]
-   *   Rows of id, title, who, created (created falls back to NULL when the
-   *   entity exposes no creation time).
+   *   Rows of id, title, who, created, start (created and start fall back to
+   *   NULL when the entity has none).
    */
   protected function pendingProposals(): array {
     // Direct SQL, mirroring the pending_proposals view's joins: the
@@ -805,11 +835,15 @@ class EducationConsoleController extends ControllerBase {
     $query = $this->database->select('civicrm_event', 'e');
     $query->join('civicrm_event__field_parent_course', 'pc', 'pc.entity_id = e.id');
     $query->addField('e', 'id');
+    $query->addField('e', 'start_date');
     $query->condition('e.is_active', 0);
     $query->condition('e.is_template', 0);
     $query->orderBy('e.id', 'ASC');
     $query->range(0, 100);
-    $ids = $query->execute()->fetchCol();
+    // Stored in site-local time; read here rather than from the entity, which
+    // shifts CiviCRM dates on load.
+    $starts = $query->execute()->fetchAllKeyed();
+    $ids = array_keys($starts);
 
     $storage = $this->entityTypeManager()->getStorage('civicrm_event');
     $out = [];
@@ -829,11 +863,13 @@ class EducationConsoleController extends ControllerBase {
           break;
         }
       }
+      $start = !empty($starts[$event->id()]) ? (strtotime((string) $starts[$event->id()]) ?: NULL) : NULL;
       $out[] = [
         'id' => (int) $event->id(),
         'title' => $event->label(),
         'who' => $who,
         'created' => $created,
+        'start' => $start,
       ];
     }
     return $out;

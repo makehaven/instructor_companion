@@ -106,7 +106,7 @@ class PostEventReminderService {
       }
 
       $status = $this->postEventStatus->getStatus($event_id, $uid);
-      if ($status['all_complete']) {
+      if ($status['all_complete'] || $this->postEventStatus->closedByStaff($event_id)) {
         continue;
       }
 
