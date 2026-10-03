@@ -81,10 +81,8 @@ class ScheduleInstanceController extends ControllerBase {
       // Flip both via Event.create.
       $start = new \DateTime('+7 days');
       $start->setTime(18, 0, 0);
-      $duration_minutes = 120;
-      if ($node->hasField('field_stat_duration_minutes') && !$node->get('field_stat_duration_minutes')->isEmpty()) {
-        $duration_minutes = max(15, (int) $node->get('field_stat_duration_minutes')->value);
-      }
+      // The course's last same-day run, else the default event length.
+      $duration_minutes = \Drupal::service('instructor_companion.event_hygiene')->lengthFor((int) $node->id());
       $end = (clone $start)->modify('+' . $duration_minutes . ' minutes');
 
       // Title / dates / state go through CiviCRM API. Description and summary
@@ -108,12 +106,11 @@ class ScheduleInstanceController extends ControllerBase {
       // A course that meets more than once (Sessions / Days between on the
       // course) gets its session list generated from the placeholder start;
       // the edit form moves the whole list when the real date is set.
-      $session_count = $node->hasField('field_session_count') ? (int) $node->get('field_session_count')->value : 0;
-      if ($session_count > 1) {
-        $interval = $node->hasField('field_session_interval_days') ? max(1, (int) $node->get('field_session_interval_days')->value) : 7;
+      $plan = \Drupal::service('instructor_companion.sessions')->coursePlan((int) $node->id());
+      if ($plan['count'] > 1) {
         \Drupal::service('instructor_companion.sessions')->setSessions(
           $new_event_id,
-          \Drupal\instructor_companion\Service\SessionSchedule::generate($start->format('Y-m-d H:i:s'), $session_count, $interval)
+          \Drupal\instructor_companion\Service\SessionSchedule::generate($start->format('Y-m-d H:i:s'), $plan['count'], $plan['interval'])
         );
       }
 

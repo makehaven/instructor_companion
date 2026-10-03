@@ -225,6 +225,14 @@ class SettingsForm extends ConfigFormBase {
         '#default_value' => $config->get('session_evaluation_delay_hours') ?? \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
         '#description' => $this->t('0 = as the class ends, matching CiviCRM\'s "Thanks for Attending!" reminders, so the instructor can tell the room to check their inbox.'),
       ];
+      $form['closeout']['session_evaluation']['default_event_length_minutes'] = [
+        '#type' => 'number',
+        '#title' => $this->t('Length of an event saved without an end time (minutes)'),
+        '#min' => 15,
+        '#max' => 720,
+        '#default_value' => $config->get('default_event_length_minutes') ?? \Drupal\instructor_companion\Service\EventHygieneService::DEFAULT_EVENT_LENGTH_MINUTES,
+        '#description' => $this->t('The survey, attendance and the wrap-up all follow the end time, and an event without one is never surveyed. An event saved with no end time gets the length of its course\'s last run, or this.'),
+      ];
       $form['closeout']['session_evaluation']['session_evaluation_subject'] = [
         '#type' => 'textfield',
         '#title' => $this->t('Subject'),
@@ -419,6 +427,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('session_evaluation_delay_hours', $form_state->hasValue('session_evaluation_delay_hours')
         ? (int) $form_state->getValue('session_evaluation_delay_hours')
         : $this->config('instructor_companion.settings')->get('session_evaluation_delay_hours'))
+      ->set('default_event_length_minutes', $form_state->hasValue('default_event_length_minutes')
+        ? (int) $form_state->getValue('default_event_length_minutes')
+        : $this->config('instructor_companion.settings')->get('default_event_length_minutes'))
       ->set('session_evaluation_subject', $form_state->hasValue('session_evaluation_subject')
         ? trim((string) $form_state->getValue('session_evaluation_subject'))
         : $this->config('instructor_companion.settings')->get('session_evaluation_subject'))

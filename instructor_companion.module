@@ -23,6 +23,16 @@ function instructor_companion_cron() {
   // Sync all course stats once a day or on a schedule.
   \Drupal::service('instructor_companion.stats_sync')->sync();
   \Drupal::service('instructor_companion.badge_sync')->sync();
+  // Every upcoming event gets an end time (the survey, attendance and the
+  // wrap-up all key on it), and runs of a course with a session plan get
+  // their sessions — before the attendance and evaluation passes read them.
+  try {
+    \Drupal::service('instructor_companion.event_hygiene')->backfillMissingEnds();
+    \Drupal::service('instructor_companion.event_copy_sync')->applyCoursePlansUpcoming();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('instructor_companion')->error('End-time / session-plan pass failed: @m', ['@m' => $e->getMessage()]);
+  }
   // Ask for attendance while the class is still in the room. This is the one
   // that matters for accuracy: an instructor asked two days later is guessing,
   // and a walk-in nobody registered is long gone.

@@ -6,6 +6,7 @@ use Drupal\Core\Cache\Cache;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Messenger\MessengerInterface;
+use Drupal\Core\State\StateInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -26,6 +27,14 @@ use Psr\Log\LoggerInterface;
  *    Handled here for CiviCRM-side edits and in the Drupal edit form's
  *    validation for Drupal-side ones (the form path sets a static flag so
  *    this does not shift twice).
+ *
+ *  - Course plan. A course whose every run meets several times (GEMS: ten
+ *    weekly meetings) says so once, on the course: Sessions per class, Days
+ *    between sessions, Session names. applyCoursePlan() fills the session
+ *    list of an upcoming run that has none, once per event (a list staff
+ *    clear afterwards stays cleared). Runs after saves and copies and from
+ *    cron. A course that mixes one-day and multi-week runs (stained glass)
+ *    must leave the plan empty; its runs carry sessions through copies.
  */
 class EventCopySync {
 
@@ -56,7 +65,87 @@ class EventCopySync {
     protected SessionSchedule $sessions,
     protected MessengerInterface $messenger,
     protected LoggerInterface $logger,
+    protected StateInterface $state,
   ) {}
+
+  /**
+   * State key: event_id => unix time the course plan was applied/judged.
+   */
+  protected const PLAN_STATE_KEY = 'instructor_companion.session_plan_applied';
+
+  /**
+   * Fills an upcoming run's sessions from its course plan, once.
+   *
+   * @return int
+   *   Sessions written (0 when nothing was needed or possible).
+   */
+  public function applyCoursePlan(int $event_id): int {
+    $done = (array) $this->state->get(self::PLAN_STATE_KEY, []);
+    if (isset($done[$event_id])) {
+      return 0;
+    }
+    $row = $this->database->select('civicrm_event', 'e')
+      ->fields('e', ['start_date', 'is_template'])
+      ->condition('e.id', $event_id)
+      ->execute()
+      ->fetchAssoc();
+    // Templates and runs already under way are left to a human; a copy still
+    // carrying last cohort's date is judged again once its real date is set.
+    if (!$row || !empty($row['is_template']) || empty($row['start_date'])
+      || $row['start_date'] < date(SessionSchedule::LOCAL_FORMAT, strtotime('today'))) {
+      return 0;
+    }
+    $course = $this->sessions->courseFor($event_id);
+    $plan = $course ? $this->sessions->coursePlan($course) : NULL;
+    if (!$plan || $plan['count'] < 2) {
+      return 0;
+    }
+    $done[$event_id] = time();
+    $this->state->set(self::PLAN_STATE_KEY, $done);
+    $existing = $this->sessions->fieldSessionStarts([$event_id])[$event_id] ?? [];
+    if (count($existing) > 1) {
+      return 0;
+    }
+    $starts = SessionSchedule::generate((string) $row['start_date'], $plan['count'], $plan['interval']);
+    $this->writeSessionRows($event_id, $starts);
+    $this->logger->notice('Event @e: @n sessions filled in from course @c (every @d days from @first).', [
+      '@e' => $event_id,
+      '@n' => count($starts),
+      '@c' => $course,
+      '@d' => $plan['interval'],
+      '@first' => $starts[0],
+    ]);
+    return count($starts);
+  }
+
+  /**
+   * Applies course plans to upcoming runs that have not been judged yet.
+   *
+   * @return int
+   *   Events filled.
+   */
+  public function applyCoursePlansUpcoming(int $days_ahead = 180): int {
+    if (!$this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      return 0;
+    }
+    $q = $this->database->select('civicrm_event', 'e');
+    $q->innerJoin('civicrm_event__field_parent_course', 'c', 'c.entity_id = e.id AND c.deleted = 0');
+    $q->addField('e', 'id');
+    $q->condition('e.is_template', 0)
+      ->condition('e.is_active', 1)
+      ->condition('e.start_date', [
+        date(SessionSchedule::LOCAL_FORMAT, strtotime('today')),
+        date(SessionSchedule::LOCAL_FORMAT, strtotime('+' . $days_ahead . ' days')),
+      ], 'BETWEEN');
+    $done = (array) $this->state->get(self::PLAN_STATE_KEY, []);
+    $filled = 0;
+    foreach ($q->execute()->fetchCol() as $id) {
+      if (!isset($done[(int) $id]) && $this->applyCoursePlan((int) $id) > 0) {
+        $filled++;
+      }
+    }
+    return $filled;
+  }
 
   /**
    * Copies the Drupal-side fields of one event onto another.

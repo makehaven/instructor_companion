@@ -89,9 +89,10 @@ class AttendanceForm extends FormBase {
     $form['session_start'] = ['#type' => 'value', '#value' => $session_start];
 
     $intro = $multi
-      ? $this->t('Check everyone who is here for <strong>session @n of @count</strong> (@when). Each session is saved on its own, so this never undoes an earlier week. You can come back and fix it if someone arrives late.', [
+      ? $this->t('Check everyone who is here for <strong>session @n of @count@name</strong> (@when). Each session is saved on its own, so this never undoes an earlier week. You can come back and fix it if someone arrives late.', [
         '@n' => $session['index'] + 1,
         '@count' => $session['count'],
+        '@name' => !empty($session['name']) ? ': ' . $session['name'] : '',
         '@when' => SessionSchedule::label($session_start),
       ])
       : $this->t('Check everyone who showed up. You can come back and fix this later if someone arrives late or you miss a name.');
@@ -107,7 +108,7 @@ class AttendanceForm extends FormBase {
       foreach ($schedule as $s) {
         $taken = isset($marks[$s['start']]);
         $is_current = substr($s['start'], 0, 16) === substr($session_start, 0, 16);
-        $text = $this->t('@n. @when', ['@n' => $s['index'] + 1, '@when' => SessionSchedule::label($s['start'])])
+        $text = SessionSchedule::sessionLabel($s)
           . ($taken ? ' ✓' : ($s['start'] > $now ? ' ·' : ' ◷'));
         $links[] = [
           '#type' => 'link',

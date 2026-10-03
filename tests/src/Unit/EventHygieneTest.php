@@ -35,4 +35,16 @@ class EventHygieneTest extends UnitTestCase {
     $this->assertFalse(EventHygieneService::isClonedReminderTitle('eval', ['Custom']));
   }
 
+  /**
+   * @covers ::parseCiviDate
+   */
+  public function testCiviDateParamsParseInEveryShapeCiviCrmSends(): void {
+    $this->assertSame(strtotime('2026-10-07 18:00:00'), EventHygieneService::parseCiviDate('20261007180000'));
+    $this->assertSame(strtotime('2026-10-07 18:00:00'), EventHygieneService::parseCiviDate('2026-10-07 18:00:00'));
+    $this->assertSame(strtotime('2026-10-07 18:00:00'), EventHygieneService::parseCiviDate('202610071800'));
+    $this->assertNull(EventHygieneService::parseCiviDate(''), 'A blank end date is no end date.');
+    $this->assertNull(EventHygieneService::parseCiviDate(NULL));
+    $this->assertNull(EventHygieneService::parseCiviDate('null'), 'The API sends the string "null" to clear a date.');
+  }
+
 }

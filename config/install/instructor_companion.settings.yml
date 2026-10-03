@@ -70,6 +70,7 @@ proposal_staff_contact_uid: 0
 follower_notice_enabled: true
 session_evaluation_enabled: true
 session_evaluation_delay_hours: 0
+default_event_length_minutes: 120
 session_evaluation_subject: 'Thank you for attending [event_title]!'
 session_evaluation_body: |
   Hello [first_name],

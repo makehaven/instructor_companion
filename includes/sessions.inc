@@ -85,6 +85,7 @@ function instructor_companion_civicrm_copy($objectName, &$object, $original_id =
   $runner = static function () use ($source_id, $new_id) {
     try {
       \Drupal::service('instructor_companion.event_copy_sync')->copyDrupalFields($source_id, $new_id);
+      _instructor_companion_queue_course_plan($new_id);
       // CiviCRM's copy also cloned the event's per-event reminders. The
       // "3 days later" / "eval" ones were replaced by the type-level
       // "Thanks for Attending!" in 2026-08; left on, attendees get two
@@ -112,10 +113,23 @@ function instructor_companion_civicrm_copy($objectName, &$object, $original_id =
 /**
  * Implements hook_civicrm_pre().
  *
- * Remembers an event's start before CiviCRM changes it.
+ * Remembers an event's start before CiviCRM changes it, and gives an event
+ * saved without an end time one (EventHygieneService::fillMissingEnd()).
  */
 function instructor_companion_civicrm_pre($op, $objectName, $id, &$params) {
-  if ($objectName !== 'Event' || $op !== 'edit' || !$id || !is_array($params) || empty($params['start_date'])) {
+  if ($objectName !== 'Event' || !in_array($op, ['create', 'edit'], TRUE) || !is_array($params)) {
+    return;
+  }
+  try {
+    \Drupal::service('instructor_companion.event_hygiene')->fillMissingEnd($op, $id ? (int) $id : NULL, $params);
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('instructor_companion')->error('Default end time for event @e failed: @m', [
+      '@e' => $id ?: 'new',
+      '@m' => $e->getMessage(),
+    ]);
+  }
+  if ($op !== 'edit' || !$id || empty($params['start_date'])) {
     return;
   }
   $old = \Drupal::database()->select('civicrm_event', 'e')
@@ -138,7 +152,11 @@ function instructor_companion_civicrm_post($op, $objectName, $objectId, &$object
     _instructor_companion_participant_post((int) $objectId, $objectRef);
     return;
   }
-  if ($objectName !== 'Event' || $op !== 'edit' || !$objectId) {
+  if ($objectName !== 'Event' || !in_array($op, ['create', 'edit'], TRUE) || !$objectId) {
+    return;
+  }
+  _instructor_companion_queue_course_plan((int) $objectId);
+  if ($op !== 'edit') {
     return;
   }
   $old = _instructor_companion_old_start((int) $objectId);
@@ -160,6 +178,31 @@ function instructor_companion_civicrm_post($op, $objectName, $objectId, &$object
       '@m' => $e->getMessage(),
     ]);
   }
+}
+
+/**
+ * Applies the course session plan to an event once the request is done.
+ *
+ * At end of request, not in the hook: a Drupal-form save writes the course
+ * reference after CiviCRM's post hook, and a later save of the same entity in
+ * this request would overwrite rows written now.
+ */
+function _instructor_companion_queue_course_plan(int $event_id): void {
+  $queue = &drupal_static(__FUNCTION__, NULL);
+  if ($queue === NULL) {
+    $queue = [];
+    drupal_register_shutdown_function(static function () use (&$queue) {
+      foreach (array_keys($queue) as $id) {
+        try {
+          \Drupal::service('instructor_companion.event_copy_sync')->applyCoursePlan((int) $id);
+        }
+        catch (\Throwable $e) {
+          \Drupal::logger('instructor_companion')->error('Session plan for event @e failed: @m', ['@e' => $id, '@m' => $e->getMessage()]);
+        }
+      }
+    });
+  }
+  $queue[$event_id] = TRUE;
 }
 
 /**
@@ -201,16 +244,12 @@ function instructor_companion_sessions_form_alter(array &$form, FormStateInterfa
   // Defaults for the generator: the course's usual shape, else what is there.
   $count = 0;
   $interval = 7;
+  $names = [];
   if ($entity->hasField('field_parent_course') && !$entity->get('field_parent_course')->isEmpty()) {
-    $course = $entity->get('field_parent_course')->entity;
-    if ($course) {
-      if ($course->hasField('field_session_count') && !$course->get('field_session_count')->isEmpty()) {
-        $count = (int) $course->get('field_session_count')->value;
-      }
-      if ($course->hasField('field_session_interval_days') && !$course->get('field_session_interval_days')->isEmpty()) {
-        $interval = max(1, (int) $course->get('field_session_interval_days')->value);
-      }
-    }
+    $plan = \Drupal::service('instructor_companion.sessions')->coursePlan((int) $entity->get('field_parent_course')->target_id);
+    $count = $plan['count'] > 1 ? $plan['count'] : 0;
+    $interval = $plan['interval'];
+    $names = $plan['names'];
   }
   $existing = $entity->hasField($field) ? count($entity->get($field)) : 0;
   if ($existing > 1) {
@@ -222,7 +261,14 @@ function instructor_companion_sessions_form_alter(array &$form, FormStateInterfa
 
   $weight = $form[$field]['#weight'] ?? 0;
   $form[$field]['#weight'] = $weight;
-  $form[$field]['widget']['#description'] = t('Only for a class that meets more than once. List every meeting, including the first (which must match the start date above). The calendar keeps showing the first date; attendance, the wrap-up reminder and the attendee evaluation follow the last one.');
+  $form[$field]['widget']['#description'] = t('Only for a class that meets more than once. List every meeting, including the first (which must match the start date above). The calendar keeps showing the first date; attendance, the wrap-up reminder and the attendee evaluation follow the last one. Copies of this event carry the list, and changing the start date moves every session with it.');
+  if (count($names) > 1) {
+    $items = [];
+    foreach ($names as $i => $name) {
+      $items[] = '<li>' . ($i + 1) . '. ' . \Drupal\Component\Utility\Html::escape($name) . '</li>';
+    }
+    $form[$field]['widget']['#description'] .= '<br>' . t('Session names come from the course, in order:') . '<ol class="ic-session-names" style="margin:.25em 0 0;list-style:none;padding:0">' . implode('', $items) . '</ol>';
+  }
 
   $form['ic_sessions_helper'] = [
     '#type' => 'details',
@@ -416,4 +462,42 @@ function _instructor_companion_participant_post(int $participant_id, $objectRef)
   else {
     $runner();
   }
+}
+
+/**
+ * Implements hook_civicrm_pageRun().
+ *
+ * The public event page shows one date — the first session — because that is
+ * what CiviCRM stores. For a class that meets several times, list every
+ * meeting (with the course's session names) above the description so people
+ * know what they are signing up for.
+ */
+function instructor_companion_civicrm_pageRun(&$page) {
+  if (!is_object($page) || get_class($page) !== 'CRM_Event_Page_EventInfo') {
+    return;
+  }
+  $event_id = (int) ($page->_id ?? 0);
+  if (!$event_id) {
+    return;
+  }
+  try {
+    $schedule = \Drupal::service('instructor_companion.sessions')->getSchedule($event_id);
+  }
+  catch (\Throwable $e) {
+    return;
+  }
+  if (count($schedule) < 2) {
+    return;
+  }
+  $items = '';
+  foreach ($schedule as $s) {
+    $items .= '<li>' . htmlspecialchars(\Drupal\instructor_companion\Service\SessionSchedule::sessionLabel($s, 'D, M j · g:ia'), ENT_QUOTES) . '</li>';
+  }
+  $markup = '<div class="crm-section ic-event-sessions" style="margin:1em 0">'
+    . '<strong>' . htmlspecialchars(sprintf('This class meets %d times:', count($schedule)), ENT_QUOTES) . '</strong>'
+    . '<ul style="margin:.25em 0 0 1.25em">' . $items . '</ul></div>';
+  \CRM_Core_Region::instance('event-page-eventinfo-actionlinks-top')->add([
+    'markup' => $markup,
+    'weight' => 50,
+  ]);
 }

@@ -92,6 +92,7 @@ services:
       - '@instructor_companion.sessions'
       - '@messenger'
       - '@logger.channel.instructor_companion'
+      - '@state'
 
   instructor_companion.session_evaluation:
     class: Drupal\instructor_companion\Service\SessionEvaluationService

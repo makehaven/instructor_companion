@@ -710,7 +710,7 @@ class InstructorDashboardController extends ControllerBase {
       $date_cell = $formatted_date . '<br><small class="ic-session-shape">'
         . SessionSchedule::summary($schedule);
       if ($started && $next) {
-        $date_cell .= ' · ' . $this->t('in progress, next @when', ['@when' => SessionSchedule::label($next['start'], 'D M j')]);
+        $date_cell .= ' · ' . $this->t('in progress, next @when', ['@when' => SessionSchedule::label($next['start'], 'D M j') . (!empty($next['name']) ? ' (' . $next['name'] . ')' : '')]);
       }
       $date_cell .= '</small>';
     }

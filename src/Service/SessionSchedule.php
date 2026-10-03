@@ -112,13 +112,14 @@ class SessionSchedule {
    * Pure — unit tested. Given the event's own start/end plus the local
    * session starts from the field (any order, possibly empty, possibly
    * missing the first meeting), returns one row per session:
-   * ['start' => local, 'end' => local, 'index' => 0-based, 'count' => n].
+   * ['start' => local, 'end' => local, 'index' => 0-based, 'count' => n,
+   * 'name' => the course's name for that position, or ''].
    *
    * The event's start_date is always the first session, whether or not the
    * editor remembered to include it in the field: that is what the calendar
    * shows, and the attendance prompt has always fired off it.
    */
-  public static function buildSchedule(?string $start_date, ?string $end_date, array $session_starts): array {
+  public static function buildSchedule(?string $start_date, ?string $end_date, array $session_starts, array $names = []): array {
     $duration = self::sessionDuration($start_date, $end_date);
     $starts = [];
     if ($start_date) {
@@ -147,6 +148,10 @@ class SessionSchedule {
         'end' => date(self::LOCAL_FORMAT, strtotime($s) + $duration),
         'index' => $i,
         'count' => $n,
+        // Names follow position, and only when the course plan names every
+        // session: with a list for 10 and a class of 6, "Week 3" would be a
+        // guess, so a mismatched list names nothing.
+        'name' => $n > 1 && count($names) === $n ? trim((string) ($names[$i] ?? '')) : '',
       ];
     }
     return $rows;
@@ -238,11 +243,63 @@ class SessionSchedule {
     if (!$row) {
       return $this->cache[$event_id] = [];
     }
+    $course = $this->courseFor($event_id);
     return $this->cache[$event_id] = self::buildSchedule(
       $row['start_date'] ?: NULL,
       $row['end_date'] ?: NULL,
-      $this->fieldSessionStarts([$event_id])[$event_id] ?? []
+      $this->fieldSessionStarts([$event_id])[$event_id] ?? [],
+      $course ? $this->coursePlan($course)['names'] : []
     );
+  }
+
+  /**
+   * The course node an event belongs to (field_parent_course), if any.
+   */
+  public function courseFor(int $event_id): ?int {
+    if (!$this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      return NULL;
+    }
+    $nid = $this->database->select('civicrm_event__field_parent_course', 'c')
+      ->fields('c', ['field_parent_course_target_id'])
+      ->condition('c.entity_id', $event_id)
+      ->condition('c.deleted', 0)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    return $nid ? (int) $nid : NULL;
+  }
+
+  /**
+   * A course's session plan: how often one run meets, and what each meeting is.
+   *
+   * Count comes from "Sessions per class"; when that is unset or 1 but the
+   * course names several sessions, the names decide. A plan with count < 2
+   * means an ordinary one-meeting class.
+   *
+   * @return array
+   *   ['count' => int, 'interval' => int days, 'names' => string[]].
+   */
+  public function coursePlan(int $nid): array {
+    $plan = ['count' => 1, 'interval' => 7, 'names' => []];
+    $read = function (string $table, string $column) use ($nid): array {
+      if (!$this->database->schema()->tableExists($table)) {
+        return [];
+      }
+      return $this->database->select($table, 't')
+        ->fields('t', [$column])
+        ->condition('t.entity_id', $nid)
+        ->condition('t.deleted', 0)
+        ->orderBy('t.delta')
+        ->execute()
+        ->fetchCol();
+    };
+    $names = array_values(array_filter(array_map('trim', $read('node__field_session_names', 'field_session_names_value')), 'strlen'));
+    $count = (int) ($read('node__field_session_count', 'field_session_count_value')[0] ?? 0);
+    $interval = (int) ($read('node__field_session_interval_days', 'field_session_interval_days_value')[0] ?? 0);
+    $plan['names'] = $names;
+    $plan['count'] = $count > 1 ? $count : max(1, count($names));
+    $plan['interval'] = $interval > 0 ? $interval : 7;
+    return $plan;
   }
 
   /**
@@ -508,6 +565,18 @@ class SessionSchedule {
   public static function label(string $local_start, string $format = 'D, M j · g:ia'): string {
     $ts = strtotime($local_start);
     return $ts ? date($format, $ts) : $local_start;
+  }
+
+  /**
+   * "3. Wood I · Sat, Oct 21 · 6:00pm" — position, the course's name, when.
+   */
+  public static function sessionLabel(array $session, string $format = 'D, M j · g:ia'): string {
+    $parts = [($session['index'] + 1) . '.'];
+    if (!empty($session['name'])) {
+      $parts[] = $session['name'] . ' ·';
+    }
+    $parts[] = self::label($session['start'], $format);
+    return implode(' ', $parts);
   }
 
   /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\instructor_companion\Service;
 
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Psr\Log\LoggerInterface;
@@ -28,6 +29,12 @@ use Psr\Log\LoggerInterface;
  * while people waited (event 950: two unpaid offers, five cancellations, ran
  * 5 of 9). ensureWaitlistExpiry() gives every waitlisted event the module's
  * default; CiviCRM does the rest, and resets the clock at promotion (CRM-6496).
+ *
+ * End times: the attendee survey, attendance and the wrap-up all key on
+ * civicrm_event.end_date, and an event saved without one is never surveyed.
+ * Policy (JR 2026-10-03): an event with no end time gets one — the course's
+ * usual length, else default_event_length_minutes (120). fillMissingEnd()
+ * runs in hook_civicrm_pre; cron backfills anything that slipped past it.
  */
 class EventHygieneService {
 
@@ -46,6 +53,11 @@ class EventHygieneService {
    * Hours an unpaid waitlist offer stays open before CiviCRM expires it.
    */
   public const DEFAULT_WAITLIST_OFFER_HOURS = 24;
+
+  /**
+   * Length given to an event saved without an end time, in minutes.
+   */
+  public const DEFAULT_EVENT_LENGTH_MINUTES = 120;
 
   /**
    * CiviCRM's action-schedule mapping for "a specific event".
@@ -307,6 +319,171 @@ class EventHygieneService {
         '@n' => $n,
         '@ids' => implode(', ', $ids),
       ]);
+    }
+    return $n;
+  }
+
+  /**
+   * Configured fallback length in minutes.
+   */
+  public function defaultEventLengthMinutes(): int {
+    $v = (int) ($this->configFactory->get('instructor_companion.settings')->get('default_event_length_minutes') ?? 0);
+    return $v >= 15 ? $v : self::DEFAULT_EVENT_LENGTH_MINUTES;
+  }
+
+  /**
+   * Length for an event with no end: the course's last same-day run, else the default.
+   */
+  public function lengthFor(?int $course_nid): int {
+    if ($course_nid && $this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      $q = $this->database->select('civicrm_event', 'e');
+      $q->innerJoin('civicrm_event__field_parent_course', 'c', 'c.entity_id = e.id AND c.deleted = 0');
+      $q->addExpression('TIMESTAMPDIFF(MINUTE, e.start_date, e.end_date)', 'minutes');
+      $q->condition('c.field_parent_course_target_id', $course_nid)
+        ->condition('e.is_template', 0)
+        ->isNotNull('e.end_date')
+        ->where('DATE(e.start_date) = DATE(e.end_date)')
+        ->where('e.end_date > e.start_date')
+        ->orderBy('e.start_date', 'DESC')
+        ->range(0, 1);
+      $minutes = (int) $q->execute()->fetchField();
+      if ($minutes >= 15 && $minutes <= 720) {
+        return $minutes;
+      }
+    }
+    return $this->defaultEventLengthMinutes();
+  }
+
+  /**
+   * Parses a CiviCRM date param ('YmdHis', 'Y-m-d H:i:s', 'Y-m-d H:i'). Pure.
+   */
+  public static function parseCiviDate($value): ?int {
+    $value = trim((string) $value);
+    if ($value === '' || $value === 'null') {
+      return NULL;
+    }
+    if (ctype_digit($value) && (strlen($value) === 14 || strlen($value) === 12)) {
+      $dt = \DateTimeImmutable::createFromFormat(strlen($value) === 14 ? 'YmdHis' : 'YmdHi', $value);
+      return $dt ? $dt->getTimestamp() : NULL;
+    }
+    $ts = strtotime($value);
+    return $ts === FALSE ? NULL : $ts;
+  }
+
+  /**
+   * Gives an event being saved an end time when it has none.
+   *
+   * For hook_civicrm_pre on Event create/edit. On edit a params array without
+   * end_date means "unchanged", so the stored value decides. Templates are
+   * left alone: they have no real date, and their copies are caught on the
+   * edit that sets one.
+   *
+   * @return string|null
+   *   The end_date written into $params ('YmdHis'), or NULL if none needed.
+   */
+  public function fillMissingEnd(string $op, ?int $event_id, array &$params): ?string {
+    if (!empty($params['is_template'])) {
+      return NULL;
+    }
+    $stored = NULL;
+    if ($op === 'edit' && $event_id) {
+      $stored = $this->database->select('civicrm_event', 'e')
+        ->fields('e', ['start_date', 'end_date', 'is_template'])
+        ->condition('e.id', $event_id)
+        ->execute()
+        ->fetchAssoc() ?: NULL;
+      if ($stored && !empty($stored['is_template']) && !array_key_exists('is_template', $params)) {
+        return NULL;
+      }
+    }
+    $end_given = array_key_exists('end_date', $params);
+    $end = $end_given ? self::parseCiviDate($params['end_date']) : self::parseCiviDate($stored['end_date'] ?? NULL);
+    if ($end !== NULL) {
+      return NULL;
+    }
+    $start = array_key_exists('start_date', $params)
+      ? self::parseCiviDate($params['start_date'])
+      : self::parseCiviDate($stored['start_date'] ?? NULL);
+    if ($start === NULL) {
+      return NULL;
+    }
+    $course = NULL;
+    if ($event_id && $this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      $course = (int) $this->database->select('civicrm_event__field_parent_course', 'c')
+        ->fields('c', ['field_parent_course_target_id'])
+        ->condition('c.entity_id', $event_id)
+        ->condition('c.deleted', 0)
+        ->execute()
+        ->fetchField() ?: NULL;
+    }
+    $minutes = $this->lengthFor($course);
+    $params['end_date'] = date('YmdHis', $start + $minutes * 60);
+    $this->logger->notice('Event @e saved with no end time; set to @m minutes after the start (@end).', [
+      '@e' => $event_id ?: 'new',
+      '@m' => $minutes,
+      '@end' => date('Y-m-d H:i', $start + $minutes * 60),
+    ]);
+    return $params['end_date'];
+  }
+
+  /**
+   * Active, non-template events from yesterday on with a start and no end.
+   *
+   * @return array<int, array{id:int,title:string,start:string,course:?int}>
+   *   By start date.
+   */
+  public function eventsMissingEnd(): array {
+    if (!$this->database->schema()->tableExists('civicrm_event')) {
+      return [];
+    }
+    $q = $this->database->select('civicrm_event', 'e')
+      ->fields('e', ['id', 'title', 'start_date'])
+      ->condition('e.is_template', 0)
+      ->condition('e.is_active', 1)
+      ->isNotNull('e.start_date')
+      ->isNull('e.end_date')
+      ->condition('e.start_date', date('Y-m-d H:i:s', strtotime('-1 day')), '>=')
+      ->orderBy('e.start_date');
+    if ($this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
+      $q->leftJoin('civicrm_event__field_parent_course', 'c', 'c.entity_id = e.id AND c.deleted = 0');
+      $q->addField('c', 'field_parent_course_target_id', 'course');
+    }
+    $out = [];
+    foreach ($q->execute() as $r) {
+      $out[] = [
+        'id' => (int) $r->id,
+        'title' => (string) $r->title,
+        'start' => (string) $r->start_date,
+        'course' => !empty($r->course) ? (int) $r->course : NULL,
+      ];
+    }
+    return $out;
+  }
+
+  /**
+   * Sets end_date on every event eventsMissingEnd() lists. Returns how many.
+   *
+   * Written directly (no CiviCRM save, so no Stripe or Slack side effects);
+   * only end_date changes and only where it is NULL.
+   */
+  public function backfillMissingEnds(): int {
+    $n = 0;
+    foreach ($this->eventsMissingEnd() as $e) {
+      $start = self::parseCiviDate($e['start']);
+      if ($start === NULL) {
+        continue;
+      }
+      $minutes = $this->lengthFor($e['course']);
+      $updated = $this->database->update('civicrm_event')
+        ->fields(['end_date' => date('Y-m-d H:i:s', $start + $minutes * 60)])
+        ->condition('id', $e['id'])
+        ->isNull('end_date')
+        ->execute();
+      if ($updated) {
+        $n++;
+        Cache::invalidateTags(['civicrm_event:' . $e['id']]);
+        $this->logger->notice('Event @e had no end time; set to @m minutes after the start.', ['@e' => $e['id'], '@m' => $minutes]);
+      }
     }
     return $n;
   }

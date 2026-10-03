@@ -197,7 +197,8 @@ class AttendancePromptService {
       [
         'instructor_name' => $user->getDisplayName(),
         'event_label' => $multi
-          ? $event->label() . ' (session ' . ($session['index'] + 1) . ' of ' . $session['count'] . ')'
+          ? $event->label() . ' (session ' . ($session['index'] + 1) . ' of ' . $session['count']
+            . (!empty($session['name']) ? ': ' . $session['name'] : '') . ')'
           : $event->label(),
         'attendance_url' => Url::fromRoute('instructor_companion.attendance',
           ['event_id' => $event_id], ['absolute' => TRUE, 'query' => $query])->toString(),
