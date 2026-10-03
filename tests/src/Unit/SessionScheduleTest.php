@@ -163,13 +163,14 @@ class SessionScheduleTest extends UnitTestCase {
    */
   public function testSessionNamesFollowPosition(): void {
     $starts = SessionSchedule::generate('2026-10-07 18:00:00', 3, 7, $this->tz);
-    $s = SessionSchedule::buildSchedule('2026-10-07 18:00:00', '2026-10-07 20:00:00', $starts, ['Orientation', 'Wood I', 'Graduation']);
+    $names = ['Orientation', 'Wood I', 'Graduation'];
+    $s = SessionSchedule::buildSchedule('2026-10-07 18:00:00', '2026-10-07 20:00:00', $starts, $names);
     $this->assertSame(['Orientation', 'Wood I', 'Graduation'], array_column($s, 'name'));
     $this->assertSame('2. Wood I · Wed, Oct 14 · 6:00pm', SessionSchedule::sessionLabel($s[1]));
 
     // A run with fewer meetings than the course names gets no names: which
     // week is "Wood I" would be a guess.
-    $s = SessionSchedule::buildSchedule('2026-10-07 18:00:00', '2026-10-07 20:00:00', array_slice($starts, 0, 2), ['Orientation', 'Wood I', 'Graduation']);
+    $s = SessionSchedule::buildSchedule('2026-10-07 18:00:00', '2026-10-07 20:00:00', array_slice($starts, 0, 2), $names);
     $this->assertSame(['', ''], array_column($s, 'name'));
     $this->assertSame('1. Wed, Oct 7 · 6:00pm', SessionSchedule::sessionLabel($s[0]));
 

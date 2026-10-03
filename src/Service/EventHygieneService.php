@@ -332,7 +332,7 @@ class EventHygieneService {
   }
 
   /**
-   * Length for an event with no end: the course's last same-day run, else the default.
+   * Length for an event with no end: the course's last run, else the default.
    */
   public function lengthFor(?int $course_nid): int {
     if ($course_nid && $this->database->schema()->tableExists('civicrm_event__field_parent_course')) {
@@ -482,7 +482,10 @@ class EventHygieneService {
       if ($updated) {
         $n++;
         Cache::invalidateTags(['civicrm_event:' . $e['id']]);
-        $this->logger->notice('Event @e had no end time; set to @m minutes after the start.', ['@e' => $e['id'], '@m' => $minutes]);
+        $this->logger->notice('Event @e had no end time; set to @m minutes after the start.', [
+          '@e' => $e['id'],
+          '@m' => $minutes,
+        ]);
       }
     }
     return $n;

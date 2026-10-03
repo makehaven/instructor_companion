@@ -10,6 +10,7 @@
  * meetings live in field_civi_event_sessions.
  */
 
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Field\WidgetBase;
 use Drupal\Core\Form\FormStateInterface;
@@ -197,7 +198,10 @@ function _instructor_companion_queue_course_plan(int $event_id): void {
           \Drupal::service('instructor_companion.event_copy_sync')->applyCoursePlan((int) $id);
         }
         catch (\Throwable $e) {
-          \Drupal::logger('instructor_companion')->error('Session plan for event @e failed: @m', ['@e' => $id, '@m' => $e->getMessage()]);
+          \Drupal::logger('instructor_companion')->error('Session plan for event @e failed: @m', [
+            '@e' => $id,
+            '@m' => $e->getMessage(),
+          ]);
         }
       }
     });
@@ -265,7 +269,7 @@ function instructor_companion_sessions_form_alter(array &$form, FormStateInterfa
   if (count($names) > 1) {
     $items = [];
     foreach ($names as $i => $name) {
-      $items[] = '<li>' . ($i + 1) . '. ' . \Drupal\Component\Utility\Html::escape($name) . '</li>';
+      $items[] = '<li>' . ($i + 1) . '. ' . Html::escape($name) . '</li>';
     }
     $form[$field]['widget']['#description'] .= '<br>' . t('Session names come from the course, in order:') . '<ol class="ic-session-names" style="margin:.25em 0 0;list-style:none;padding:0">' . implode('', $items) . '</ol>';
   }
@@ -476,7 +480,8 @@ function instructor_companion_civicrm_pageRun(&$page) {
   if (!is_object($page) || get_class($page) !== 'CRM_Event_Page_EventInfo') {
     return;
   }
-  $event_id = (int) ($page->_id ?? 0);
+  // _id is protected on CRM_Core_Page; $page->_id reads as NULL from here.
+  $event_id = (int) $page->getVar('_id');
   if (!$event_id) {
     return;
   }
@@ -491,7 +496,7 @@ function instructor_companion_civicrm_pageRun(&$page) {
   }
   $items = '';
   foreach ($schedule as $s) {
-    $items .= '<li>' . htmlspecialchars(\Drupal\instructor_companion\Service\SessionSchedule::sessionLabel($s, 'D, M j · g:ia'), ENT_QUOTES) . '</li>';
+    $items .= '<li>' . htmlspecialchars(SessionSchedule::sessionLabel($s), ENT_QUOTES) . '</li>';
   }
   $markup = '<div class="crm-section ic-event-sessions" style="margin:1em 0">'
     . '<strong>' . htmlspecialchars(sprintf('This class meets %d times:', count($schedule)), ENT_QUOTES) . '</strong>'

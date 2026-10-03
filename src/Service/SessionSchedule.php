@@ -568,7 +568,9 @@ class SessionSchedule {
   }
 
   /**
-   * "3. Wood I · Sat, Oct 21 · 6:00pm" — position, the course's name, when.
+   * Session label: position, the course's name, when.
+   *
+   * For example "3. Wood I · Sat, Oct 21 · 6:00pm".
    */
   public static function sessionLabel(array $session, string $format = 'D, M j · g:ia'): string {
     $parts = [($session['index'] + 1) . '.'];
