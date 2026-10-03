@@ -16,7 +16,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 /**
  * The one email after the survey: what this person should do next.
  *
- * CiviCRM's type-level "Thanks for Attending!" (24 h after the class) asks
+ * CiviCRM's type-level "Thanks for Attending!" (as the class ends) asks
  * for the survey and offers the $5 code; that stays. This runs a week later,
  * after the class's LAST session, and sends at most one thing per attendee:
  *

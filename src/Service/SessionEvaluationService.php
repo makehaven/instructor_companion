@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface;
  * Sends the attendee evaluation for multi-session classes after the LAST one.
  *
  * CiviCRM's "Thanks for Attending!" scheduled reminders (one per event type)
- * fire 24 hours after `civicrm_event.end_date`, and a scheduled reminder can
+ * fire as `civicrm_event.end_date` passes, and a scheduled reminder can
  * only be keyed to the four CiviCRM event dates — not to a Drupal field. For
  * a class that meets six times, end_date is the end of session one, so eight
  * stained-glass students were asked to rate a class that was one-sixth done.
@@ -46,8 +46,11 @@ class SessionEvaluationService {
 
   /**
    * Hours after the last session before the evaluation goes out.
+   *
+   * 0 = as class ends, so the instructor can say "check your inbox" at the
+   * close. Matches CiviCRM's "Thanks for Attending!" reminders (offset 0).
    */
-  public const DEFAULT_DELAY_HOURS = 24;
+  public const DEFAULT_DELAY_HOURS = 0;
 
   /**
    * Where the evaluation link points; absolute because cron has no host.
@@ -117,8 +120,8 @@ class SessionEvaluationService {
    * Hours after the last session before sending.
    */
   public function delayHours(): int {
-    $h = (int) ($this->configFactory->get('instructor_companion.settings')->get('session_evaluation_delay_hours') ?? 0);
-    return $h > 0 ? $h : self::DEFAULT_DELAY_HOURS;
+    $h = $this->configFactory->get('instructor_companion.settings')->get('session_evaluation_delay_hours');
+    return $h === NULL ? self::DEFAULT_DELAY_HOURS : max(0, (int) $h);
   }
 
   /**
@@ -200,34 +203,59 @@ class SessionEvaluationService {
     if (!$schedules) {
       return 0;
     }
-    $now = $this->time->getRequestTime();
     $inserted = 0;
-    foreach ($this->multiSessionEventsAround($now) as $event_id) {
-      $type = $this->eventType($event_id);
-      foreach ($schedules as $schedule_id => $def) {
-        if (!in_array($type, $def['types'], TRUE)) {
-          continue;
-        }
-        foreach ($this->audience($event_id, $def) as $p) {
-          if ($this->hasLogRow($schedule_id, $p['participant_id'])) {
-            continue;
-          }
-          $this->database->insert('civicrm_action_log')->fields([
-            'contact_id' => $p['contact_id'],
-            'entity_id' => $p['participant_id'],
-            'entity_table' => 'civicrm_participant',
-            'action_schedule_id' => $schedule_id,
-            'action_date_time' => date('Y-m-d H:i:s', $now),
-            'is_error' => 0,
-            'message' => self::HOLD_MARKER,
-            'repetition_number' => 0,
-          ])->execute();
-          $inserted++;
-        }
-      }
+    foreach ($this->multiSessionEventsAround($this->time->getRequestTime()) as $event_id) {
+      $inserted += $this->holdEvent($event_id, $schedules);
     }
     if ($inserted) {
       $this->logger->notice('Held @n CiviCRM evaluation reminder(s) for multi-session classes.', ['@n' => $inserted]);
+    }
+    return $inserted;
+  }
+
+  /**
+   * Holds the evaluation for one event's current participants.
+   *
+   * Called from hook_civicrm_post on registration as well as from cron: with
+   * CiviCRM sending as the first session ends, a walk-in added during
+   * session one would otherwise be mailed before the next Drupal cron.
+   *
+   * @param int $event_id
+   *   CiviCRM event id; ignored unless it is a multi-session class.
+   * @param array|null $schedules
+   *   evaluationSchedules(), when the caller already has them.
+   *
+   * @return int
+   *   Log rows inserted.
+   */
+  public function holdEvent(int $event_id, ?array $schedules = NULL): int {
+    if (!$this->isEnabled() || !$this->sessions->isMultiSession($event_id)) {
+      return 0;
+    }
+    $schedules ??= $this->evaluationSchedules();
+    $now = $this->time->getRequestTime();
+    $type = $this->eventType($event_id);
+    $inserted = 0;
+    foreach ($schedules as $schedule_id => $def) {
+      if (!in_array($type, $def['types'], TRUE)) {
+        continue;
+      }
+      foreach ($this->audience($event_id, $def) as $p) {
+        if ($this->hasLogRow($schedule_id, $p['participant_id'])) {
+          continue;
+        }
+        $this->database->insert('civicrm_action_log')->fields([
+          'contact_id' => $p['contact_id'],
+          'entity_id' => $p['participant_id'],
+          'entity_table' => 'civicrm_participant',
+          'action_schedule_id' => $schedule_id,
+          'action_date_time' => date('Y-m-d H:i:s', $now),
+          'is_error' => 0,
+          'message' => self::HOLD_MARKER,
+          'repetition_number' => 0,
+        ])->execute();
+        $inserted++;
+      }
     }
     return $inserted;
   }

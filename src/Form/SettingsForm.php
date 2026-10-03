@@ -220,10 +220,10 @@ class SettingsForm extends ConfigFormBase {
       $form['closeout']['session_evaluation']['session_evaluation_delay_hours'] = [
         '#type' => 'number',
         '#title' => $this->t('Hours after the last session'),
-        '#min' => 1,
+        '#min' => 0,
         '#max' => 168,
-        '#default_value' => $config->get('session_evaluation_delay_hours') ?: \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
-        '#description' => $this->t('CiviCRM\'s reminders use 24.'),
+        '#default_value' => $config->get('session_evaluation_delay_hours') ?? \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
+        '#description' => $this->t('0 = as the class ends, matching CiviCRM\'s "Thanks for Attending!" reminders, so the instructor can tell the room to check their inbox.'),
       ];
       $form['closeout']['session_evaluation']['session_evaluation_subject'] = [
         '#type' => 'textfield',
@@ -259,7 +259,7 @@ class SettingsForm extends ConfigFormBase {
       '#type' => 'details',
       '#title' => $this->t('After the class: the follow-up loop'),
       '#open' => FALSE,
-      '#description' => $this->t('CiviCRM\'s type-level "Thanks for Attending!" reminder asks every attendee for the survey 24 hours after a class; that stays. A week after the <em>last</em> session this module sends at most one more email per attendee: a join / tour offer to someone with no member account, or "your badge is waiting" to a member whose badge request for the class\'s badge is still pending. Instructors and hosts never get either. Separately, a registration that stalled at payment gets one "your seat is still open" email a day later while a seat is open, and waitlisted events get an offer window so an unpaid waitlist offer cannot hold a seat forever. Dry runs: <code>drush ic-followups</code>, <code>drush ic-abandoned</code>, <code>drush ic-waitlist-expiry</code>, <code>drush ic-reminder-cleanup</code>.'),
+      '#description' => $this->t('CiviCRM\'s type-level "Thanks for Attending!" reminder asks every attendee for the survey as the class ends (so the instructor can say "check your inbox"); that stays. A week after the <em>last</em> session this module sends at most one more email per attendee: a join / tour offer to someone with no member account, or "your badge is waiting" to a member whose badge request for the class\'s badge is still pending. Instructors and hosts never get either. Separately, a registration that stalled at payment gets one "your seat is still open" email a day later while a seat is open, and waitlisted events get an offer window so an unpaid waitlist offer cannot hold a seat forever. Dry runs: <code>drush ic-followups</code>, <code>drush ic-abandoned</code>, <code>drush ic-waitlist-expiry</code>, <code>drush ic-reminder-cleanup</code>.'),
     ];
     $form['followup']['followup_enabled'] = [
       '#type' => 'checkbox',
@@ -272,7 +272,7 @@ class SettingsForm extends ConfigFormBase {
       '#min' => 1,
       '#max' => 30,
       '#default_value' => $config->get('followup_delay_days') ?: \Drupal\instructor_companion\Service\AttendeeFollowupService::DEFAULT_DELAY_DAYS,
-      '#description' => $this->t('The survey email goes out at 24 hours; this one should not compete with it.'),
+      '#description' => $this->t('The survey email goes out as the class ends; this one should not compete with it.'),
     ];
     if ($followup_types) {
       $form['followup']['followup_event_types'] = [

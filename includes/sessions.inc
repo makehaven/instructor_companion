@@ -395,6 +395,9 @@ function _instructor_companion_participant_post(int $participant_id, $objectRef)
         $contact = (int) $row['contact_id'];
         $event = (int) $row['event_id'];
       }
+      // CiviCRM sends the evaluation as session one ends; hold it now for a
+      // multi-session class rather than waiting for the hourly Drupal cron.
+      \Drupal::service('instructor_companion.session_evaluation')->holdEvent($event);
       if (!in_array($status, \Drupal\instructor_companion\Service\WaitlistManager::COUNTED_STATUSES, TRUE)) {
         return;
       }

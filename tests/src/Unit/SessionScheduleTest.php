@@ -152,6 +152,10 @@ class SessionScheduleTest extends UnitTestCase {
     [$lo, $hi] = SessionEvaluationService::dueWindow($now, 24);
     $this->assertSame('2026-10-17 20:00:00', $hi);
     $this->assertSame('2026-10-14 20:00:00', $lo);
+
+    // Delay 0 (the default): due as soon as the last session has ended.
+    [, $hi] = SessionEvaluationService::dueWindow($now, 0);
+    $this->assertSame('2026-10-18 20:00:00', $hi);
   }
 
   /**

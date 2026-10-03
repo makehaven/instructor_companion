@@ -336,7 +336,7 @@ asks it instead:
 | Education console "classes to close out" | listed after session 1 | listed after the last session; `ended` = last session end |
 | Instructor dashboard | class moved to "completed" the minute session 1 started | stays in the top table as *in progress, next …* until the last session |
 | Post-class hub | wrap-up steps from day one | banner "still running: next …, last …" until the class is over |
-| Attendee evaluation | CiviCRM reminder 24 h after session 1 | held in CiviCRM, sent from Drupal 24 h after the last session |
+| Attendee evaluation | CiviCRM reminder as session 1 ends | held in CiviCRM, sent from Drupal as the last session ends |
 
 **Attendance is per session.** `instructor_companion_attendance` keeps one row
 per (event, session, participant) each time the instructor saves a session.

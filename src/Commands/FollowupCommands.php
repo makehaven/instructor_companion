@@ -130,7 +130,7 @@ final class FollowupCommands extends DrushCommands {
     }
     if (!empty($options['apply']) && $rows) {
       $n = $this->hygiene->disable(array_column($rows, 'id'));
-      $this->io()->success("Switched off $n reminder(s). The type-level 'Thanks for Attending!' still sends 24 h after every class.");
+      $this->io()->success("Switched off $n reminder(s). The type-level 'Thanks for Attending!' still sends as every class ends.");
     }
   }
 
