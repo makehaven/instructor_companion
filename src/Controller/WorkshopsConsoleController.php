@@ -319,7 +319,7 @@ class WorkshopsConsoleController extends ControllerBase {
       'crumb' => ['#markup' => '<p class="education-console__crumb"><a href="' . Url::fromRoute('instructor_companion.education_console')->toString() . '">← Education console</a> · <a href="' . Url::fromRoute('instructor_companion.workshops_console')->toString() . '">Workshops</a></p>'],
       'intro' => [
         '#markup' => '<p class="education-console__intro">' . $this->t(
-          'Counted Ticketed Workshop registrations since 1 January with no CiviCRM payment record attached. Each is one of three things: a seat that was comped or paid offline (fine, but it should be a known decision), a registration CiviCRM never linked to its contribution, or an attendee who owes. The "Source" column is what the registration form or staff wrote when creating it. Member-only Build & Badge classes are free and are not listed.'
+          'Counted Ticketed Workshop registrations since 1 January with no CiviCRM payment record attached. Each is one of three things: a seat that was comped or paid offline (fine, but it should be a known decision), a registration CiviCRM never linked to its contribution, or an attendee who owes. The "Source" column is what the registration form or staff wrote when creating it. Free events (no fee, or only zero-price options) have nothing to collect and are not listed; neither are member-only Build & Badge classes.'
         ) . '</p>',
       ],
       'table' => [

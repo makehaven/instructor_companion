@@ -256,7 +256,41 @@ class WorkshopInsightsService {
   }
 
   /**
+   * SQL condition: the event charges for a seat, so a seat should be paid.
+   *
+   * A free event has nothing to collect, so its registrations carry no
+   * payment row by design and do not belong on the "no payment record" list
+   * (ledger #45786: Stop the Bleed and the FCC licensing exam were listed).
+   * Free means either the event is not monetary at all, or its price set
+   * offers only zero-amount options. Inactive options still count as priced:
+   * someone may have bought one before it was switched off. A monetary event
+   * with no price set rows is kept (nothing proves it free).
+   *
+   * Zero-fee participants on a priced event are deliberately not filtered:
+   * those are the comps and scholarship seats the list exists to surface.
+   *
+   * @param string $alias
+   *   The alias of civicrm_event in the query being filtered.
+   *
+   * @return string
+   *   A WHERE fragment with Drupal {table} braces; no placeholders.
+   */
+  public static function chargeableEventCondition(string $alias = 'e'): string {
+    $alias = preg_replace('/[^A-Za-z0-9_]/', '', $alias);
+    $options = "FROM {civicrm_price_set_entity} pse
+        INNER JOIN {civicrm_price_field} pf ON pf.price_set_id = pse.price_set_id
+        INNER JOIN {civicrm_price_field_value} pfv ON pfv.price_field_id = pf.id
+        WHERE pse.entity_table = 'civicrm_event' AND pse.entity_id = $alias.id";
+    return "$alias.is_monetary = 1 AND (
+        NOT EXISTS (SELECT 1 $options)
+        OR EXISTS (SELECT 1 $options AND pfv.amount > 0)
+      )";
+  }
+
+  /**
    * Counted Ticketed Workshop registrations in a window with no payment row.
+   *
+   * Free events (see chargeableEventCondition()) are left out.
    *
    * @return array<int, array>
    *   Rows: event_id, title, start (timestamp), contact_id, name, status,
@@ -293,6 +327,7 @@ class WorkshopInsightsService {
       ->condition('e.is_template', 0)
       ->condition('e.event_type_id', $type)
       ->condition('e.start_date', [date('Y-m-d H:i:s', $start), date('Y-m-d H:i:s', $end)], 'BETWEEN');
+    $q->where(self::chargeableEventCondition('e'));
     $paid = $this->database->select('civicrm_participant_payment', 'pp');
     $paid->addField('pp', 'participant_id');
     $paid->where('pp.participant_id = p.id');

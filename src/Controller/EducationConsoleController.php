@@ -10,6 +10,7 @@ use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\InstructorApprovalGate;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\instructor_companion\Service\ProposalHoldManager;
+use Drupal\instructor_companion\Service\WorkshopInsightsService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -1124,6 +1125,8 @@ class EducationConsoleController extends ControllerBase {
    * held around 92-94% for three years, so a sharp move is the signal, not the
    * level.
    *
+   * Free events are excluded, matching the list the tile links to.
+   *
    * EXISTS rather than a join — a participant can carry several payment rows,
    * and joining would count them more than once.
    */
@@ -1146,6 +1149,9 @@ class EducationConsoleController extends ControllerBase {
         $start->format('Y-m-d H:i:s'),
         $end->format('Y-m-d H:i:s'),
       ], 'BETWEEN');
+      // Same filter as the list behind this tile: free events have nothing
+      // to pay, so they are not missing a payment.
+      $query->where(WorkshopInsightsService::chargeableEventCondition('e'));
 
       $paid = $this->database->select('civicrm_participant_payment', 'pp');
       $paid->addField('pp', 'participant_id');
