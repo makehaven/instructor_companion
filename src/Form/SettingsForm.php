@@ -225,6 +225,14 @@ class SettingsForm extends ConfigFormBase {
         '#default_value' => $config->get('session_evaluation_delay_hours') ?? \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_DELAY_HOURS,
         '#description' => $this->t('0 = as the class ends, matching CiviCRM\'s "Thanks for Attending!" reminders, so the instructor can tell the room to check their inbox.'),
       ];
+      $form['closeout']['session_evaluation']['session_evaluation_fallback_hours'] = [
+        '#type' => 'number',
+        '#title' => $this->t('Survey a class nobody took attendance for after (hours)'),
+        '#min' => 0,
+        '#max' => 336,
+        '#default_value' => $config->get('session_evaluation_fallback_hours') ?? \Drupal\instructor_companion\Service\SessionEvaluationService::DEFAULT_FALLBACK_HOURS,
+        '#description' => $this->t('Applies to every class, not only multi-session ones. CiviCRM\'s "Thanks for Attending!" reminders go only to participants marked Attended. If a class ends and, this many hours later, nobody is marked Attended or No-show, the evaluation is sent from here to everyone still Registered. 0 = never.'),
+      ];
       $form['closeout']['session_evaluation']['default_event_length_minutes'] = [
         '#type' => 'number',
         '#title' => $this->t('Length of an event saved without an end time (minutes)'),
@@ -427,6 +435,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('session_evaluation_delay_hours', $form_state->hasValue('session_evaluation_delay_hours')
         ? (int) $form_state->getValue('session_evaluation_delay_hours')
         : $this->config('instructor_companion.settings')->get('session_evaluation_delay_hours'))
+      ->set('session_evaluation_fallback_hours', $form_state->hasValue('session_evaluation_fallback_hours')
+        ? (int) $form_state->getValue('session_evaluation_fallback_hours')
+        : $this->config('instructor_companion.settings')->get('session_evaluation_fallback_hours'))
       ->set('default_event_length_minutes', $form_state->hasValue('default_event_length_minutes')
         ? (int) $form_state->getValue('default_event_length_minutes')
         : $this->config('instructor_companion.settings')->get('default_event_length_minutes'))

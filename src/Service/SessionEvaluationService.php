@@ -30,6 +30,15 @@ use Psr\Log\LoggerInterface;
  * Single-session classes are untouched: CiviCRM keeps sending those. This is
  * deliberately the first step of moving post-event mail into Drupal, where it
  * can see attendance; it is not a second copy of CiviCRM's reminder engine.
+ *
+ * Attendance fallback: the reminders address only Attended participants
+ * (scripts/deploy/2026-10-14-eval-reminder-attended-only.php). Until then
+ * they also took Registered, and as the reminder fires at class end, before
+ * anyone is marked, no-shows and later cancellations were surveyed. With
+ * Attended only, a class whose attendance is never taken would get no
+ * survey at all (36 of 50 classes, 08-11 to 10-13) — so fallback() sends
+ * from here to Registered participants once the class is fallbackHours()
+ * over and still has nobody marked Attended or No-show.
  */
 class SessionEvaluationService {
 
@@ -39,10 +48,33 @@ class SessionEvaluationService {
   protected const SENT_STATE_KEY = 'instructor_companion.session_evaluation_sent';
 
   /**
+   * State key for the attendance fallback, same shape as SENT_STATE_KEY.
+   */
+  protected const FALLBACK_STATE_KEY = 'instructor_companion.session_evaluation_fallback';
+
+  /**
+   * Hours after a class ends before an unmarked class falls back.
+   *
+   * The instructor wrap-up reminder (48–72 h) asks for attendance first.
+   */
+  public const DEFAULT_FALLBACK_HOURS = 72;
+
+  /**
+   * Participant statuses: Attended, No-show — "attendance was taken".
+   */
+  public const MARKED_STATUSES = [2, 3];
+
+  /**
+   * Who gets the fallback when nothing was marked: Registered, Partially paid.
+   */
+  public const FALLBACK_STATUSES = [1, 14];
+
+  /**
    * Messages written to civicrm_action_log so a human can tell ours apart.
    */
   public const HOLD_MARKER = '[instructor_companion] Held: multi-session class, evaluation goes out after the last session.';
   public const SENT_MARKER = '[instructor_companion] Sent by Drupal after the last session.';
+  public const FALLBACK_MARKER = '[instructor_companion] Sent by Drupal: attendance was never taken.';
 
   /**
    * Hours after the last session before the evaluation goes out.
@@ -93,19 +125,140 @@ class SessionEvaluationService {
    * Cron entry point.
    */
   public function run(): void {
-    if (!$this->isEnabled()) {
-      return;
-    }
     if (!$this->database->schema()->tableExists('civicrm_action_schedule')) {
       return;
     }
+    if ($this->isEnabled()) {
+      try {
+        $this->hold();
+        $this->send();
+      }
+      catch (\Throwable $e) {
+        $this->logger->error('Session evaluation pass failed: @m', ['@m' => $e->getMessage()]);
+      }
+    }
     try {
-      $this->hold();
-      $this->send();
+      $this->fallback();
     }
     catch (\Throwable $e) {
-      $this->logger->error('Session evaluation pass failed: @m', ['@m' => $e->getMessage()]);
+      $this->logger->error('Evaluation attendance fallback failed: @m', ['@m' => $e->getMessage()]);
     }
+  }
+
+  /**
+   * Hours after a class ends before the attendance fallback; 0 = off.
+   */
+  public function fallbackHours(): int {
+    $h = $this->configFactory->get('instructor_companion.settings')->get('session_evaluation_fallback_hours');
+    return $h === NULL ? self::DEFAULT_FALLBACK_HOURS : max(0, (int) $h);
+  }
+
+  /**
+   * Returns [lower, upper] local bounds of class ends due a fallback.
+   *
+   * MAX_HOURS wide, so a skipped cron still catches up. Pure — unit tested.
+   */
+  public static function fallbackWindow(int $now, int $hours): array {
+    return [
+      date(SessionSchedule::LOCAL_FORMAT, $now - ($hours + self::MAX_HOURS) * 3600),
+      date(SessionSchedule::LOCAL_FORMAT, $now - $hours * 3600),
+    ];
+  }
+
+  /**
+   * Whether a reminder leaves unmarked attendees to the fallback.
+   *
+   * Only when it filters on status and leaves Registered out: a reminder
+   * that already takes Registered (or every status) has sent to them itself.
+   * Pure — unit tested.
+   */
+  public static function needsFallback(array $def): bool {
+    return $def['statuses'] && !in_array(1, $def['statuses'], TRUE);
+  }
+
+  /**
+   * Whether anyone at the event has been marked Attended or No-show.
+   */
+  protected function attendanceTaken(int $event_id): bool {
+    return (bool) $this->database->select('civicrm_participant', 'p')
+      ->fields('p', ['id'])
+      ->condition('p.event_id', $event_id)
+      ->condition('p.is_test', 0)
+      ->condition('p.status_id', self::MARKED_STATUSES, 'IN')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+  }
+
+  /**
+   * Surveys Registered attendees of classes whose attendance was never taken.
+   *
+   * @return int
+   *   Emails sent.
+   */
+  public function fallback(): int {
+    $hours = $this->fallbackHours();
+    if ($hours <= 0) {
+      return 0;
+    }
+    $schedules = array_filter($this->evaluationSchedules(), [self::class, 'needsFallback']);
+    if (!$schedules) {
+      return 0;
+    }
+    $now = $this->time->getRequestTime();
+    [$lo, $hi] = self::fallbackWindow($now, $hours);
+    $ended = $this->sessions->endedBetween($lo, $hi, function ($q) {
+      $q->condition('e.is_active', 1);
+      $q->condition('e.is_template', 0);
+      $q->addField('e', 'event_type_id', 'type');
+      $q->addField('e', 'title', 'title');
+    });
+
+    $done = $this->prune((array) $this->state->get(self::FALLBACK_STATE_KEY, []), $now);
+    $total = 0;
+    foreach ($ended as $event_id => $row) {
+      if (isset($done[$event_id])) {
+        continue;
+      }
+      $type = (int) $row['type'];
+      $schedule_id = NULL;
+      foreach ($schedules as $sid => $def) {
+        // CiviCRM ignores classes that ended before the reminder took effect.
+        if (in_array($type, $def['types'], TRUE)
+          && ($def['effective_start'] === '' || $def['effective_start'] <= $row['ended'])) {
+          $schedule_id = $sid;
+          break;
+        }
+      }
+      // Claim before sending (run() swallows exceptions; never resend).
+      $done[$event_id] = ['t' => $now, 'sent' => 0];
+      $this->state->set(self::FALLBACK_STATE_KEY, $done);
+      if ($schedule_id === NULL || $this->attendanceTaken($event_id)) {
+        continue;
+      }
+      $def = ['statuses' => self::FALLBACK_STATUSES] + $schedules[$schedule_id];
+      $count = 0;
+      foreach ($this->audience($event_id, $def) as $p) {
+        if ($this->hasForeignLogRow($schedule_id, $p['participant_id'])
+          || $this->hasOwnSentRow($schedule_id, $p['participant_id'])) {
+          continue;
+        }
+        if ($this->email($p, $event_id, (string) $row['title'], $type)) {
+          $count++;
+          $this->stampLogRow($schedule_id, $p, $now, self::FALLBACK_MARKER);
+        }
+      }
+      $done[$event_id]['sent'] = $count;
+      $this->state->set(self::FALLBACK_STATE_KEY, $done);
+      $total += $count;
+      if ($count) {
+        $this->logger->notice('Evaluation sent to @n registered participant(s) of event @e: attendance was never taken.', [
+          '@n' => $count,
+          '@e' => $event_id,
+        ]);
+      }
+    }
+    return $total;
   }
 
   /**
@@ -140,11 +293,12 @@ class SessionEvaluationService {
    * Active end_date-keyed evaluation reminders, by event type.
    *
    * @return array<int, array>
-   *   schedule id => ['types' => int[], 'statuses' => int[], 'roles' => int[]].
+   *   schedule id => ['types' => int[], 'statuses' => int[], 'roles' => int[],
+   *   'effective_start' => local datetime or ''].
    */
   public function evaluationSchedules(): array {
     $q = $this->database->select('civicrm_action_schedule', 'a')
-      ->fields('a', ['id', 'entity_value', 'entity_status', 'recipient', 'recipient_listing'])
+      ->fields('a', ['id', 'entity_value', 'entity_status', 'recipient', 'recipient_listing', 'effective_start_date'])
       ->condition('a.is_active', 1)
       ->condition('a.mapping_id', self::EVENT_TYPE_MAPPING_ID)
       ->condition('a.start_action_date', 'end_date')
@@ -155,6 +309,7 @@ class SessionEvaluationService {
         'types' => self::splitValues((string) $r->entity_value),
         'statuses' => self::splitValues((string) $r->entity_status),
         'roles' => (string) $r->recipient === 'participant_role' ? self::splitValues((string) $r->recipient_listing) : [],
+        'effective_start' => (string) ($r->effective_start_date ?? ''),
       ];
     }
     return $out;
@@ -240,7 +395,9 @@ class SessionEvaluationService {
       if (!in_array($type, $def['types'], TRUE)) {
         continue;
       }
-      foreach ($this->audience($event_id, $def) as $p) {
+      // Every status: someone marked Attended later must already be held, or
+      // CiviCRM (now Attended-only) would mail them on its next run.
+      foreach ($this->audience($event_id, ['statuses' => []] + $def) as $p) {
         if ($this->hasLogRow($schedule_id, $p['participant_id'])) {
           continue;
         }
@@ -440,7 +597,7 @@ class SessionEvaluationService {
   }
 
   /**
-   * Whether we already stamped a send for this participant.
+   * Whether we already stamped a send (either kind) for this participant.
    *
    * Running sendNow() twice, or a cron pass that died after some emails,
    * must not write to the same person again.
@@ -451,7 +608,7 @@ class SessionEvaluationService {
       ->condition('l.action_schedule_id', $schedule_id)
       ->condition('l.entity_table', 'civicrm_participant')
       ->condition('l.entity_id', $participant_id)
-      ->condition('l.message', self::SENT_MARKER)
+      ->condition('l.message', [self::SENT_MARKER, self::FALLBACK_MARKER], 'IN')
       ->range(0, 1)
       ->execute()
       ->fetchField();
@@ -478,9 +635,9 @@ class SessionEvaluationService {
   /**
    * Marks the participant's log row as sent by us (inserting if absent).
    */
-  protected function stampLogRow(int $schedule_id, array $p, int $now): void {
+  protected function stampLogRow(int $schedule_id, array $p, int $now, string $marker = self::SENT_MARKER): void {
     $updated = $this->database->update('civicrm_action_log')
-      ->fields(['message' => self::SENT_MARKER, 'action_date_time' => date('Y-m-d H:i:s', $now)])
+      ->fields(['message' => $marker, 'action_date_time' => date('Y-m-d H:i:s', $now)])
       ->condition('action_schedule_id', $schedule_id)
       ->condition('entity_table', 'civicrm_participant')
       ->condition('entity_id', $p['participant_id'])
@@ -494,7 +651,7 @@ class SessionEvaluationService {
         'action_schedule_id' => $schedule_id,
         'action_date_time' => date('Y-m-d H:i:s', $now),
         'is_error' => 0,
-        'message' => self::SENT_MARKER,
+        'message' => $marker,
         'repetition_number' => 0,
       ])->execute();
     }
