@@ -4,6 +4,7 @@ namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Universal entry point for the instructor onboarding funnel.
@@ -22,20 +23,26 @@ class BecomeInstructorController extends ControllerBase {
 
   /**
    * Builds the page.
+   *
+   * @return array|\Symfony\Component\HttpFoundation\RedirectResponse
+   *   The page, or a redirect to the dashboard for active instructors.
    */
-  public function build(): array {
+  public function build(): array|RedirectResponse {
     $current_user = $this->currentUser();
 
     // Already an active instructor — send them straight to their dashboard.
     if ($current_user->hasRole('instructor')) {
-      return $this->redirect('instructor_companion.dashboard')->send()
-        ?: $this->buildRedirectBuild('instructor_companion.dashboard');
+      // Return the response; never send() it here. send() returns the
+      // response object itself, which broke the array return type (500 on
+      // live 09-23 and 10-13) and flushed headers mid-request.
+      return $this->redirect('instructor_companion.dashboard');
     }
 
     $is_anonymous = $current_user->isAnonymous();
     $is_member = !$is_anonymous && $current_user->hasRole('member');
 
-    $build = [];
+    // Content differs for anonymous, members and other signed-in users.
+    $build = ['#cache' => ['contexts' => ['user.roles']]];
 
     $build['hero'] = [
       '#type' => 'container',
@@ -166,16 +173,6 @@ class BecomeInstructorController extends ControllerBase {
     ];
 
     return $build;
-  }
-
-  /**
-   * Fallback render array redirect (for cases where send() is not available).
-   */
-  protected function buildRedirectBuild(string $route): array {
-    return [
-      '#markup' => '<meta http-equiv="refresh" content="0;url=' .
-        Url::fromRoute($route)->toString() . '">',
-    ];
   }
 
 }
