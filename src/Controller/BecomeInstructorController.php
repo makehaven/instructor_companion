@@ -88,6 +88,18 @@ class BecomeInstructorController extends ControllerBase {
       ],
     ];
 
+    // What teaching here involves, before anyone commits to it.
+    $guide = \Drupal::service('instructor_companion.setup_checklist')->guideNode();
+    // Shows up as soon as the page is created, without a cache clear.
+    $build['#cache']['tags'][] = 'node_list:policy';
+    $build['#cache']['tags'][] = 'config:instructor_companion.settings';
+    if ($guide) {
+      $build['what_to_expect']['guidebook'] = [
+        '#markup' => '<p>' . $this->t('How classes run day to day, from arrival to getting paid: <a href=":url">the Instructor Guidebook</a>.', [':url' => $guide->toUrl()->toString()]) . '</p>',
+      ];
+      $build['#cache']['tags'][] = 'node:' . $guide->id();
+    }
+
     $build['teaching_options'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['teaching-options']],

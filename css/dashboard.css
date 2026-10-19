@@ -237,3 +237,12 @@
 .attendance-note { display: inline-block; margin-left: .5rem; font-size: .85em; color: #555; }
 .attendance-note--never { color: #8b1919; }
 .peh-inprogress { margin: 0 0 1rem; }
+
+/* Guidebook link near the top of the dashboard. */
+.instructor-guidebook-link {
+  margin: 0 0 1rem;
+}
+.instructor-guidebook-link__note {
+  margin-left: .5rem;
+  font-size: .95em;
+}

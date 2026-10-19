@@ -91,6 +91,30 @@ class InstructorDashboardController extends ControllerBase {
           'steps' => InstructorSetupController::renderSteps($steps),
         ];
       }
+
+      // The guidebook stays one click away after setup, with whether (and
+      // when) they confirmed reading it.
+      $checklist = \Drupal::service('instructor_companion.setup_checklist');
+      $guide = $checklist->guideNode();
+      if ($guide) {
+        $ack = $checklist->guideAcknowledgement((int) $current_user->id());
+        $build['guidebook'] = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['instructor-guidebook-link']],
+          '#weight' => -80,
+          'link' => [
+            '#type' => 'link',
+            '#title' => $ack ? $this->t('Instructor Guidebook') : $this->t('Read the Instructor Guidebook'),
+            '#url' => $guide->toUrl(),
+            '#attributes' => ['class' => $ack ? ['button'] : ['button', 'button--primary']],
+          ],
+          'note' => [
+            '#markup' => ' <span class="instructor-guidebook-link__note">' . ($ack
+              ? $this->t('Arrival, supplies, class day, safety, cleanup and pay. You confirmed reading it on @date.', ['@date' => date('M j, Y', (int) $ack['at'])])
+              : $this->t('How classes run at MakeHaven: arrival, supplies, class day, safety, cleanup and pay. Please read it and confirm at the bottom.')) . '</span>',
+          ],
+        ];
+      }
     }
 
     // 1. Dashboard Header / Stats & Profile.
