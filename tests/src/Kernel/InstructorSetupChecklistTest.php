@@ -132,7 +132,7 @@ class InstructorSetupChecklistTest extends KernelTestBase {
    * The guide is the page at the handbook link, and gates the agreement.
    */
   public function testGuideStepAndAgreementLock(): void {
-    $guide = Node::create(['type' => 'policy', 'title' => 'Instructor Startup Guide', 'status' => 1]);
+    $guide = Node::create(['type' => 'policy', 'title' => 'Instructor Guidebook', 'status' => 1]);
     $guide->save();
     $this->container->get('entity_type.manager')->getStorage('path_alias')->create([
       'path' => '/node/' . $guide->id(),
@@ -150,7 +150,7 @@ class InstructorSetupChecklistTest extends KernelTestBase {
     $steps = $checklist->steps($user);
     $this->assertArrayNotHasKey('password', $steps, 'An account they made themselves already has their password.');
     $this->assertFalse($steps['guide']['done']);
-    $this->assertSame('Read the Startup Guide first.', $steps['agreement']['locked']);
+    $this->assertSame('Read the Guidebook first.', $steps['agreement']['locked']);
 
     $checklist->acknowledgeGuide($uid);
     $this->assertFalse($checklist->guideRequiredFirst($uid));

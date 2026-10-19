@@ -10,7 +10,7 @@ use Drupal\instructor_companion\Service\InstructorSetupChecklist;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
- * The "I have read this guide" button at the foot of the Startup Guide.
+ * The "I have read this guide" button at the foot of the Guidebook.
  *
  * The guide is an ordinary policy page anyone can read; signed-in readers get
  * this button so the education team can see who has read it.
@@ -51,7 +51,7 @@ class StartupGuideAcknowledgeForm extends FormBase {
 
     $form['confirm'] = [
       '#type' => 'checkbox',
-      '#title' => $this->t('I have read the Instructor Startup Guide and will follow it when I teach.'),
+      '#title' => $this->t('I have read the Instructor Guidebook and will follow it when I teach.'),
       '#required' => TRUE,
     ];
     $form['actions'] = ['#type' => 'actions'];
@@ -68,7 +68,7 @@ class StartupGuideAcknowledgeForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void {
     $this->checklist->acknowledgeGuide((int) $this->currentUser()->id());
-    $this->messenger()->addStatus($this->t('Thanks — noted that you have read the guide.'));
+    $this->messenger()->addStatus($this->t('Thanks — noted that you have read the guidebook.'));
     $form_state->setRedirect('instructor_companion.setup');
   }
 

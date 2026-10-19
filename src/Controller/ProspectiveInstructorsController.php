@@ -167,7 +167,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       'heading' => $heading,
       'summary' => [
         '#markup' => '<p>' . $this->t(
-          '<strong>@count</strong> invited and not finished setting up (photo and bio, Startup Guide, agreement, orientation video and quiz, Site Orientation). Links last 14 days; resend if one has gone stale.',
+          '<strong>@count</strong> invited and not finished setting up (photo and bio, Guidebook, agreement, orientation video and quiz, Site Orientation). Links last 14 days; resend if one has gone stale.',
           ['@count' => count($rows)]
         ) . '</p>',
       ],

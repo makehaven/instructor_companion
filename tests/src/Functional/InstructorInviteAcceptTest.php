@@ -108,11 +108,11 @@ class InstructorInviteAcceptTest extends BrowserTestBase {
   }
 
   /**
-   * With a Startup Guide configured, the agreement waits for it.
+   * With a Guidebook configured, the agreement waits for it.
    */
   public function testGuideComesBeforeAgreement(): void {
     $this->drupalCreateContentType(['type' => 'policy', 'name' => 'Policy']);
-    $guide = $this->drupalCreateNode(['type' => 'policy', 'title' => 'Instructor Startup Guide', 'status' => 1]);
+    $guide = $this->drupalCreateNode(['type' => 'policy', 'title' => 'Instructor Guidebook', 'status' => 1]);
     \Drupal::entityTypeManager()->getStorage('path_alias')->create([
       'path' => '/node/' . $guide->id(),
       'alias' => '/instructor-handbook',
@@ -125,12 +125,12 @@ class InstructorInviteAcceptTest extends BrowserTestBase {
     $staff = $this->drupalCreateUser([], 'edu_staff');
     $user = $invites->invite('Mary Somerville', 'mary@example.com', $staff)['user'];
     $this->drupalGet($invites->buildUrl($user, \Drupal::time()->getRequestTime()));
-    $this->assertSession()->pageTextContains('Read the Startup Guide first.');
+    $this->assertSession()->pageTextContains('Read the Guidebook first.');
 
     // Going straight to the agreement is turned back to the guide.
     $this->drupalGet('instructor/agreement');
     $this->assertSession()->addressEquals($guide->toUrl()->toString());
-    $this->assertSession()->pageTextContains('please read the Instructor Startup Guide');
+    $this->assertSession()->pageTextContains('please read the Instructor Guidebook');
 
     $this->submitForm(['confirm' => TRUE], 'Confirm and continue');
     $this->assertSession()->addressMatches('#/instructor/setup$#');

@@ -69,7 +69,7 @@ class InstructorDashboardController extends ControllerBase {
     }
 
     // Setup still open (an invited instructor, or one who has not read the
-    // Startup Guide): the checklist leads the page until it is done. It also
+    // Guidebook): the checklist leads the page until it is done. It also
     // carries "Choose a password" for invite-made accounts, whose password is
     // random — the old "no password yet" check compared the hash to '' and so
     // never fired.

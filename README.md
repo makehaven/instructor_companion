@@ -61,7 +61,7 @@ people on the agreement; it signs them in and opens `/instructor/setup`
 (`InstructorSetupChecklist`, `InstructorSetupController`). The steps, in
 order: choose a password (only for accounts the invite made; the link carries
 core's `pass_reset_{uid}` session token so no current password is asked),
-photo + bio on the instructor profile, read the **Instructor Startup Guide**,
+photo + bio on the instructor profile, read the **Instructor Guidebook**,
 sign the agreement, the **member** orientation video + quiz 1 (passing it puts
 the active Door badge on the account), and an in-person Site Orientation at
 `/schedule` (done when `field_card_serial_number` is set). The same list leads
@@ -71,7 +71,7 @@ Door request: building access comes from the member path, as the education
 manager decided. Instructors from before invites who already hold an active
 Door badge are not asked to book an orientation.
 
-The Startup Guide is whatever published node sits at `instructor_handbook_url`
+The Guidebook is whatever published node sits at `instructor_handbook_url`
 (`/instructor-handbook`), normally a `policy` node synced from Google Docs by
 `makerspace_policy_library`. Signed-in readers get a "Confirm and continue"
 button on that page (`StartupGuideAcknowledgeForm`, stored in `user.data`

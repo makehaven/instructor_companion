@@ -18,7 +18,7 @@ use Drupal\user\UserInterface;
  * The steps between "staff invited you" and "ready to teach".
  *
  * Agreed with the education manager 2026-10-19: an invited instructor sets
- * up their public page (photo + bio), reads the Instructor Startup Guide,
+ * up their public page (photo + bio), reads the Instructor Guidebook,
  * signs the agreement, then does exactly what a new member does for building
  * access — the member orientation video and quiz, then an in-person Site
  * Orientation booked through the normal scheduling page, where the card is
@@ -53,7 +53,7 @@ class InstructorSetupChecklist {
   ) {}
 
   /**
-   * The Startup Guide node, when one is published at the handbook link.
+   * The Guidebook node, when one is published at the handbook link.
    *
    * That is the "Instructor handbook" link the dashboard already carries
    * (instructor_handbook_url), so the guide is whatever page staff put at
@@ -152,7 +152,7 @@ class InstructorSetupChecklist {
     if ($guide) {
       $ack = $this->guideAcknowledgement($uid);
       $steps[self::STEP_GUIDE] = [
-        'title' => 'Read the Instructor Startup Guide',
+        'title' => 'Read the Instructor Guidebook',
         'help' => $ack
           ? 'You confirmed reading it on ' . date('M j, Y', (int) $ack['at']) . '.'
           : 'How classes run here: getting in, the room, supplies, class day, attendance, getting paid, and what to do in an emergency. Confirm at the bottom of the page.',
@@ -168,7 +168,7 @@ class InstructorSetupChecklist {
       'help' => $signed ? 'Signed.' : 'About five minutes to read. Type your full legal name to sign.',
       'done' => $signed,
       'url' => Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220']),
-      'locked' => !$signed && $this->guideRequiredFirst($uid) ? 'Read the Startup Guide first.' : '',
+      'locked' => !$signed && $this->guideRequiredFirst($uid) ? 'Read the Guidebook first.' : '',
     ];
 
     $door = $this->doorAccess->loadDoorBadgeRequest($uid);

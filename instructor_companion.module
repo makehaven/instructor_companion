@@ -711,7 +711,7 @@ function instructor_companion_entity_extra_field_info() {
  * theme-agnostic.
  */
 function instructor_companion_node_view(array &$build, EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display, $view_mode) {
-  // The Instructor Startup Guide: signed-in readers confirm they have read
+  // The Instructor Guidebook: signed-in readers confirm they have read
   // it, which is a step of instructor setup and a column staff can see.
   if ($view_mode === 'full'
     && \Drupal::currentUser()->isAuthenticated()
