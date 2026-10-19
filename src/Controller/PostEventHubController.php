@@ -169,7 +169,7 @@ class PostEventHubController extends ControllerBase {
 
       case PostEventStatusService::STEP_PAYMENT:
         $url = $this->paymentUrl($event_id);
-        $label = $done ? $this->t('View / update') : $this->t('Request payment');
+        $label = $done ? $this->t('View / update') : $this->t('Log hours');
         break;
 
       default:

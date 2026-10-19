@@ -47,7 +47,7 @@ class PostEventStatusService {
     self::STEP_ATTENDANCE => 'Take attendance',
     self::STEP_BADGES => 'Approve badges',
     self::STEP_FEEDBACK => 'Post-class feedback & materials',
-    self::STEP_PAYMENT => 'Request payment for hours',
+    self::STEP_PAYMENT => 'Log your hours',
   ];
 
   /**
@@ -744,8 +744,13 @@ class PostEventStatusService {
         return ['done' => TRUE, 'detail' => ucfirst($rank)];
       }
     }
+    // Hourly contractor requests stay `draft` until the 1st/15th
+    // consolidation puts them on a Xero bill (xero_bills_sync with
+    // immediate_contractor_sync off, as on live). A saved one means the hours
+    // are logged; counting it as missing kept reminding instructors to do
+    // something they had done.
     if (in_array('draft', $statuses, TRUE)) {
-      return ['done' => FALSE, 'detail' => 'Draft started'];
+      return ['done' => TRUE, 'detail' => 'Logged, in the next pay batch'];
     }
     return ['done' => FALSE, 'detail' => NULL];
   }

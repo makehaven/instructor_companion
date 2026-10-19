@@ -65,6 +65,10 @@ class InstructorDashboardController extends ControllerBase {
     // hub, which is two navigations too many while standing in a workshop.
     $live = $this->liveClassStrip((int) $current_user->id());
     if ($live) {
+      // Above every warning: the class in the room is the one thing on this
+      // page that cannot wait. Without a weight it sorted below the -200..-5
+      // notices and the toolkit.
+      $live['#weight'] = -300;
       $build['live_class'] = $live;
     }
 
@@ -457,8 +461,10 @@ class InstructorDashboardController extends ControllerBase {
             'action' => [
               'data' => [
                 '#type' => 'link',
-                '#title' => $this->t('Book a badge checkout'),
-                '#url' => Url::fromUserInput('/appointment'),
+                // Was /appointment, which does not exist. The badge page
+                // says how the badge is earned and who issues it.
+                '#title' => $this->t('See the badge'),
+                '#url' => Url::fromRoute('entity.taxonomy_term.canonical', ['taxonomy_term' => $gap['badge_tid']]),
                 '#attributes' => ['class' => ['button', 'button--small']],
               ],
             ],
@@ -783,7 +789,7 @@ class InstructorDashboardController extends ControllerBase {
     ];
     if ($payment_url) {
       $links['log_hours'] = [
-        'title' => $this->t('Request Contractor Payment'),
+        'title' => $this->t('Log hours for this class'),
         'url' => $payment_url,
       ];
     }
@@ -1392,7 +1398,7 @@ class InstructorDashboardController extends ControllerBase {
    *
    * @param int $uid
    * @param array $upcoming_events  Keyed CiviCRM event entities.
-   * @return array[] Each entry: ['event_label', 'event_date', 'badge_label'].
+   * @return array[] Each entry: ['event_label', 'event_date', 'badge_label', 'badge_tid'].
    */
   protected function getBadgePrerequisiteGaps(int $uid, array $upcoming_events): array {
     $gaps = [];
@@ -1411,6 +1417,7 @@ class InstructorDashboardController extends ControllerBase {
             'event_label' => $event->label(),
             'event_date' => $this->formatEventDate((string) $event->get('start_date')->value),
             'badge_label' => $badge->label(),
+            'badge_tid' => (int) $badge->id(),
           ];
         }
       }
