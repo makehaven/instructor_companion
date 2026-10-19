@@ -5,6 +5,7 @@ namespace Drupal\instructor_companion\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\InstructorInviteManager;
+use Drupal\instructor_companion\Service\InstructorSetupChecklist;
 use Drupal\user\UserInterface;
 
 /**
@@ -70,22 +71,20 @@ class ProspectiveInstructorsController extends ControllerBase {
   }
 
   /**
-   * Section: people staff invited to sign the agreement who have not yet.
+   * Section: people staff invited whose setup is not finished yet.
    *
-   * Fed by the Invite an Instructor form. A row disappears the moment the
-   * person signs (they then show under door access / role as usual).
+   * Fed by the Invite an Instructor form. A row stays until every step of
+   * their setup list is done — signing is the middle of it now, not the end.
    */
   protected function buildInvitedSection(?string $destination = NULL): array {
-    /** @var \Drupal\instructor_companion\Service\InstructorInviteManager $invites */
-    $invites = \Drupal::service('instructor_companion.invite');
-    $pending = $invites->pending();
+    $pending = \Drupal::service('instructor_companion.setup_checklist')->inProgress();
     $invite_link = [
       '#type' => 'link',
       '#title' => $this->t('Invite an instructor'),
       '#url' => Url::fromRoute('instructor_companion.invite_form', [], $destination ? ['query' => ['destination' => $destination]] : []),
       '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
     ];
-    $heading = ['#markup' => '<h2>' . $this->t('Invited — Awaiting Signature') . '</h2>'];
+    $heading = ['#markup' => '<h2>' . $this->t('Invited — Setting Up') . '</h2>'];
 
     if (!$pending) {
       return [
@@ -112,9 +111,19 @@ class ProspectiveInstructorsController extends ControllerBase {
       $resend_url = Url::fromRoute('instructor_companion.invite_resend', ['user' => $uid]);
       $resend_url->setOption('query', $this->actionQuery($resend_url, $destination));
 
-      $status = $expired
-        ? $this->t('Link expired')
-        : (!empty($record['accepted_at']) ? $this->t('Opened the link, not signed yet') : $this->t('Sent, not opened'));
+      $next = NULL;
+      foreach ($record['steps'] as $step) {
+        if (!$step['done']) {
+          $next = $step['title'];
+          break;
+        }
+      }
+      $signed = !empty($record['steps'][InstructorSetupChecklist::STEP_AGREEMENT]['done']);
+      $status = $signed
+        ? $this->t('Signed. Next: @step', ['@step' => $next])
+        : ($expired
+          ? $this->t('Link expired')
+          : (!empty($record['accepted_at']) ? $this->t('Opened the link. Next: @step', ['@step' => $next]) : $this->t('Sent, not opened')));
 
       $rows[] = [
         'name' => [
@@ -131,13 +140,14 @@ class ProspectiveInstructorsController extends ControllerBase {
           '@again' => ($record['count'] ?? 1) > 1 ? ' (×' . $record['count'] . ')' : '',
         ]),
         'status' => $status,
+        'progress' => InstructorSetupChecklist::progress($record['steps']),
         'waiting' => \Drupal::service('date.formatter')->formatInterval(max(0, $now - $started), 1),
         'expires' => \Drupal::service('date.formatter')->format($expires, 'custom', 'M j, Y'),
         'follow_up' => $this->t('@who: @action', [
           '@who' => $by ? $by->getDisplayName() : $this->t('Education team'),
           '@action' => $expired
             ? $this->t('resend the expired link and contact the instructor')
-            : $this->t('contact the instructor if they need help signing'),
+            : $this->t('contact the instructor if they are stuck'),
         ]),
         'actions' => [
           'data' => [
@@ -157,7 +167,7 @@ class ProspectiveInstructorsController extends ControllerBase {
       'heading' => $heading,
       'summary' => [
         '#markup' => '<p>' . $this->t(
-          '<strong>@count</strong> invited to sign the instructor agreement and not signed yet. Links last 14 days; resend if one has gone stale.',
+          '<strong>@count</strong> invited and not finished setting up (photo and bio, Startup Guide, agreement, orientation video and quiz, Site Orientation). Links last 14 days; resend if one has gone stale.',
           ['@count' => count($rows)]
         ) . '</p>',
       ],
@@ -168,6 +178,7 @@ class ProspectiveInstructorsController extends ControllerBase {
           'email' => $this->t('Email'),
           'sent' => $this->t('Invite sent'),
           'status' => $this->t('Status'),
+          'progress' => $this->t('Setup done'),
           'waiting' => $this->t('Waiting since first invite'),
           'expires' => $this->t('Link expires'),
           'follow_up' => $this->t('Follow-up owner / next step'),

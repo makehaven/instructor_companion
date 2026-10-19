@@ -8,6 +8,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\instructor_companion\Service\InstructorSetupChecklist;
 use Drupal\instructor_companion\Service\SessionSchedule;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 
@@ -67,14 +68,25 @@ class InstructorDashboardController extends ControllerBase {
       $build['live_class'] = $live;
     }
 
-    // Accounts created by a staff invite have no password: the invite link was
-    // the credential. Say so once they are here, or their next visit ends at
-    // the login form with nothing to type.
+    // Setup still open (an invited instructor, or one who has not read the
+    // Startup Guide): the checklist leads the page until it is done. It also
+    // carries "Choose a password" for invite-made accounts, whose password is
+    // random — the old "no password yet" check compared the hash to '' and so
+    // never fired.
     $account_entity = $this->entityTypeManager()->getStorage('user')->load($current_user->id());
-    if ($account_entity && (string) $account_entity->getPassword() === '') {
-      $this->messenger()->addWarning($this->t('Your account has no password yet. <a href=":url">Set one now</a> so you can sign in next time.', [
-        ':url' => Url::fromRoute('entity.user.edit_form', ['user' => $current_user->id()])->toString(),
-      ]));
+    if ($account_entity) {
+      $request = \Drupal::request();
+      $token = $request->hasSession() ? $request->getSession()->get('pass_reset_' . $current_user->id()) : NULL;
+      $steps = \Drupal::service('instructor_companion.setup_checklist')->steps($account_entity, is_string($token) ? $token : NULL);
+      if (!InstructorSetupChecklist::isComplete($steps)) {
+        $build['setup'] = [
+          '#type' => 'details',
+          '#title' => $this->t('Finish setting up to teach (@progress)', ['@progress' => InstructorSetupChecklist::progress($steps)]),
+          '#open' => TRUE,
+          '#weight' => -90,
+          'steps' => InstructorSetupController::renderSteps($steps),
+        ];
+      }
     }
 
     // 1. Dashboard Header / Stats & Profile.

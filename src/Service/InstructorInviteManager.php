@@ -96,6 +96,9 @@ class InstructorInviteManager {
       'invited_by' => (int) $sender->id(),
       'count' => 0,
     ];
+    // Remembered so setup can ask for a password only from the people who
+    // never chose one: an account the invite made has a random one.
+    $record['created'] = !empty($record['created']) || $created;
     $record['name'] = $name !== '' ? $name : $user->getDisplayName();
     $record['mail'] = $mail;
     $record['note'] = $note;

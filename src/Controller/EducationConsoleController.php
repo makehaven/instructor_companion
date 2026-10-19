@@ -89,7 +89,7 @@ class EducationConsoleController extends ControllerBase {
     $interest = $this->unreviewedSubmissions('webform_14366', $now);
     $ideas = $this->unreviewedSubmissions('webform_497', $now);
     $signed = $this->agreementsSigned($now);
-    $invited = \Drupal::service('instructor_companion.invite')->pending();
+    $invited = \Drupal::service('instructor_companion.setup_checklist')->inProgress();
     $closeout = $this->postEventStatus->closeoutBacklog();
     // Badge-awarding classes whose attendees are still not checked out, over a
     // longer horizon than the wrap-up list: a member stays stuck until this
@@ -181,9 +181,9 @@ class EducationConsoleController extends ControllerBase {
         $oldest_line(array_column($ideas, 'created'))
       ),
       'invited' => $this->tile(
-        $this->t('Invited, not yet signed'),
+        $this->t('Invited, still setting up'),
         count($invited),
-        $this->t('agreement invites out (14-day links)'),
+        $this->t('instructor invites not finished'),
         Url::fromRoute('instructor_companion.education_console', [], ['fragment' => 'onboarding']),
         $invited ? (string) $this->t('oldest: @age', ['@age' => $this->age(min(array_map(fn($r) => (int) ($r['last_sent'] ?? $now), $invited)), $now)]) : NULL
       ),
@@ -231,8 +231,9 @@ class EducationConsoleController extends ControllerBase {
       'heading' => ['#markup' => '<h2>' . $this->t('Instructor onboarding in progress') . '</h2>'],
       'note' => [
         '#markup' => '<p class="education-console__held-note">' . $this->t(
-          'Invited people until they sign; then door access to approve (non-members
-           only) and, for anyone signed before the role became automatic, the
+          'Invited people until their setup is finished (the instructor sees the
+           same list at /instructor/setup); then any older door requests still
+           waiting and, for anyone signed before the role became automatic, the
            role to grant.'
         ) . '</p>',
       ],

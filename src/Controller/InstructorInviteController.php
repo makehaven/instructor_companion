@@ -2,12 +2,14 @@
 
 namespace Drupal\instructor_companion\Controller;
 
+use Drupal\Component\Utility\Crypt;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\InstructorInviteManager;
 use Drupal\user\UserInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Follows (and resends) instructor agreement invite links.
@@ -24,12 +26,12 @@ class InstructorInviteController extends ControllerBase {
   }
 
   /**
-   * The link from the invite email: signs the person in, opens the agreement.
+   * The link from the invite email: signs the person in, opens their setup list.
    *
    * Route: /instructor/invite/{user}/{timestamp}/{hash} (anonymous).
    * Mirrors core's one-time login link handling for the logged-in cases.
    */
-  public function accept(UserInterface $user, int $timestamp, string $hash): RedirectResponse {
+  public function accept(UserInterface $user, int $timestamp, string $hash, Request $request): RedirectResponse {
     $current = $this->currentUser();
 
     if ($current->isAuthenticated() && (int) $current->id() !== (int) $user->id()) {
@@ -43,10 +45,15 @@ class InstructorInviteController extends ControllerBase {
 
     switch ($state) {
       case 'signed':
-        $this->messenger()->addStatus($this->t('Your instructor agreement is already on file — nothing more to sign.'));
-        return $current->isAuthenticated()
-          ? $this->redirect('instructor_companion.dashboard')
-          : $this->redirect('user.login', [], ['query' => ['destination' => Url::fromRoute('instructor_companion.dashboard')->toString()]]);
+        // Signing is no longer the last step, so the link keeps signing them
+        // in for its 14 days: it is how they get back to the rest of setup
+        // before they have chosen a password.
+        if (!InstructorInviteManager::isWithinTtl($timestamp, \Drupal::time()->getRequestTime())) {
+          return $current->isAuthenticated()
+            ? $this->redirect('instructor_companion.setup')
+            : $this->redirect('user.login', [], ['query' => ['destination' => Url::fromRoute('instructor_companion.setup')->toString()]]);
+        }
+        break;
 
       case 'expired':
         $this->messenger()->addWarning($this->t('This invite link has expired. Email education@makehaven.org and we will send a fresh one.'));
@@ -66,8 +73,14 @@ class InstructorInviteController extends ControllerBase {
     }
     $this->invites->markAccepted($user);
 
-    $this->messenger()->addStatus($this->t('You are signed in. Read the agreement below and sign at the bottom.'));
-    return $this->redirect('entity.webform.canonical', ['webform' => 'webform_5220']);
+    // The same session key core's one-time login link sets, so the account
+    // form lets them choose a password without asking for the current one —
+    // which an invite-made account has, but nobody knows.
+    $token = Crypt::randomBytesBase64(55);
+    $request->getSession()->set('pass_reset_' . $user->id(), $token);
+
+    $this->messenger()->addStatus($this->t('You are signed in. Here is everything to do before your first class.'));
+    return $this->redirect('instructor_companion.setup');
   }
 
   /**

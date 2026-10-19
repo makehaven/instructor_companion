@@ -672,3 +672,47 @@ function instructor_companion_update_9018() {
   $n = \Drupal::service('instructor_companion.event_hygiene')->restampWaitlistExpiry(48, 24);
   return "Waitlist offer window 48 h -> 24 h on $n upcoming event(s)/template(s).";
 }
+
+/**
+ * Lets the `/register/instructor` route answer instead of a redirect entity.
+ *
+ * Redirect entities run before routing, so while one exists for this path
+ * the route that sends staff to the invite form and everyone else to
+ * /become-instructor never runs.
+ */
+function instructor_companion_update_9019() {
+  if (!\Drupal::moduleHandler()->moduleExists('redirect')) {
+    return 'Redirect module not enabled; nothing to remove.';
+  }
+  $storage = \Drupal::entityTypeManager()->getStorage('redirect');
+  $redirects = $storage->loadByProperties(['redirect_source__path' => 'register/instructor']);
+  if (!$redirects) {
+    return 'No /register/instructor redirect found.';
+  }
+  $ids = implode(', ', array_keys($redirects));
+  $storage->delete($redirects);
+  return "Removed redirect(s) $ids for /register/instructor; the route now handles it.";
+}
+
+/**
+ * Marks which invite records made the account, for the setup password step.
+ *
+ * Records before 2026-10-19 did not say. An account created within two
+ * minutes of its first invite was made by it.
+ */
+function instructor_companion_update_9020() {
+  $store = \Drupal::keyValue(\Drupal\instructor_companion\Service\InstructorInviteManager::COLLECTION);
+  $users = \Drupal::entityTypeManager()->getStorage('user');
+  $marked = 0;
+  foreach ($store->getAll() as $uid => $record) {
+    if (isset($record['created'])) {
+      continue;
+    }
+    $user = $users->load($uid);
+    $invited = (int) ($record['invited_at'] ?? 0);
+    $record['created'] = $user && $invited && abs((int) $user->getCreatedTime() - $invited) <= 120;
+    $marked += (int) $record['created'];
+    $store->set($uid, $record);
+  }
+  return "Invite records updated; $marked account(s) were made by their invite.";
+}

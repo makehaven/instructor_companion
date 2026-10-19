@@ -9,7 +9,7 @@ use Drupal\user\Entity\User;
 use Drupal\webform\Entity\Webform;
 
 /**
- * A staff invite link signs the person in and lands them on the agreement.
+ * A staff invite link signs the person in and lands them on their setup list.
  *
  * @group instructor_companion
  */
@@ -24,6 +24,7 @@ class InstructorInviteAcceptTest extends BrowserTestBase {
    */
   protected static $modules = [
     'user',
+    'node',
     'webform',
     'profile',
     'token',
@@ -86,13 +87,70 @@ class InstructorInviteAcceptTest extends BrowserTestBase {
     $this->drupalGet($url);
 
     $this->assertSession()->statusCodeEquals(200);
+    $this->assertSession()->addressMatches('#/instructor/setup$#');
+    $this->assertSession()->pageTextContains('You are signed in');
+    $this->assertSession()->pageTextContains('Choose a password');
+    $this->assertSession()->pageTextContains('Add your photo and bio');
+    $this->assertSession()->pageTextContains('Watch the member orientation video and pass the quiz');
+    $this->assertSession()->pageTextContains('Book your in-person Site Orientation');
+
+    // The password step carries the session token, so the account form lets
+    // them choose one without the random current password.
+    $this->clickLink('Choose a password');
+    $this->assertSession()->addressMatches('#/user/' . $user->id() . '/edit#');
+    $this->assertSession()->fieldNotExists('current_pass');
+
+    // The agreement is still one click away when no guide is configured.
+    $this->drupalGet('instructor/setup');
+    $this->clickLink('Sign the instructor agreement');
     $this->assertSession()->addressMatches('#/instructor/agreement$#');
     $this->assertSession()->pageTextContains('Typed legal name');
-    $this->assertSession()->pageTextContains('You are signed in');
+  }
 
-    // Really signed in: the account page for that uid is reachable.
-    $this->drupalGet('user/' . $user->id());
-    $this->assertSession()->statusCodeEquals(200);
+  /**
+   * With a Startup Guide configured, the agreement waits for it.
+   */
+  public function testGuideComesBeforeAgreement(): void {
+    $this->drupalCreateContentType(['type' => 'policy', 'name' => 'Policy']);
+    $guide = $this->drupalCreateNode(['type' => 'policy', 'title' => 'Instructor Startup Guide', 'status' => 1]);
+    \Drupal::entityTypeManager()->getStorage('path_alias')->create([
+      'path' => '/node/' . $guide->id(),
+      'alias' => '/instructor-handbook',
+      'langcode' => 'en',
+    ])->save();
+    $this->config('instructor_companion.settings')->set('instructor_handbook_url', '/instructor-handbook')->save();
+
+    /** @var \Drupal\instructor_companion\Service\InstructorInviteManager $invites */
+    $invites = \Drupal::service('instructor_companion.invite');
+    $staff = $this->drupalCreateUser([], 'edu_staff');
+    $user = $invites->invite('Mary Somerville', 'mary@example.com', $staff)['user'];
+    $this->drupalGet($invites->buildUrl($user, \Drupal::time()->getRequestTime()));
+    $this->assertSession()->pageTextContains('Read the Startup Guide first.');
+
+    // Going straight to the agreement is turned back to the guide.
+    $this->drupalGet('instructor/agreement');
+    $this->assertSession()->addressEquals($guide->toUrl()->toString());
+    $this->assertSession()->pageTextContains('please read the Instructor Startup Guide');
+
+    $this->submitForm(['confirm' => TRUE], 'Confirm and continue');
+    $this->assertSession()->addressMatches('#/instructor/setup$#');
+    $this->assertSession()->pageTextContains('You confirmed reading it on');
+
+    $this->drupalGet('instructor/agreement');
+    $this->assertSession()->addressMatches('#/instructor/agreement$#');
+    $this->assertSession()->pageTextContains('Typed legal name');
+  }
+
+  /**
+   * The old staff bookmark works for staff and for everyone else.
+   */
+  public function testLegacyRegisterLink(): void {
+    $this->drupalGet('register/instructor');
+    $this->assertSession()->addressMatches('#/become-instructor$#');
+
+    $this->drupalLogin($this->drupalCreateUser(['access education console']));
+    $this->drupalGet('register/instructor');
+    $this->assertSession()->addressMatches('#/admin/education/invite$#');
   }
 
   /**

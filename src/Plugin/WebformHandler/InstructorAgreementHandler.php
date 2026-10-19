@@ -77,16 +77,12 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ]);
     }
 
-    // Provision a *pending* door badge so building access becomes a deliberate
-    // staff decision rather than an automatic side effect of signing. The
-    // service no-ops when the user already holds a door badge (every
-    // member-instructor does), so this only creates work for the non-member
-    // instructors who otherwise have no path to door access. Staff approve it
-    // at /admin/people/prospective-instructors; approval flips it to active
-    // and unifi_access_sync pushes them to UniFi.
-    $door_request = \Drupal::service('instructor_companion.door_access')
-      ->ensurePendingRequest((int) $account->id());
-    $needs_door_review = $door_request !== NULL;
+    // Building access is no longer granted here. Since 2026-10-19 an
+    // instructor gets the Door badge the way a member does: the member
+    // orientation video and quiz, then an in-person Site Orientation (the
+    // next steps on their setup list). The pending request this used to mint
+    // put staff in the position of approving door access for someone nobody
+    // had walked through the building.
 
     // Proposal-first funnel: signing is usually the last onboarding step, so
     // publish any approved sessions that were held on this instructor's
@@ -107,7 +103,7 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       'user_name' => $account->getDisplayName(),
       'user_email' => $account->getEmail(),
       'user_link' => $account->toUrl()->setAbsolute()->toString(),
-      'needs_door_review' => $needs_door_review,
+      'setup_url' => \Drupal\Core\Url::fromRoute('instructor_companion.education_console', [], ['absolute' => TRUE, 'fragment' => 'onboarding'])->toString(),
     ];
     \Drupal::service('plugin.manager.mail')->mail(
       'instructor_companion',

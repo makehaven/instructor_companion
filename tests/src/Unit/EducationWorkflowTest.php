@@ -20,6 +20,7 @@ use Drupal\instructor_companion\Controller\ClassCheckoutController;
 use Drupal\instructor_companion\Controller\PostEventHubController;
 use Drupal\instructor_companion\Controller\ProspectiveInstructorsController;
 use Drupal\instructor_companion\Service\InstructorInviteManager;
+use Drupal\instructor_companion\Service\InstructorSetupChecklist;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\Tests\UnitTestCase;
 use Drupal\user\UserInterface;
@@ -173,9 +174,9 @@ class EducationWorkflowTest extends UnitTestCase {
       $formatter->expects($this->once())->method('format')
         ->with($sent + InstructorInviteManager::TTL, 'custom', 'M j, Y')->willReturn('Expiry date');
       \Drupal::getContainer()->set('date.formatter', $formatter);
-      $invites = $this->getMockBuilder(InstructorInviteManager::class)
-        ->disableOriginalConstructor()->onlyMethods(['pending'])->getMock();
-      $invites->method('pending')->willReturn([
+      $checklist = $this->getMockBuilder(InstructorSetupChecklist::class)
+        ->disableOriginalConstructor()->onlyMethods(['inProgress'])->getMock();
+      $checklist->method('inProgress')->willReturn([
         17 => [
           'user' => $user,
           'name' => 'Instructor',
@@ -183,9 +184,13 @@ class EducationWorkflowTest extends UnitTestCase {
           'invited_at' => $now - 40 * 86400,
           'last_sent' => $sent,
           'count' => 2,
+          'steps' => [
+            InstructorSetupChecklist::STEP_PROFILE => ['title' => 'Add your photo and bio', 'done' => FALSE],
+            InstructorSetupChecklist::STEP_AGREEMENT => ['title' => 'Sign the instructor agreement', 'done' => FALSE],
+          ],
         ],
       ]);
-      \Drupal::getContainer()->set('instructor_companion.invite', $invites);
+      \Drupal::getContainer()->set('instructor_companion.setup_checklist', $checklist);
       $controller = $this->getMockBuilder(ProspectiveInstructorsController::class)
         ->onlyMethods(['entityTypeManager', 'actionQuery', 'usableLinks'])->getMock();
       $controller->method('entityTypeManager')->willReturn($manager);
@@ -200,6 +205,7 @@ class EducationWorkflowTest extends UnitTestCase {
       $this->assertSame('Expiry date', $row['expires']);
       $this->assertStringContainsString('Education coordinator', (string) $row['follow_up']);
       $this->assertSame($days_since_send > 14, str_contains((string) $row['follow_up'], 'resend the expired link'));
+      $this->assertSame('0 of 2', $row['progress']);
     }
   }
 

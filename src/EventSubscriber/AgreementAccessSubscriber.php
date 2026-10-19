@@ -13,7 +13,9 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Gates the Master Instructor Agreement form behind the orientation badge.
+ * Gates the Master Instructor Agreement form.
+ *
+ * A new instructor reads the Startup Guide first (when one is configured).
  *
  * Today we only enforce the member-fast-lane half of Sub-task 6.4: a logged-in
  * member who hasn't passed the Instructor Orientation Quiz gets bounced to
@@ -67,6 +69,16 @@ final class AgreementAccessSubscriber implements EventSubscriberInterface {
     }
     if (in_array('instructor', $this->currentUser->getRoles(), TRUE)) {
       // Existing instructors can re-sign without re-passing the quiz.
+      return;
+    }
+
+    // The Startup Guide comes before the agreement: the agreement promises to
+    // follow MakeHaven's procedures, and the guide is where they are written.
+    /** @var \Drupal\instructor_companion\Service\InstructorSetupChecklist $checklist */
+    $checklist = \Drupal::service('instructor_companion.setup_checklist');
+    if ($checklist->guideRequiredFirst((int) $this->currentUser->id())) {
+      $this->messenger->addWarning($this->t('Before signing the agreement, please read the Instructor Startup Guide and confirm at the bottom of the page.'));
+      $event->setResponse(new RedirectResponse($checklist->guideNode()->toUrl()->toString()));
       return;
     }
 

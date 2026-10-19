@@ -22,6 +22,21 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 class BecomeInstructorController extends ControllerBase {
 
   /**
+   * The old `/register/instructor` link, kept working for every bookmark.
+   *
+   * Staff have used this URL for years to start onboarding someone, so it
+   * opens the invite form for them. Anyone else gets the public page. It used
+   * to be a redirect entity pointing at one or the other, which left one of
+   * the two audiences on Access denied (update 9019 removes it).
+   */
+  public function legacyRegister(): RedirectResponse {
+    if ($this->currentUser()->hasPermission('access education console')) {
+      return $this->redirect('instructor_companion.invite_form');
+    }
+    return $this->redirect('instructor_companion.become_instructor');
+  }
+
+  /**
    * Builds the page.
    *
    * @return array|\Symfony\Component\HttpFoundation\RedirectResponse

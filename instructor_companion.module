@@ -401,11 +401,8 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = t('Name: @name', ['@name' => $params['user_name']]);
       $message['body'][] = t('Email: @email', ['@email' => $params['user_email']]);
       $message['body'][] = t('User profile: @link', ['@link' => $params['user_link']]);
-      $message['body'][] = t('Next step: reply to this email or contact them directly about their first session — nothing else is needed on the site unless door access is mentioned below.');
-      if (!empty($params['needs_door_review'])) {
-        $queue_url = \Drupal\Core\Url::fromRoute('instructor_companion.prospective_instructors', [], ['absolute' => TRUE])->toString();
-        $message['body'][] = t('Door access: this instructor does NOT already have a building door badge. A pending request was created — review their background and approve building access at: @link', ['@link' => $queue_url]);
-      }
+      $message['body'][] = t('Next step: reply to this email or contact them directly about their first session.');
+      $message['body'][] = t('Building access: like a new member, they watch the orientation video, pass the quiz and book an in-person Site Orientation, where they collect their card. Those steps are on their setup list; you can follow their progress here: @link', ['@link' => $params['setup_url'] ?? '']);
       break;
 
     case 'proposal_approved':
@@ -714,6 +711,19 @@ function instructor_companion_entity_extra_field_info() {
  * theme-agnostic.
  */
 function instructor_companion_node_view(array &$build, EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display, $view_mode) {
+  // The Instructor Startup Guide: signed-in readers confirm they have read
+  // it, which is a step of instructor setup and a column staff can see.
+  if ($view_mode === 'full'
+    && \Drupal::currentUser()->isAuthenticated()
+    && ($guide = \Drupal::service('instructor_companion.setup_checklist')->guideNode())
+    && (int) $guide->id() === (int) $entity->id()) {
+    $build['instructor_guide_ack'] = \Drupal::formBuilder()->getForm(\Drupal\instructor_companion\Form\StartupGuideAcknowledgeForm::class);
+    $build['instructor_guide_ack']['#weight'] = 1000;
+    $build['#cache']['contexts'][] = 'user';
+    $build['#cache']['tags'][] = 'config:instructor_companion.settings';
+    return;
+  }
+
   if ($entity->bundle() !== 'course') {
     return;
   }
@@ -1660,5 +1670,22 @@ function instructor_companion_webform_submission_insert(\Drupal\webform\WebformS
   if ($current === 'approved') {
     \Drupal::service('instructor_companion.proposal_processor')
       ->processApproval($submission);
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update() for user.
+ *
+ * Ticks "Choose a password" on instructor setup when someone changes their
+ * own password. The hash alone cannot say this: an account made by a staff
+ * invite already has a random one.
+ */
+function instructor_companion_user_update(\Drupal\user\UserInterface $account) {
+  if ((int) \Drupal::currentUser()->id() !== (int) $account->id()) {
+    return;
+  }
+  $original = $account->getOriginal();
+  if ($original && $original->getPassword() !== $account->getPassword()) {
+    \Drupal::service('instructor_companion.setup_checklist')->markPasswordSet((int) $account->id());
   }
 }

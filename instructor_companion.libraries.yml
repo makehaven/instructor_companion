@@ -13,3 +13,11 @@ education_console:
       css/education-console.css: {}
   dependencies:
     - core/drupal
+
+setup:
+  version: 1.x
+  css:
+    theme:
+      css/setup.css: {}
+  dependencies:
+    - core/drupal

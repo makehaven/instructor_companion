@@ -37,6 +37,18 @@ services:
       - '@datetime.time'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.setup_checklist:
+    class: Drupal\instructor_companion\Service\InstructorSetupChecklist
+    arguments:
+      - '@entity_type.manager'
+      - '@config.factory'
+      - '@user.data'
+      - '@keyvalue'
+      - '@instructor_companion.approval_gate'
+      - '@instructor_companion.door_access'
+      - '@datetime.time'
+      - '@path_alias.manager'
+
   instructor_companion.sessions:
     class: Drupal\instructor_companion\Service\SessionSchedule
     arguments:

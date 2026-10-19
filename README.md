@@ -56,13 +56,41 @@ dashboard warns an invite-created account that it has no password yet.
 This is the only route by which someone who has not talked to staff can reach
 the agreement — the ordering the 2026-08-13 rollback established.
 
+**Setup checklist (since 2026-10-19).** The invite link no longer drops
+people on the agreement; it signs them in and opens `/instructor/setup`
+(`InstructorSetupChecklist`, `InstructorSetupController`). The steps, in
+order: choose a password (only for accounts the invite made; the link carries
+core's `pass_reset_{uid}` session token so no current password is asked),
+photo + bio on the instructor profile, read the **Instructor Startup Guide**,
+sign the agreement, the **member** orientation video + quiz 1 (passing it puts
+the active Door badge on the account), and an in-person Site Orientation at
+`/schedule` (done when `field_card_serial_number` is set). The same list leads
+the dashboard until it is done, and staff see each invitee's progress in
+**Invited — Setting Up** on the console. Signing no longer mints a pending
+Door request: building access comes from the member path, as the education
+manager decided. Instructors from before invites who already hold an active
+Door badge are not asked to book an orientation.
+
+The Startup Guide is whatever published node sits at `instructor_handbook_url`
+(`/instructor-handbook`), normally a `policy` node synced from Google Docs by
+`makerspace_policy_library`. Signed-in readers get a "Confirm and continue"
+button on that page (`StartupGuideAcknowledgeForm`, stored in `user.data`
+`instructor_companion:startup_guide_ack` with the revision read), and
+`AgreementAccessSubscriber` sends anyone without the `instructor` role back to
+the guide until they confirm. With no node at that path the step and the gate
+both switch off.
+
+**`/register/instructor`** is a route (`BecomeInstructorController::legacyRegister`):
+staff with `access education console` go to the invite form, everyone else to
+`/become-instructor`. `update_9019` deletes the old redirect entity, which
+would otherwise answer first.
+
 **Self-registration (`/user/register?profile=instructor`).** Still exists for
 links in the wild. The account is created with no roles, staff at
 `notification_email` are told, the applicant gets the welcome email, and they
 land on `/become-instructor`, which routes them by who they are (a member can
 propose a session; anyone else is pointed at the interest form). It does **not**
-lead to the agreement. The old `/register/instructor` redirect points at
-`/become-instructor` since `update_9013`.
+lead to the agreement.
 
 ### 1b. Staff view of post-class wrap-up
 

@@ -43,18 +43,22 @@ interest_approval_body: |
   Looking forward to working with you,
   The MakeHaven Education Team
   www.makehaven.org
-invite_subject: 'Your MakeHaven instructor agreement'
+invite_subject: 'Get set up to teach at MakeHaven'
 invite_body: |
   Hi [user:field_first_name],
 
-  Great to have you teaching at MakeHaven. The last step before your first class is the instructor agreement — it takes about five minutes to read and sign.
+  Great to have you teaching at MakeHaven. The link below signs you in and opens your setup list. Each step takes a few minutes, and the list keeps your place:
 
-  Sign it here (this link is yours alone and works for 14 days):
+  1. Add your photo and a short bio for your instructor page
+  2. Read the Instructor Startup Guide
+  3. Sign the instructor agreement
+  4. Watch the member orientation video and pass the quiz
+  5. Book your in-person Site Orientation, where you pick up your access card
+
+  Start here (this link is yours alone and works for 14 days):
   [invite:link]
 
   [invite:note]
-
-  Once you've signed, your instructor dashboard opens automatically — that's where your sessions, class checkout and post-class tasks live. If you're not already a MakeHaven member, we'll set up your building access after you sign.
 
   Questions? Reply to this email or write education@makehaven.org.
 
