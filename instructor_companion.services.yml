@@ -218,6 +218,19 @@ services:
       - '@config.factory'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.preclass_reminder:
+    class: Drupal\instructor_companion\Service\PreClassReminderService
+    arguments:
+      - '@database'
+      - '@state'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+      - '@instructor_companion.sessions'
+      - '@instructor_companion.event_hygiene'
+      - '@request_stack'
+
   instructor_companion.attendee_followup:
     class: Drupal\instructor_companion\Service\AttendeeFollowupService
     arguments:

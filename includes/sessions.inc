@@ -93,6 +93,8 @@ function instructor_companion_civicrm_copy($objectName, &$object, $original_id =
       // survey emails. And a waitlisted copy gets the offer window.
       $hygiene = \Drupal::service('instructor_companion.event_hygiene');
       $hygiene->disableClonedReminders($new_id);
+      // The week-out and day-before reminders come from this module now.
+      \Drupal::service('instructor_companion.preclass_reminder')->retireCiviReminders();
       $hygiene->ensureWaitlistExpiry($new_id);
     }
     catch (\Throwable $e) {

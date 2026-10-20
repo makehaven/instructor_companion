@@ -55,5 +55,6 @@ services:
       - '@state'
       - '@datetime.time'
       - '@instructor_companion.profile_nudge'
+      - '@instructor_companion.preclass_reminder'
     tags:
       - { name: drush.command }

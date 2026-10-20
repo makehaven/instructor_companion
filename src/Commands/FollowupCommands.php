@@ -10,6 +10,7 @@ use Drupal\instructor_companion\Service\AbandonedRegistrationService;
 use Drupal\instructor_companion\Service\AttendeeFollowupService;
 use Drupal\instructor_companion\Service\EventHygieneService;
 use Drupal\instructor_companion\Service\InstructorProfileNudge;
+use Drupal\instructor_companion\Service\PreClassReminderService;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -24,6 +25,7 @@ final class FollowupCommands extends DrushCommands {
     private readonly StateInterface $state,
     private readonly TimeInterface $time,
     private readonly ?InstructorProfileNudge $profileNudge = NULL,
+    private readonly ?PreClassReminderService $preclass = NULL,
   ) {
     parent::__construct();
   }
@@ -179,6 +181,57 @@ final class FollowupCommands extends DrushCommands {
     if (!empty($options['send'])) {
       $n = $this->profileNudge->sendAll();
       $this->io()->success("Sent $n nudge(s).");
+    }
+  }
+
+  /**
+   * Shows the pre-class reminders due now and the CiviCRM ones they replace.
+   *
+   * @command instructor-companion:preclass
+   * @aliases ic-preclass
+   * @option send Actually send, and switch off the replaced CiviCRM reminders
+   *   (only when preclass_enabled is on; default: report only).
+   * @option preview Print the composed email for the first due reminder.
+   * @usage instructor-companion:preclass
+   * @usage instructor-companion:preclass --preview
+   * @usage instructor-companion:preclass --send
+   */
+  public function preclass(array $options = ['send' => FALSE, 'preview' => FALSE]): void {
+    if (!$this->preclass) {
+      $this->io()->error('Pre-class reminder service unavailable.');
+      return;
+    }
+    $now = $this->time->getRequestTime();
+    $state = (array) $this->state->get(PreClassReminderService::STATE_KEY, []);
+    $this->io()->writeln(sprintf('Enabled: %s · types: %s · seeded: %s',
+      $this->preclass->isEnabled() ? 'yes' : 'NO (CiviCRM reminders still run)',
+      implode(',', $this->preclass->eventTypes()),
+      empty($state['_seeded']) ? 'NO (first run records what CiviCRM already sent)' : date('Y-m-d H:i', (int) $state['_seeded'])
+    ));
+    $rows = $this->preclass->due($now);
+    foreach ($rows as $r) {
+      $this->io()->writeln(sprintf('  %-5s %-20s %-32s event %d "%s" %s%s',
+        $r['stage'], $r['first_name'], $r['email'], $r['event_id'], $r['title'], substr($r['start'], 0, 16),
+        isset($state[$r['key']]) ? ' [already sent]' : ''));
+    }
+    if (!$rows) {
+      $this->io()->writeln('  no reminder due right now.');
+    }
+    if (!empty($options['preview']) && $rows) {
+      $r = $rows[0];
+      $message = PreClassReminderService::compose($r, [
+        'week_subject' => '', 'week_body' => '', 'soon_subject' => '', 'soon_body' => '',
+      ], '', $this->preclass->doorPassNote($r['type']), 'https://www.makehaven.org/visit');
+      $this->io()->writeln("\n--- " . $message['subject'] . " ---\n" . $message['body']);
+    }
+    $retire = $this->preclass->civiRemindersToRetire();
+    $this->io()->writeln(sprintf('%d active CiviCRM reminder(s) these replace%s:', count($retire), $this->preclass->isEnabled() ? '' : ' (switched off once enabled)'));
+    foreach ($retire as $x) {
+      $this->io()->writeln(sprintf('  #%d %-26s %s %d "%s"', $x['id'], $x['title'], $x['is_template'] ? 'template' : 'event', $x['event_id'], $x['event_title']));
+    }
+    if (!empty($options['send'])) {
+      $n = $this->preclass->run();
+      $this->io()->success("Sent $n reminder(s).");
     }
   }
 

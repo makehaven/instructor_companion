@@ -122,6 +122,30 @@ instructor_companion.settings:
     abandoned_body:
       type: text
       label: 'Stalled registration body'
+    preclass_enabled:
+      type: boolean
+      label: 'Send the week-out and two-day reminders (and switch off the CiviCRM ones they replace)'
+    preclass_event_types:
+      type: sequence
+      label: 'CiviCRM event types whose attendees get the pre-class reminders'
+      sequence:
+        type: integer
+        label: 'Event type id'
+    preclass_reply_to:
+      type: email
+      label: 'Reply-To on the pre-class reminders'
+    preclass_week_subject:
+      type: label
+      label: 'Week-out reminder subject (empty = built-in)'
+    preclass_week_body:
+      type: text
+      label: 'Week-out reminder body (empty = built-in)'
+    preclass_soon_subject:
+      type: label
+      label: 'Two-day reminder subject (empty = built-in)'
+    preclass_soon_body:
+      type: text
+      label: 'Two-day reminder body (empty = built-in)'
     waitlist_offer_hours:
       type: integer
       label: 'Hours an unpaid waitlist offer stays open (0 = leave events alone)'

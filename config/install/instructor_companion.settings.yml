@@ -145,6 +145,15 @@ abandoned_body: |
 
   The MakeHaven Team
   www.makehaven.org
+preclass_enabled: false
+preclass_event_types:
+  - 6
+  - 16
+preclass_reply_to: education@makehaven.org
+preclass_week_subject: ''
+preclass_week_body: ''
+preclass_soon_subject: ''
+preclass_soon_body: ''
 waitlist_offer_hours: 24
 cloned_reminder_titles:
   - '3 days Later Reminder'

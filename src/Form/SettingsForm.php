@@ -271,6 +271,60 @@ class SettingsForm extends ConfigFormBase {
     }
 
     $followup_types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
+    $preclass = \Drupal::service('instructor_companion.preclass_reminder');
+    $form['preclass'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Before the class: reminders'),
+      '#open' => FALSE,
+      '#description' => $this->t('A reminder a week before and another two days before the class (the first session of a multi-session class), to registered attendees. Someone who registers inside a stage only gets the later one; nothing goes out within six hours of the start. While this is on, the CiviCRM per-event reminders it replaces (one to eight days before the start, on these event types and their templates; GEMS weekly emails excepted) are switched off, so nobody gets both. Dry run: <code>drush ic-preclass</code>.'),
+    ];
+    $form['preclass']['preclass_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Send the pre-class reminders'),
+      '#default_value' => $preclass->isEnabled(),
+    ];
+    if ($followup_types) {
+      $form['preclass']['preclass_event_types'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Event types whose attendees get them'),
+        '#options' => $followup_types,
+        '#default_value' => $preclass->eventTypes(),
+      ];
+    }
+    $form['preclass']['preclass_reply_to'] = [
+      '#type' => 'email',
+      '#title' => $this->t('Replies go to'),
+      '#default_value' => $config->get('preclass_reply_to') ?: \Drupal\instructor_companion\Service\PreClassReminderService::DEFAULT_REPLY_TO,
+      '#description' => $this->t('Both emails say "just reply to this email".'),
+    ];
+    $tokens = $this->t('Plain text. Tokens: <code>[first_name]</code>, <code>[event_title]</code>, <code>[event_date]</code>, <code>[event_time]</code>, <code>[sessions_line]</code> (multi-session classes only), <code>[visit_url]</code>, <code>[door_pass_note]</code> (when the class issues door passes; follows the door-pass send time).');
+    $form['preclass']['preclass_week_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('A week before — subject'),
+      '#default_value' => $config->get('preclass_week_subject') ?: \Drupal\instructor_companion\Service\PreClassReminderService::defaultWeekSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['preclass']['preclass_week_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('A week before — body'),
+      '#default_value' => $config->get('preclass_week_body') ?: \Drupal\instructor_companion\Service\PreClassReminderService::defaultWeekBody(),
+      '#rows' => 16,
+      '#description' => $tokens,
+    ];
+    $form['preclass']['preclass_soon_subject'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Two days before — subject'),
+      '#default_value' => $config->get('preclass_soon_subject') ?: \Drupal\instructor_companion\Service\PreClassReminderService::defaultSoonSubject(),
+      '#maxlength' => 200,
+    ];
+    $form['preclass']['preclass_soon_body'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Two days before — body'),
+      '#default_value' => $config->get('preclass_soon_body') ?: \Drupal\instructor_companion\Service\PreClassReminderService::defaultSoonBody(),
+      '#rows' => 16,
+      '#description' => $tokens,
+    ];
+
     $form['followup'] = [
       '#type' => 'details',
       '#title' => $this->t('After the class: the follow-up loop'),
@@ -464,6 +518,15 @@ class SettingsForm extends ConfigFormBase {
       ->set('invite_subject', $form_state->getValue('invite_subject'))
       ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
+      ->set('preclass_enabled', (bool) $form_state->getValue('preclass_enabled'))
+      ->set('preclass_event_types', $form_state->hasValue('preclass_event_types')
+        ? array_values(array_map('intval', array_filter((array) $form_state->getValue('preclass_event_types'))))
+        : $config->get('preclass_event_types'))
+      ->set('preclass_reply_to', trim((string) $form_state->getValue('preclass_reply_to')))
+      ->set('preclass_week_subject', (string) $form_state->getValue('preclass_week_subject'))
+      ->set('preclass_week_body', (string) $form_state->getValue('preclass_week_body'))
+      ->set('preclass_soon_subject', (string) $form_state->getValue('preclass_soon_subject'))
+      ->set('preclass_soon_body', (string) $form_state->getValue('preclass_soon_body'))
       ->set('followup_enabled', (bool) $form_state->getValue('followup_enabled'))
       ->set('followup_delay_days', (int) $form_state->getValue('followup_delay_days'))
       ->set('followup_event_types', $form_state->hasValue('followup_event_types')

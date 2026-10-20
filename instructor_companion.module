@@ -49,6 +49,9 @@ function instructor_companion_cron() {
   // A week after the last session: join / tour offer to non-member attendees,
   // "your badge is waiting" to members whose badge_request is still pending.
   \Drupal::service('instructor_companion.attendee_followup')->run();
+  // A week and two days before a workshop: the reminders that replaced
+  // CiviCRM's per-event ones (off until preclass_enabled).
+  \Drupal::service('instructor_companion.preclass_reminder')->run();
   // A day after a registration stalled at payment, while a seat is open.
   \Drupal::service('instructor_companion.abandoned_registration')->run();
   // Waitlisted events made outside the CiviCRM copy path get the offer window
@@ -535,6 +538,8 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = (string) $params['body'];
       break;
 
+    case 'preclass_reminder_week':
+    case 'preclass_reminder_soon':
     case 'attendee_join_offer':
     case 'attendee_badge_nudge':
     case 'abandoned_registration':
