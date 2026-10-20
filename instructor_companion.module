@@ -70,6 +70,22 @@ function instructor_companion_entity_insert(EntityInterface $entity) {
   if ($entity instanceof WebformSubmissionInterface) {
     \Drupal::service('instructor_companion.proposal_notifier')
       ->notifyForSubmission($entity);
+    // A proposal's photo and bio go onto an existing instructor profile
+    // that has none (the public page reads only the profile).
+    if ($entity->getWebform()->id() === \Drupal\instructor_companion\Service\InstructorProfileFiller::PROPOSAL_WEBFORM) {
+      try {
+        \Drupal::service('instructor_companion.profile_filler')->fillForProposal(
+          (int) $entity->getOwnerId(),
+          trim((string) $entity->getElementData(\Drupal\instructor_companion\Service\InstructorProfileFiller::EMAIL_ELEMENT))
+        );
+      }
+      catch (\Throwable $e) {
+        \Drupal::logger('instructor_companion')->error('Filling instructor profile from proposal @sid failed: @m', [
+          '@sid' => $entity->id(),
+          '@m' => $e->getMessage(),
+        ]);
+      }
+    }
   }
   _instructor_companion_maybe_release_holds($entity);
 }
@@ -1603,6 +1619,30 @@ function instructor_companion_webform_submission_form_alter(array &$form, FormSt
   $form['elements']['event_id']['#default_value'] = $event_id;
 
   $account = \Drupal::currentUser();
+  // One feedback per instructor per class (Ashley, 2026-10-20; a double
+  // click had filed two). A second visit edits the first instead.
+  if ($submission->isNew() && !$account->isAnonymous()) {
+    $existing = instructor_companion_existing_feedback_sid($event_id, (int) $account->id());
+    if ($existing) {
+      foreach (\Drupal\Core\Render\Element::children($form['elements']) as $key) {
+        $form['elements'][$key]['#access'] = FALSE;
+      }
+      $form['actions']['#access'] = FALSE;
+      $form['already_sent'] = [
+        '#weight' => -100,
+        '#markup' => '<div class="messages messages--status">'
+          . t('You already sent feedback for this class. <a href=":url">Open it to review or change it</a>.', [
+            ':url' => \Drupal\Core\Url::fromRoute('entity.webform_submission.edit_form', [
+              'webform' => 'instructor_feedback',
+              'webform_submission' => $existing,
+            ])->toString(),
+          ])
+          . '</div>',
+      ];
+      return;
+    }
+    $form['#validate'][] = 'instructor_companion_feedback_once_validate';
+  }
   if (!$account->isAnonymous() && empty($form['elements']['instructor_uid']['#default_value'])) {
     $form['elements']['instructor_uid']['#default_value'] = (string) $account->id();
   }
@@ -1614,6 +1654,34 @@ function instructor_companion_webform_submission_form_alter(array &$form, FormSt
     if ($list !== '') {
       $attendance['#default_value'] = $list;
     }
+  }
+}
+
+/**
+ * Sid of this instructor's feedback for a class, if any.
+ */
+function instructor_companion_existing_feedback_sid(int $event_id, int $uid): ?int {
+  $q = \Drupal::database()->select('webform_submission', 's');
+  $q->innerJoin('webform_submission_data', 'd', "d.sid = s.sid AND d.name = 'event_id'");
+  $q->addField('s', 'sid');
+  $q->condition('s.webform_id', 'instructor_feedback')
+    ->condition('s.uid', $uid)
+    ->condition('s.in_draft', 0)
+    ->condition('d.value', (string) $event_id)
+    ->orderBy('s.sid')
+    ->range(0, 1);
+  $sid = $q->execute()->fetchField();
+  return $sid ? (int) $sid : NULL;
+}
+
+/**
+ * Validator: refuses a second feedback for the same class (double clicks).
+ */
+function instructor_companion_feedback_once_validate(array &$form, FormStateInterface $form_state): void {
+  $event_id = (int) $form_state->getValue('event_id');
+  $uid = (int) \Drupal::currentUser()->id();
+  if ($event_id && $uid && instructor_companion_existing_feedback_sid($event_id, $uid)) {
+    $form_state->setErrorByName('event_id', t('You already sent feedback for this class. Open it from your Instructor Dashboard to change it.'));
   }
 }
 

@@ -66,6 +66,18 @@ class InstructorAgreementHandler extends WebformHandlerBase {
       ]);
     }
 
+    // The photo and bio they sent with a proposal (often before this profile
+    // existed, often logged out) go onto the new or empty profile.
+    try {
+      \Drupal::service('instructor_companion.profile_filler')->fill($profile);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('instructor_companion')->error('Filling instructor profile @p failed: @m', [
+        '@p' => $profile->id(),
+        '@m' => $e->getMessage(),
+      ]);
+    }
+
     // Grant the instructor role so the dashboard and profile tools become
     // accessible immediately. Staff approval still gates actual teaching via
     // field_instructor_status on the profile.

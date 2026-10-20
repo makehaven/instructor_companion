@@ -164,7 +164,7 @@ class PostEventHubController extends ControllerBase {
         // Mirrors the dashboard's existing pattern of pointing at the
         // (soon-to-exist) per-event webform path. event_id prefills the form.
         $url = Url::fromUserInput('/form/instructor-feedback', ['query' => ['event_id' => $event_id]]);
-        $label = $done ? $this->t('Edit / resubmit') : $this->t('Fill out feedback');
+        $label = $done ? $this->t('Review / edit') : $this->t('Fill out feedback');
         break;
 
       case PostEventStatusService::STEP_PAYMENT:

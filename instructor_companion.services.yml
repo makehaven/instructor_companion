@@ -218,6 +218,15 @@ services:
       - '@config.factory'
       - '@logger.channel.instructor_companion'
 
+  instructor_companion.profile_filler:
+    class: Drupal\instructor_companion\Service\InstructorProfileFiller
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@file.repository'
+      - '@file_system'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.preclass_reminder:
     class: Drupal\instructor_companion\Service\PreClassReminderService
     arguments:

@@ -185,6 +185,39 @@ final class FollowupCommands extends DrushCommands {
   }
 
   /**
+   * Lists instructor profiles missing a photo or bio that a proposal can fill.
+   *
+   * @command instructor-companion:fill-profiles
+   * @aliases ic-fill-profiles
+   * @option apply Fill them (default: list only).
+   * @usage instructor-companion:fill-profiles
+   * @usage instructor-companion:fill-profiles --apply
+   */
+  public function fillProfiles(array $options = ['apply' => FALSE]): void {
+    $filler = \Drupal::service('instructor_companion.profile_filler');
+    $n = 0;
+    foreach ($filler->incompleteProfiles() as $profile) {
+      $plan = $filler->plan($profile);
+      if (!$plan) {
+        continue;
+      }
+      $n++;
+      $what = [];
+      if (isset($plan['photo'])) {
+        $what[] = 'photo from ' . $plan['photo']['source'] . ' (file ' . $plan['photo']['fid'] . ')';
+      }
+      if (isset($plan['bio'])) {
+        $what[] = 'bio from proposal ' . $plan['bio']['sid'];
+      }
+      $this->io()->writeln(sprintf('  profile %d %-26s %s', $profile->id(), $profile->getOwner()->getDisplayName(), implode('; ', $what)));
+      if (!empty($options['apply'])) {
+        $filler->fill($profile);
+      }
+    }
+    $this->io()->writeln($n ? "$n profile(s) " . (!empty($options['apply']) ? 'filled.' : 'can be filled (--apply).') : 'Nothing to fill.');
+  }
+
+  /**
    * Shows the pre-class reminders due now and the CiviCRM ones they replace.
    *
    * @command instructor-companion:preclass
