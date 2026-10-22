@@ -1534,22 +1534,37 @@ function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $vi
  * + event type Ticketed Workshop/Program) so the public list and the KPI
  * cannot drift. The view's own filters still require a published Instructor
  * profile, so a qualifying instructor with no profile simply does not appear
- * (decision: require both). Window is a rolling 24 months.
+ * (decision: require both). Window is a rolling 24 months back and 12
+ * months forward, so a scheduled first class counts.
+ *
+ * Instructors onboarded in the last 12 months are listed before they have
+ * taught: Ashley found newly approved instructors (e.g. uid 5810, approved
+ * 2026-10-16) missing and read the page as out of date (feedback sid 20819).
  *
  * @see \Drupal\makerspace_dashboard\Service\EventsMembershipDataService::getActiveInstructorDemographics()
  */
 function _instructor_companion_gate_instructors_directory(\Drupal\views\ViewExecutable $view, \Drupal\views\Plugin\views\query\QueryPluginBase $query): void {
-  $end = new \DateTimeImmutable('now');
-  $start = $end->modify('-24 months');
+  $now = new \DateTimeImmutable('now');
+  $start = $now->modify('-24 months');
+  $end = $now->modify('+12 months');
 
   /** @var \Drupal\makerspace_dashboard\Service\EventsMembershipDataService $service */
   $service = \Drupal::service('makerspace_dashboard.events_membership_data');
   $data = $service->getActiveInstructorDemographics($start, $end);
 
-  $uids = array_values(array_unique(array_filter(array_map(
+  $uids = array_map(
     static fn (array $row): int => (int) ($row['uid'] ?? 0),
     $data['instructors'] ?? []
-  ))));
+  );
+
+  // Newly onboarded instructors, who have not had a class yet.
+  $new = \Drupal::database()->select('profile', 'p')
+    ->fields('p', ['uid'])
+    ->condition('p.type', 'instructor')
+    ->condition('p.created', $now->modify('-12 months')->getTimestamp(), '>=')
+    ->execute()
+    ->fetchCol();
+  $uids = array_values(array_unique(array_filter(array_merge($uids, array_map('intval', $new)))));
 
   if ($uids) {
     // profile.uid is the Instructor profile owner; the KPI service returns
@@ -1569,6 +1584,7 @@ function _instructor_companion_gate_instructors_directory(\Drupal\views\ViewExec
   $view->element['#cache']['tags'][] = 'civicrm_event_list';
   $view->element['#cache']['tags'][] = 'user_list';
   $view->element['#cache']['tags'][] = 'civicrm_contact_list';
+  $view->element['#cache']['tags'][] = 'profile_list';
 }
 
 /**
