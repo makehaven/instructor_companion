@@ -1048,6 +1048,14 @@ class EducationConsoleController extends ControllerBase {
     $yearStart = $now->modify('first day of January this year')->setTime(0, 0, 0);
 
     $sessions = $this->countWorkshopSessions($monthStart, $monthEnd);
+    // The next three months too, so a thin calendar shows while there is
+    // still time to fill it (Ashley, feedback sid 20807).
+    $ahead = [];
+    for ($i = 1; $i <= 3; $i++) {
+      $from = $monthStart->modify("+$i month");
+      $count = $this->countWorkshopSessions($from, $from->modify('+1 month'));
+      $ahead[] = $from->format('M') . ' ' . ($count === NULL ? '—' : $count);
+    }
     $waitlist = $this->countWaitlisted($yearStart);
     $fill = $this->fillRate($ninetyAgo, $now);
     $evals = $this->evaluationResponseRate($ninetyAgo, $now);
@@ -1081,7 +1089,10 @@ class EducationConsoleController extends ControllerBase {
         'sessions' => $this->goalTile(
           $this->t('Workshop sessions this month'),
           $pace,
-          $this->t('Ticketed Workshops, against the @n a month the budget assumes', ['@n' => self::SESSIONS_TARGET_PER_MONTH]),
+          $this->t('Ticketed Workshops, against the @n a month the budget assumes. Scheduled ahead: @ahead', [
+            '@n' => self::SESSIONS_TARGET_PER_MONTH,
+            '@ahead' => implode(' · ', $ahead),
+          ]),
           Url::fromRoute('instructor_companion.workshops_console'),
           $sessions === NULL ? NULL : ($sessions >= self::SESSIONS_TARGET_PER_MONTH ? 'clear' : 'attention')
         ),
@@ -1363,7 +1374,12 @@ class EducationConsoleController extends ControllerBase {
     }
     try {
       $rows = $this->database->query(
-        "SELECT COALESCE(n.title, :unlinked) AS course,
+        // A workshop with no course is named by its own title rather than
+        // lumped into one "not linked" row, which read as 16 people waiting
+        // on nothing (Ashley, feedback sid 20806).
+        "SELECT COALESCE(n.title, e.title) AS course,
+                MAX(n.nid) AS course_nid,
+                MAX(CASE WHEN n.nid IS NULL THEN e.id END) AS unlinked_event,
                 COUNT(*) AS waiting,
                 COUNT(DISTINCT e.id) AS runs,
                 MAX(e.start_date) AS latest
@@ -1373,13 +1389,12 @@ class EducationConsoleController extends ControllerBase {
          LEFT JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id
          LEFT JOIN {node_field_data} n ON n.nid = pc.field_parent_course_target_id
          WHERE p.is_test = 0 AND p.status_id IN (7, 9) AND e.start_date >= :since
-         GROUP BY n.nid, n.title
+         GROUP BY n.nid, CASE WHEN n.nid IS NULL THEN e.title END, COALESCE(n.title, e.title)
          ORDER BY waiting DESC
          LIMIT 8",
         [
           ':type' => $type,
           ':since' => $since->format('Y-m-d H:i:s'),
-          ':unlinked' => (string) $this->t('Not linked to a course'),
         ]
       )->fetchAll();
     }
@@ -1392,8 +1407,21 @@ class EducationConsoleController extends ControllerBase {
 
     $table_rows = [];
     foreach ($rows as $row) {
+      $course = $row->course;
+      if (!$row->course_nid && $row->unlinked_event) {
+        $course = [
+          'data' => [
+            'title' => ['#plain_text' => $row->course . ' '],
+            'link' => [
+              '#type' => 'link',
+              '#title' => $this->t('(no course — link it)'),
+              '#url' => Url::fromRoute('instructor_companion.event_reassign_form', ['event_id' => $row->unlinked_event]),
+            ],
+          ],
+        ];
+      }
       $table_rows[] = [
-        $row->course,
+        $course,
         $row->waiting,
         $row->runs,
         $row->latest ? $this->dateFormatter->format(strtotime($row->latest), 'custom', 'j M Y') : '—',
