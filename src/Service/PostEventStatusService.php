@@ -731,17 +731,33 @@ class PostEventStatusService {
       $q->innerJoin('payment_request__field_payee', 'payee', 'pr.id = payee.entity_id AND payee.deleted = 0');
       $q->innerJoin('payment_request__field_event', 'ev', 'pr.id = ev.entity_id AND ev.deleted = 0');
       $q->leftJoin('payment_request__field_status', 'st', 'pr.id = st.entity_id AND st.deleted = 0');
+      $q->leftJoin('payment_request__field_class_date', 'cd', 'pr.id = cd.entity_id AND cd.deleted = 0');
       $q->addField('st', 'field_status_value', 'status');
+      $q->addField('cd', 'field_class_date_value', 'class_date');
       $q->condition('payee.field_payee_target_id', $instructor_uid);
       $q->condition('ev.field_event_target_id', $event_id);
-      $statuses = array_map('strtolower', array_filter($q->execute()->fetchCol(), 'strlen'));
+      $rows = $q->execute()->fetchAll();
     }
     catch (\Throwable $e) {
       return ['done' => FALSE, 'detail' => NULL];
     }
+    $statuses = array_map('strtolower', array_filter(array_map(fn($r) => (string) $r->status, $rows), 'strlen'));
+    // A class that meets more than once is billed per session (the payment
+    // form asks which one), so say how many sessions are logged so far.
+    $suffix = '';
+    $total = count($this->sessions()->getSchedule($event_id));
+    if ($total > 1 && $rows) {
+      $dates = [];
+      foreach ($rows as $r) {
+        if (strtolower((string) $r->status) !== 'rejected' && $r->class_date) {
+          $dates[substr((string) $r->class_date, 0, 10)] = TRUE;
+        }
+      }
+      $suffix = sprintf(' · %d of %d sessions logged', count($dates), $total);
+    }
     foreach (['paid', 'approved', 'submitted'] as $rank) {
       if (in_array($rank, $statuses, TRUE)) {
-        return ['done' => TRUE, 'detail' => ucfirst($rank)];
+        return ['done' => TRUE, 'detail' => ucfirst($rank) . $suffix];
       }
     }
     // Hourly contractor requests stay `draft` until the 1st/15th
@@ -750,7 +766,7 @@ class PostEventStatusService {
     // are logged; counting it as missing kept reminding instructors to do
     // something they had done.
     if (in_array('draft', $statuses, TRUE)) {
-      return ['done' => TRUE, 'detail' => 'Logged, in the next pay batch'];
+      return ['done' => TRUE, 'detail' => 'Logged, in the next pay batch' . $suffix];
     }
     return ['done' => FALSE, 'detail' => NULL];
   }

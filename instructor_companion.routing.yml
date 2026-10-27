@@ -158,6 +158,17 @@ instructor_companion.attendance:
     _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
     event_id: '\d+'
 
+instructor_companion.class_email:
+  path: '/instructor/class-email/{event_id}'
+  defaults:
+    _form: '\Drupal\instructor_companion\Form\EmailClassForm'
+    _title: 'Email your class'
+  requirements:
+    _custom_access: '\Drupal\instructor_companion\Form\EmailClassForm::access'
+    event_id: '\d+'
+  options:
+    no_cache: TRUE
+
 instructor_companion.settings:
   path: '/admin/config/makerspace/instructor-companion'
   defaults:

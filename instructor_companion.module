@@ -554,6 +554,7 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = (string) $params['body'];
       break;
 
+    case 'class_message':
     case 'preclass_reminder_week':
     case 'preclass_reminder_soon':
     case 'attendee_join_offer':

@@ -3,6 +3,7 @@
 namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\instructor_companion\Service\SessionSchedule;
@@ -73,12 +74,17 @@ class PostEventHubController extends ControllerBase {
       $last = end($schedule);
       $build['in_progress'] = [
         '#markup' => '<div class="messages messages--status peh-inprogress">'
-        . $this->t('This class is still running: next session @next, last session @last. Attendance can be saved for each session now; badges, feedback and the payment request are due after the last one — we will remind you then.', [
+        . $this->t('This class is still running: next session @next, last session @last. Save attendance and log your hours after each session; badges and feedback are due after the last one — we will remind you then.', [
           '@next' => $next ? SessionSchedule::label($next['start']) : '',
           '@last' => SessionSchedule::label($last['start']),
         ]) . '</div>',
       ];
     }
+
+    $build['email_class'] = [
+      '#markup' => '<p class="peh-email-class">' . Link::fromTextAndUrl($this->t('Email your class'), Url::fromRoute('instructor_companion.class_email', ['event_id' => $event_id]))->toString()
+      . ' · ' . $this->t('a thank-you, the slides, or what to bring next time') . '</p>',
+    ];
 
     if ($status['all_complete']) {
       $build['done'] = [

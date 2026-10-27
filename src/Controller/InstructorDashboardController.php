@@ -811,6 +811,10 @@ class InstructorDashboardController extends ControllerBase {
       'title' => $this->t('Roster'),
       'url' => $roster_url,
     ];
+    $links['email_class'] = [
+      'title' => $this->t('Email your class'),
+      'url' => Url::fromRoute('instructor_companion.class_email', ['event_id' => $event_id]),
+    ];
     if ($payment_url) {
       $links['log_hours'] = [
         'title' => $this->t('Log hours for this class'),
