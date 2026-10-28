@@ -305,13 +305,14 @@ class InstructorInviteManager {
   }
 
   /**
-   * The invite body without its Guidebook step, renumbered.
+   * The invite body without its Guidebook link, renumbered.
    *
    * While the Guidebook is unpublished (under review) its link answers
-   * Access denied, and the setup list skips the step. The invite copy is
+   * Access denied: the step says "coming soon" ($coming_soon), or drops out
+   * when there is no Guidebook page at all. The invite copy is
    * staff-editable, so the step is found by its link rather than its number.
    */
-  public static function withoutGuideStep(string $body, string $guide_path): string {
+  public static function withoutGuideStep(string $body, string $guide_path, bool $coming_soon = FALSE): string {
     $guide_path = trim($guide_path, '/');
     if ($guide_path === '') {
       return $body;
@@ -322,7 +323,11 @@ class InstructorInviteManager {
     foreach ($lines as $line) {
       $numbered = preg_match('/^\s*\d+\.\s/', $line);
       if ($numbered && str_contains($line, $guide_path)) {
-        continue;
+        if (!$coming_soon) {
+          continue;
+        }
+        // Keep its place in the list, without the link.
+        $line = preg_replace('/^(\s*)\d+\..*$/', '${1}0. The Instructor Guidebook: coming soon. It will be on your dashboard when it is ready.', $line);
       }
       if ($numbered) {
         $line = preg_replace('/^(\s*)\d+\./', '${1}' . ++$n . '.', $line);

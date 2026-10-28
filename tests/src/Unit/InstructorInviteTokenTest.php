@@ -75,4 +75,19 @@ class InstructorInviteTokenTest extends UnitTestCase {
     $this->assertSame($body, InstructorInviteManager::withoutGuideStep($body, ''), 'No guide link configured: body untouched.');
   }
 
+  /**
+   * Under review, the step stays in its place and says "coming soon".
+   *
+   * @covers ::withoutGuideStep
+   */
+  public function testGuideStepSaysComingSoonWhileUnderReview(): void {
+    $body = "1. Add your photo and a short bio\r\n"
+      . "2. Read the Instructor Guidebook: https://www.makehaven.org/instructor-handbook\r\n"
+      . "3. Sign the instructor agreement\r\n";
+    $out = InstructorInviteManager::withoutGuideStep($body, '/instructor-handbook', TRUE);
+
+    $this->assertStringNotContainsString('instructor-handbook', $out);
+    $this->assertStringContainsString("1. Add your photo and a short bio\n2. The Instructor Guidebook: coming soon. It will be on your dashboard when it is ready.\n3. Sign the instructor agreement\n", $out);
+  }
+
 }

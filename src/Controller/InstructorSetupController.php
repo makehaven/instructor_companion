@@ -67,13 +67,14 @@ class InstructorSetupController extends ControllerBase {
         '#wrapper_attributes' => [
           'class' => array_filter([
             'instructor-setup__step',
-            $step['done'] ? 'is-done' : NULL,
+            $step['done'] && empty($step['pending']) ? 'is-done' : NULL,
+            !empty($step['pending']) ? 'is-pending' : NULL,
             $is_next ? 'is-next' : NULL,
             $step['locked'] !== '' ? 'is-locked' : NULL,
           ]),
           'data-step' => $key,
         ],
-        'state' => ['#markup' => '<span class="instructor-setup__state">' . ($step['done'] ? '✓' : '○') . '</span> '],
+        'state' => ['#markup' => '<span class="instructor-setup__state">' . (!empty($step['pending']) ? '…' : ($step['done'] ? '✓' : '○')) . '</span> '],
         'title' => $title,
         'help' => ['#markup' => '<div class="instructor-setup__help">' . htmlspecialchars($step['locked'] !== '' ? $step['locked'] : $step['help']) . '</div>'],
       ];

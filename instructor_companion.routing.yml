@@ -442,3 +442,11 @@ instructor_companion.closeout_close:
     event_id: \d+
   options:
     _admin_route: TRUE
+
+instructor_companion.guidebook_coming_soon:
+  path: '/instructor-handbook/coming-soon'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\BecomeInstructorController::guidebookComingSoon'
+    _title: 'Instructor Guidebook'
+  requirements:
+    _access: 'TRUE'

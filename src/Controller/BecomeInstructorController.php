@@ -99,6 +99,11 @@ class BecomeInstructorController extends ControllerBase {
       ];
       $build['#cache']['tags'][] = 'node:' . $guide->id();
     }
+    elseif (\Drupal::service('instructor_companion.setup_checklist')->guidePending()) {
+      $build['what_to_expect']['guidebook'] = [
+        '#markup' => '<p>' . $this->t('How classes run day to day, from arrival to getting paid: the Instructor Guidebook, coming soon.') . '</p>',
+      ];
+    }
 
     $build['teaching_options'] = [
       '#type' => 'container',
@@ -200,6 +205,21 @@ class BecomeInstructorController extends ControllerBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Where the Guidebook link lands while it is under review.
+   */
+  public function guidebookComingSoon() {
+    $guide = \Drupal::service('instructor_companion.setup_checklist')->guideNode();
+    if ($guide) {
+      return new \Symfony\Component\HttpFoundation\RedirectResponse($guide->toUrl()->toString());
+    }
+    return [
+      '#markup' => '<p class="lead">' . $this->t('The Instructor Guidebook is coming soon. Our education team is finishing it.') . '</p>'
+        . '<p>' . $this->t('Questions in the meantime: <a href="mailto:education@makehaven.org">education@makehaven.org</a>.') . '</p>',
+      '#cache' => ['max-age' => 0],
+    ];
   }
 
 }

@@ -115,6 +115,16 @@ class InstructorDashboardController extends ControllerBase {
           ],
         ];
       }
+      elseif ($checklist->guidePending()) {
+        $build['guidebook'] = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['instructor-guidebook-link']],
+          '#weight' => -80,
+          'note' => [
+            '#markup' => '<span class="instructor-guidebook-link__note">' . $this->t('<strong>Instructor Guidebook: coming soon.</strong> Our education team is finishing it; it will appear here when it is ready.') . '</span>',
+          ],
+        ];
+      }
     }
 
     // 1. Dashboard Header / Stats & Profile.
@@ -245,6 +255,11 @@ class InstructorDashboardController extends ControllerBase {
           '#title' => $label,
           '#url' => $url,
           '#attributes' => ['class' => ['toolkit-link-card']],
+        ];
+      }
+      elseif ($label === 'Instructor Handbook' && \Drupal::service('instructor_companion.setup_checklist')->guidePending()) {
+        $toolkit_items[] = [
+          '#markup' => '<span class="toolkit-link-card is-pending">' . $this->t('Instructor Handbook (coming soon)') . '</span>',
         ];
       }
     }

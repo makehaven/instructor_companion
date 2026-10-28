@@ -206,6 +206,14 @@ services:
     tags:
       - { name: event_subscriber }
 
+  instructor_companion.guidebook_coming_soon_subscriber:
+    class: Drupal\instructor_companion\EventSubscriber\GuidebookComingSoonSubscriber
+    arguments:
+      - '@current_route_match'
+      - '@instructor_companion.setup_checklist'
+    tags:
+      - { name: event_subscriber }
+
   instructor_companion.post_workshop_redirect_subscriber:
     class: Drupal\instructor_companion\EventSubscriber\PostWorkshopRedirectSubscriber
     tags:

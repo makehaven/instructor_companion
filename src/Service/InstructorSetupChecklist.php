@@ -60,6 +60,33 @@ class InstructorSetupChecklist {
    * that address.
    */
   public function guideNode(): ?NodeInterface {
+    $node = $this->nodeAtGuideLink();
+    return $node && $node->isPublished() ? $node : NULL;
+  }
+
+  /**
+   * Whether the Guidebook page exists but is unpublished for review.
+   *
+   * The education manager asked (2026-10-28) that instructors see "coming
+   * soon" rather than nothing until they have approved the text.
+   */
+  public function guidePending(): bool {
+    $node = $this->nodeAtGuideLink();
+    return $node !== NULL && !$node->isPublished();
+  }
+
+  /**
+   * The id of the Guidebook page while it is unpublished, else 0.
+   */
+  public function pendingGuideId(): int {
+    $node = $this->nodeAtGuideLink();
+    return $node && !$node->isPublished() ? (int) $node->id() : 0;
+  }
+
+  /**
+   * The node at the handbook link, published or not.
+   */
+  protected function nodeAtGuideLink(): ?NodeInterface {
     $path = trim((string) $this->configFactory->get('instructor_companion.settings')->get('instructor_handbook_url'));
     if ($path === '' || !str_starts_with($path, '/')) {
       return NULL;
@@ -69,7 +96,7 @@ class InstructorSetupChecklist {
       return NULL;
     }
     $node = $this->entityTypeManager->getStorage('node')->load((int) $m[1]);
-    return $node instanceof NodeInterface && $node->isPublished() ? $node : NULL;
+    return $node instanceof NodeInterface ? $node : NULL;
   }
 
   /**
@@ -115,7 +142,7 @@ class InstructorSetupChecklist {
    *   account form lets them choose a password without knowing the current
    *   one (an invite-made account has a random one nobody knows).
    *
-   * @return array<string, array{title: string, help: string, done: bool, url: ?\Drupal\Core\Url, locked: string}>
+   * @return array<string, array{title: string, help: string, done: bool, pending?: bool, url: ?\Drupal\Core\Url, locked: string}>
    *   Steps keyed by STEP_* constant.
    */
   public function steps(UserInterface $user, ?string $pass_reset_token = NULL): array {
@@ -158,6 +185,17 @@ class InstructorSetupChecklist {
           : 'How classes run here: getting in, the room, supplies, class day, attendance, getting paid, and what to do in an emergency. Confirm at the bottom of the page.',
         'done' => $ack !== NULL,
         'url' => $guide->toUrl(),
+        'locked' => '',
+      ];
+    }
+    elseif ($this->guidePending()) {
+      // Nothing to do yet, so it does not hold setup open.
+      $steps[self::STEP_GUIDE] = [
+        'title' => 'Instructor Guidebook: coming soon',
+        'help' => 'Our education team is finishing it. It will appear here when it is ready.',
+        'done' => TRUE,
+        'pending' => TRUE,
+        'url' => NULL,
         'locked' => '',
       ];
     }
