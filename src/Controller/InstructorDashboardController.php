@@ -115,7 +115,8 @@ class InstructorDashboardController extends ControllerBase {
           ],
         ];
       }
-      elseif ($checklist->guidePending()) {
+      elseif ($checklist->guidePending() && empty($build['setup'])) {
+        // While setup shows, its list already says "coming soon".
         $build['guidebook'] = [
           '#type' => 'container',
           '#attributes' => ['class' => ['instructor-guidebook-link']],
