@@ -237,7 +237,9 @@ class InstructorDashboardController extends ControllerBase {
 
     foreach ($toolkit_links as $label => $value) {
       $url = $value instanceof Url ? $value : $this->buildToolkitUrl($value);
-      if ($url) {
+      // A link to a page they cannot open (the Guidebook while it is
+      // unpublished for review) would only answer Access denied.
+      if ($url && $url->access()) {
         $toolkit_items[] = [
           '#type' => 'link',
           '#title' => $label,
@@ -246,6 +248,9 @@ class InstructorDashboardController extends ControllerBase {
         ];
       }
     }
+
+    // Publishing or unpublishing the Guidebook changes which links show.
+    $build['#cache']['tags'][] = 'node_list';
 
     if (!empty($toolkit_items)) {
       $build['toolkit']['links'] = [

@@ -387,6 +387,11 @@ function instructor_companion_mail($key, &$message, $params) {
         $replacements['[user:field_first_name]'] = $invitee->getDisplayName();
       }
       $body = strtr($body_tpl, $replacements);
+      // No published Guidebook (it is under review): the setup list skips
+      // the step, so the email must not send them to an Access denied page.
+      if (!\Drupal::service('instructor_companion.setup_checklist')->guideNode()) {
+        $body = \Drupal\instructor_companion\Service\InstructorInviteManager::withoutGuideStep($body, (string) $config->get('instructor_handbook_url'));
+      }
       // Collapse the blank lines an empty note leaves behind.
       $body = preg_replace("/\n{3,}/", "\n\n", $body);
       $message['from'] = $config->get('notification_email') ?: \Drupal::config('system.site')->get('mail');

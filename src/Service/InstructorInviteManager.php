@@ -305,6 +305,38 @@ class InstructorInviteManager {
   }
 
   /**
+   * The invite body without its Guidebook step, renumbered.
+   *
+   * While the Guidebook is unpublished (under review) its link answers
+   * Access denied, and the setup list skips the step. The invite copy is
+   * staff-editable, so the step is found by its link rather than its number.
+   */
+  public static function withoutGuideStep(string $body, string $guide_path): string {
+    $guide_path = trim($guide_path, '/');
+    if ($guide_path === '') {
+      return $body;
+    }
+    $lines = preg_split('/\r?\n/', $body);
+    $kept = [];
+    $n = 0;
+    foreach ($lines as $line) {
+      $numbered = preg_match('/^\s*\d+\.\s/', $line);
+      if ($numbered && str_contains($line, $guide_path)) {
+        continue;
+      }
+      if ($numbered) {
+        $line = preg_replace('/^(\s*)\d+\./', '${1}' . ++$n . '.', $line);
+      }
+      elseif (trim($line) === '') {
+        // A blank line ends the list; a later list numbers from 1.
+        $n = 0;
+      }
+      $kept[] = $line;
+    }
+    return implode("\n", $kept);
+  }
+
+  /**
    * A username Drupal will accept that no other account holds.
    */
   protected function uniqueUsername(string $base): string {

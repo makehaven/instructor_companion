@@ -57,4 +57,22 @@ class InstructorInviteTokenTest extends UnitTestCase {
     ];
   }
 
+  /**
+   * @covers ::withoutGuideStep
+   */
+  public function testGuideStepDropsOutAndTheListRenumbers(): void {
+    $body = "Hi Sam,\r\n\r\nThe list keeps your place:\r\n\r\n"
+      . "1. Add your photo and a short bio\r\n"
+      . "2. Read the Instructor Guidebook: https://www.makehaven.org/instructor-handbook\r\n"
+      . "3. Sign the instructor agreement\r\n"
+      . "4. Watch the member orientation video\r\n\r\n"
+      . "Start here:\r\nhttps://example.com/link\r\n";
+    $out = InstructorInviteManager::withoutGuideStep($body, '/instructor-handbook');
+
+    $this->assertStringNotContainsString('Guidebook', $out);
+    $this->assertStringContainsString("1. Add your photo and a short bio\n2. Sign the instructor agreement\n3. Watch the member orientation video\n", $out);
+    $this->assertStringContainsString("Start here:\nhttps://example.com/link", $out);
+    $this->assertSame($body, InstructorInviteManager::withoutGuideStep($body, ''), 'No guide link configured: body untouched.');
+  }
+
 }
