@@ -198,11 +198,29 @@ abstract class SubmissionQueueControllerBase extends ControllerBase {
       $row[$key] = $cell;
     }
     $row['age'] = $age;
+    // Plain buttons, not a dropbutton: Gin's dropbutton menu was clipped by
+    // the table's scroll wrapper, leaving only Defer and Deny clickable.
+    $buttons = [];
+    foreach ($links as $key => $link) {
+      $classes = ['button', 'button--small'];
+      if ($key === 'review') {
+        $classes[] = 'button--primary';
+      }
+      elseif ($key === 'denied') {
+        $classes[] = 'button--danger';
+      }
+      $buttons[$key] = [
+        '#type' => 'link',
+        '#title' => $link['title'],
+        '#url' => $link['url'],
+        '#attributes' => ['class' => $classes],
+      ];
+    }
     $row['actions'] = [
       'data' => [
-        '#type' => 'dropbutton',
-        '#links' => $links,
-      ],
+        '#type' => 'container',
+        '#attributes' => ['class' => ['instructor-companion-queue-actions']],
+      ] + $buttons,
     ];
     return $row;
   }
