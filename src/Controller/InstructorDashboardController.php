@@ -1161,10 +1161,21 @@ class InstructorDashboardController extends ControllerBase {
       $n = (int) $stats['distribution'][$star];
       $pct = (int) round(($n / $max) * 100);
       $label = str_repeat('★', $star) . str_repeat('☆', 5 - $star);
-      $bar = '<div class="isat-bar-track"><div class="isat-bar-fill" style="width:' . $pct . '%"></div></div>';
+      // An element, not #markup: the markup filter strips style="", which
+      // left every bar at full width whatever the count.
+      $bar = [
+        '#type' => 'html_tag',
+        '#tag' => 'div',
+        '#attributes' => ['class' => ['isat-bar-track']],
+        'fill' => [
+          '#type' => 'html_tag',
+          '#tag' => 'div',
+          '#attributes' => ['class' => ['isat-bar-fill'], 'style' => 'width:' . $pct . '%'],
+        ],
+      ];
       $rows[] = [
         ['data' => ['#markup' => '<span class="isat-stars">' . $label . '</span>']],
-        ['data' => ['#markup' => $bar]],
+        ['data' => $bar],
         ['data' => $n],
       ];
     }
