@@ -48,6 +48,17 @@ services:
       - '@instructor_companion.door_access'
       - '@datetime.time'
       - '@path_alias.manager'
+      - '@database'
+
+  instructor_companion.setup_deadline_alert:
+    class: Drupal\instructor_companion\Service\SetupDeadlineAlert
+    arguments:
+      - '@instructor_companion.setup_checklist'
+      - '@keyvalue'
+      - '@config.factory'
+      - '@plugin.manager.mail'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
 
   instructor_companion.sessions:
     class: Drupal\instructor_companion\Service\SessionSchedule
@@ -297,3 +308,9 @@ services:
       - '@plugin.manager.mail'
       - '@datetime.time'
       - '@logger.channel.instructor_companion'
+
+  instructor_companion.breadcrumb:
+    class: Drupal\instructor_companion\Breadcrumb\InstructorBreadcrumbBuilder
+    arguments: ['@current_user']
+    tags:
+      - { name: breadcrumb_builder, priority: 1010 }

@@ -88,6 +88,7 @@ class InstructorDashboardController extends ControllerBase {
           '#title' => $this->t('Finish setting up to teach (@progress)', ['@progress' => InstructorSetupChecklist::progress($steps)]),
           '#open' => TRUE,
           '#weight' => -90,
+          'deadline' => InstructorSetupController::deadlineNote(\Drupal::service('instructor_companion.setup_checklist')->nextClass((int) $current_user->id())),
           'steps' => InstructorSetupController::renderSteps($steps),
         ];
       }
@@ -145,14 +146,14 @@ class InstructorDashboardController extends ControllerBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['stat-card']],
       'value' => ['#markup' => '<div class="stat-value">' . $stats['classes_count'] . '</div>'],
-      'label' => ['#markup' => '<div class="stat-label">' . $this->t('Classes Taught') . '</div>'],
+      'label' => ['#markup' => '<div class="stat-label">' . $this->formatPlural($stats['classes_count'], 'Class Taught', 'Classes Taught') . '</div>'],
     ];
 
     $build['header_container']['stats']['students'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['stat-card']],
       'value' => ['#markup' => '<div class="stat-value">' . $stats['students_count'] . '</div>'],
-      'label' => ['#markup' => '<div class="stat-label">' . $this->t('Students Impacted') . '</div>'],
+      'label' => ['#markup' => '<div class="stat-label">' . $this->formatPlural($stats['students_count'], 'Student Impacted', 'Students Impacted') . '</div>'],
     ];
 
     if ($stats['avg_rating'] > 0) {
@@ -406,7 +407,7 @@ class InstructorDashboardController extends ControllerBase {
       }
     }
 
-    $access_warning = $this->buildDoorAccessWarning((int) $current_user->id());
+    $access_warning = $this->buildDoorAccessWarning((int) $current_user->id(), !empty($build['setup']));
     if ($access_warning) {
       $build['door_access_warning'] = $access_warning;
     }
@@ -605,13 +606,22 @@ class InstructorDashboardController extends ControllerBase {
   }
 
   /**
-   * Builds the door-access warning banner using the canonical access evaluator.
+   * How this instructor gets into the building, when it is not "your card".
    *
-   * Returns NULL when the user passes every gate (no banner shown). Mirrors
-   * the "Key Access Ready" block staff see on member profiles so this surface
-   * never drifts from the actual door-controller decision.
+   * Reads the same evaluator as the door controller, then says what is true
+   * for an instructor (2026-10-28):
+   * - The Door badge comes from the orientation video and quiz, a setup step;
+   *   while the setup list shows, it already says so.
+   * - The front door opens for member roles only. A non-member instructor
+   *   gets a door code by email before each class (event_access_unifi
+   *   instructor passes), so not being a member is not a problem to fix.
+   * - Anything else (an access override, a flag) is for staff.
+   *
+   * Replaces a banner that told everyone "Staff will set up your building
+   * access", which stopped being true when door passes and the setup list
+   * arrived, and sat directly under the setup step that said the opposite.
    */
-  protected function buildDoorAccessWarning(int $uid): ?array {
+  protected function buildDoorAccessWarning(int $uid, bool $setup_open = FALSE): ?array {
     $user = $this->entityTypeManager()->getStorage('user')->load($uid);
     if (!$user) {
       return NULL;
@@ -622,58 +632,59 @@ class InstructorDashboardController extends ControllerBase {
       return NULL;
     }
 
-    $blocking_items = array_values(array_filter(
-      $status['items'],
-      static fn(array $item): bool => !empty($item['blocks_access']),
-    ));
-    $reasons = array_map(
-      static fn(array $item): string => (string) $item['label'] . ': ' . (string) $item['message'],
-      $blocking_items,
-    );
-    $door_badge_blocking = (bool) array_filter(
-      $blocking_items,
-      static fn(array $item): bool => ($item['id'] ?? '') === 'door_badge',
-    );
+    $notes = [];
+    $staff_items = [];
+    $blocked = FALSE;
+    foreach ($status['items'] as $item) {
+      if (empty($item['blocks_access'])) {
+        continue;
+      }
+      switch ($item['id'] ?? '') {
+        case 'door_badge':
+          if ($setup_open) {
+            break;
+          }
+          $blocked = TRUE;
+          $notes[] = \Drupal::service('instructor_companion.door_access')->hasPendingDoorBadge($uid)
+            ? $this->t('Your door badge is waiting on staff approval. You will get an email when it is active.')
+            : $this->t('Your door badge is not active yet. It goes on your account when you <a href=":video">watch the member orientation video and pass the quiz</a>.', [':video' => Url::fromUserInput('/video')->toString()]);
+          break;
+
+        case 'allowed_roles':
+          $notes[] = $this->config('event_access_unifi.settings')->get('instructor_passes_enabled')
+            ? $this->t('Member access cards open the front door. For each class you teach, we email you a door code the day before.')
+            : $this->t('Member access cards open the front door. The education team will tell you how to get in for each class you teach.');
+          break;
+
+        default:
+          $blocked = TRUE;
+          $staff_items[] = (string) $item['label'] . ': ' . (string) $item['message'];
+      }
+    }
+    if (!$notes && !$staff_items) {
+      return NULL;
+    }
 
     $banner = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['messages', 'messages--warning']],
-      '#weight' => -90,
+      '#attributes' => ['class' => ['messages', $blocked ? 'messages--warning' : 'messages--status', 'instructor-door-note']],
+      '#weight' => -85,
       'heading' => [
-        '#markup' => '<strong>' . $this->t('Door access not yet active') . '</strong>',
-      ],
-      'body' => [
-        '#markup' => '<p>' . $this->t("You can keep proposing and browsing here, but you won't be able to let yourself into the building to teach until the items below are resolved.") . '</p>',
-      ],
-      'reasons' => [
-        '#theme' => 'item_list',
-        '#items' => $reasons,
+        '#markup' => '<strong>' . ($blocked ? $this->t('Door access not yet active') : $this->t('Getting into the building')) . '</strong>',
       ],
     ];
-
-    if ($door_badge_blocking) {
-      // Door access for instructors is a deliberate staff approval, not a
-      // self-serve quiz. Tell them the truth about where their request stands
-      // instead of looping them through the orientation video (which never
-      // grants the door badge).
-      $door = \Drupal::service('instructor_companion.door_access');
-      if ($door->hasPendingDoorBadge($uid)) {
-        $banner['cta_note'] = [
-          '#markup' => '<p>' . $this->t('Your building access request is <strong>in staff review</strong>. You\'ll get an email once it\'s approved — no further action needed from you. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.') . '</p>',
-        ];
-      }
-      else {
-        $banner['cta_note'] = [
-          '#markup' => '<p>' . $this->t('Staff will set up your building access. Email <a href="mailto:education@makehaven.org">education@makehaven.org</a> to get this started.') . '</p>',
-        ];
-      }
+    foreach ($notes as $i => $note) {
+      $banner['note_' . $i] = ['#markup' => '<p>' . $note . '</p>'];
     }
-    else {
-      $banner['cta_note'] = [
-        '#markup' => '<p>' . $this->t('These items typically need staff to resolve. Email <a href="mailto:education@makehaven.org">education@makehaven.org</a> if you need help.') . '</p>',
+    if ($staff_items) {
+      $banner['staff'] = [
+        '#markup' => '<p>' . $this->t('Something on your account needs staff to fix. Email <a href="mailto:education@makehaven.org">education@makehaven.org</a> and we will sort it out.') . '</p>',
+      ];
+      $banner['reasons'] = [
+        '#theme' => 'item_list',
+        '#items' => $staff_items,
       ];
     }
-
     return $banner;
   }
 
@@ -1044,8 +1055,9 @@ class InstructorDashboardController extends ControllerBase {
       $query->condition('i.field_civi_event_instructor_target_id', $uid);
       $query->condition('e.is_active', 1);
       $query->condition('e.is_template', 0);
-      $query->condition('e.start_date', date('Y-m-d H:i:s'), '<');
-      
+      // Taught means finished: a class still in the room is not counted yet.
+      $query->where('COALESCE(e.end_date, e.start_date) < :now', [':now' => date('Y-m-d H:i:s')]);
+
       $record = $query->execute()->fetchAssoc();
       $stats['classes_count'] = (int) ($record['classes_count'] ?? 0);
       $stats['students_count'] = (int) ($record['students_count'] ?? 0);

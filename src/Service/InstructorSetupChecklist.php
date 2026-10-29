@@ -6,6 +6,7 @@ namespace Drupal\instructor_companion\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Url;
@@ -50,7 +51,32 @@ class InstructorSetupChecklist {
     protected InstructorDoorAccess $doorAccess,
     protected TimeInterface $time,
     protected AliasManagerInterface $aliasManager,
+    protected ?Connection $database = NULL,
   ) {}
+
+  /**
+   * The instructor's next class that has not started: id, title, start.
+   *
+   * Setup has a real deadline — the first class — and the list says so.
+   *
+   * @return array{id: int, title: string, start: string}|null
+   *   start is CiviCRM's local 'Y-m-d H:i:s'.
+   */
+  public function nextClass(int $uid): ?array {
+    $db = $this->database ?? \Drupal::database();
+    $q = $db->select('civicrm_event', 'e');
+    $q->fields('e', ['id', 'title', 'start_date']);
+    $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+    $q->condition('i.field_civi_event_instructor_target_id', $uid);
+    // civicrm_event.start_date is local time.
+    $q->condition('e.start_date', date('Y-m-d H:i:s', $this->time->getRequestTime()), '>=');
+    $q->condition('e.is_active', 1);
+    $q->condition('e.is_template', 0);
+    $q->orderBy('e.start_date');
+    $q->range(0, 1);
+    $row = $q->execute()->fetchAssoc();
+    return $row ? ['id' => (int) $row['id'], 'title' => (string) $row['title'], 'start' => (string) $row['start_date']] : NULL;
+  }
 
   /**
    * The Guidebook node, when one is published at the handbook link.
@@ -142,7 +168,7 @@ class InstructorSetupChecklist {
    *   account form lets them choose a password without knowing the current
    *   one (an invite-made account has a random one nobody knows).
    *
-   * @return array<string, array{title: string, help: string, done: bool, pending?: bool, url: ?\Drupal\Core\Url, locked: string}>
+   * @return array<string, array{title: string, help: string, done: bool, pending?: bool, action?: string, url: ?\Drupal\Core\Url, locked: string}>
    *   Steps keyed by STEP_* constant.
    */
   public function steps(UserInterface $user, ?string $pass_reset_token = NULL): array {
@@ -155,6 +181,7 @@ class InstructorSetupChecklist {
       $steps[self::STEP_PASSWORD] = [
         'title' => 'Choose a password',
         'help' => 'Your invite link signed you in this time. Choose a password so you can sign in again later.',
+        'action' => 'Choose password',
         'done' => (bool) $this->userData->get(self::USER_DATA_MODULE, $uid, self::PASSWORD_SET),
         'url' => $pass_reset_token
           ? Url::fromRoute('entity.user.edit_form', ['user' => $uid], ['query' => ['pass-reset-token' => $pass_reset_token]])
@@ -171,6 +198,7 @@ class InstructorSetupChecklist {
         ? 'Your instructor page is what people read before they sign up for your class. Still missing: ' . implode(' and ', $missing) . '.'
         : 'Your instructor page has a photo and a bio.',
       'done' => !$missing,
+      'action' => 'Add photo and bio',
       'url' => Url::fromUserInput('/user/' . $uid . '/instructor'),
       'locked' => '',
     ];
@@ -184,6 +212,7 @@ class InstructorSetupChecklist {
           ? 'You confirmed reading it on ' . date('M j, Y', (int) $ack['at']) . '.'
           : 'How classes run here: getting in, the room, supplies, class day, attendance, getting paid, and what to do in an emergency. Confirm at the bottom of the page.',
         'done' => $ack !== NULL,
+        'action' => 'Read it',
         'url' => $guide->toUrl(),
         'locked' => '',
       ];
@@ -205,6 +234,7 @@ class InstructorSetupChecklist {
       'title' => 'Sign the instructor agreement',
       'help' => $signed ? 'Signed.' : 'About five minutes to read. Type your full legal name to sign.',
       'done' => $signed,
+      'action' => 'Sign',
       'url' => Url::fromRoute('entity.webform.canonical', ['webform' => 'webform_5220']),
       'locked' => !$signed && $this->guideRequiredFirst($uid) ? 'Read the Guidebook first.' : '',
     ];
@@ -217,6 +247,7 @@ class InstructorSetupChecklist {
         ? 'Done. Your door badge is on your account.'
         : 'The same video and quiz every member does, so you know what your students have been told about safety and the space. Passing the quiz puts the door badge on your account.',
       'done' => $door_active,
+      'action' => 'Watch the video',
       'url' => Url::fromUserInput('/video'),
       'locked' => '',
     ];
@@ -232,6 +263,7 @@ class InstructorSetupChecklist {
         ? 'Done. Your access card is on file.'
         : 'A short walkthrough of the building and safety, booked like any member\'s. You pick up your access card there.',
       'done' => $has_card,
+      'action' => 'Book a time',
       'url' => Url::fromUserInput('/schedule'),
       'locked' => '',
     ];

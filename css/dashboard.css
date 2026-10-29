@@ -1,7 +1,7 @@
 .instructor-dashboard-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 2rem;
   gap: 20px;
   flex-wrap: wrap;
@@ -9,31 +9,28 @@
 
 .instructor-stats-grid {
   display: flex;
-  gap: 1.5rem;
-  flex-grow: 1;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .stat-card {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  padding: 1rem 1.5rem;
-  flex: 1 1 0;
-  min-width: 150px;
-  max-width: 260px;
+  padding: .75rem 1.25rem;
+  min-width: 140px;
   text-align: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .stat-value {
   font-size: 1.5rem;
   font-weight: bold;
-  color: #007bff;
+  color: var(--mh-color-brand-primary, #8b1919);
   line-height: 1.2;
 }
 
 .stat-label {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: #6c757d;
   margin-top: 0.25rem;
   text-transform: uppercase;
@@ -52,39 +49,50 @@
   align-items: center;
 }
 
+/* Toolkit: a row of plain links, not a column of empty-looking boxes. */
 .toolkit-links-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
   list-style: none;
   padding: 0;
-  margin: 1rem 0;
+  margin: .75rem 1rem 1rem;
 }
 
-.toolkit-links-list li {
+/* The theme renders item lists as a Bootstrap list-group (a column of
+   bordered rows); this one is a row of links. */
+.toolkit-links-list.list-group {
+  flex-direction: row;
+}
+.toolkit-links-list li,
+.toolkit-links-list .list-group-item {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
 .toolkit-link-card {
-  display: block;
-  padding: 1rem;
+  display: inline-block;
+  padding: .45rem .9rem;
   background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  text-decoration: none;
-  color: #333;
+  border: 1px solid #d0d0d0;
+  border-radius: 999px;
+  color: var(--mh-color-brand-primary, #8b1919);
   font-weight: 500;
-  text-align: center;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  text-decoration: none;
 }
 
-.toolkit-link-card:hover {
-  background: #007bff;
+a.toolkit-link-card:hover,
+a.toolkit-link-card:focus {
+  background: var(--mh-color-brand-primary, #8b1919);
+  border-color: var(--mh-color-brand-primary, #8b1919);
   color: #fff;
-  border-color: #007bff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.toolkit-link-card.is-pending {
+  color: #666;
+  border-style: dashed;
 }
 
 .instructor-toolkit {
@@ -103,6 +111,10 @@
 
 .instructor-toolkit[open] summary {
   border-bottom: 1px solid #ddd;
+}
+
+.instructor-door-note p:last-child {
+  margin-bottom: 0;
 }
 
 /* Satisfaction breakdown */
@@ -184,7 +196,9 @@
 .peh-step-title { font-weight: 600; }
 .peh-step-detail { color: #666; font-size: 0.9em; }
 .peh-step-action { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.peh-step-tip { color: #8a6d00; font-size: 0.8em; max-width: 260px; margin: 0; text-align: right; }
+.peh-step-tip { color: #555; font-size: 0.85em; max-width: 240px; margin: 0; text-align: right; }
+.peh-step--optional { border-left-color: #bbb; }
+.peh-step--optional .peh-step-icon { color: #777; }
 .peh-back { margin-top: 16px; }
 
 .attendance-intro h2 { margin-bottom: 4px; }

@@ -1,5 +1,5 @@
 dashboard:
-  version: 1.x
+  version: 1.2
   css:
     theme:
       css/dashboard.css: {}
@@ -15,7 +15,7 @@ education_console:
     - core/drupal
 
 setup:
-  version: 1.x
+  version: 1.2
   css:
     theme:
       css/setup.css: {}

@@ -1,40 +1,22 @@
-/* Instructor setup checklist (/instructor/setup and the dashboard). */
+/* Instructor setup checklist (/instructor/setup and the dashboard). Rows use
+   the post-class tasks styles (.peh-step, dashboard.css); this only adds what
+   is particular to setup. */
 .instructor-setup {
-  list-style: none;
-  margin: 1rem 0 1.5rem;
-  padding: 0;
-  max-width: 44rem;
+  max-width: 48rem;
 }
-.instructor-setup__step {
-  border: 1px solid var(--mh-color-border, #ddd);
-  border-radius: 6px;
-  padding: .75rem 1rem;
-  margin: 0 0 .5rem;
-}
-.instructor-setup__step.is-next {
+.instructor-setup .peh-step.is-next {
   border-color: var(--mh-color-brand-primary, #8b1919);
-  border-width: 2px;
+  border-left-color: var(--mh-color-brand-primary, #8b1919);
 }
-.instructor-setup__step.is-done {
-  opacity: .7;
+.instructor-setup .peh-step--done .peh-step-detail {
+  color: #555;
 }
-.instructor-setup__step.is-locked {
-  opacity: .55;
+.instructor-setup .peh-step-action .button {
+  white-space: nowrap;
 }
-.instructor-setup__state {
-  display: inline-block;
-  width: 1.5em;
-  font-weight: 700;
-}
-.instructor-setup__step.is-done .instructor-setup__state {
-  color: var(--mh-color-success, #2c6350);
-}
-.instructor-setup__help {
-  margin: .25rem 0 0 1.5em;
-  font-size: .95em;
-}
-.instructor-setup__step .button {
-  margin: 0;
+.instructor-setup__deadline {
+  margin: 0 0 .5rem;
+  font-weight: 600;
 }
 .instructor-guide-ack {
   margin-top: 2rem;

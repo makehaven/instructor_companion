@@ -37,6 +37,14 @@ function instructor_companion_cron() {
   // that matters for accuracy: an instructor asked two days later is guessing,
   // and a walk-in nobody registered is long gone.
   \Drupal::service('instructor_companion.attendance_prompt')->run();
+  // A week before an invited instructor's class, tell the education team if
+  // setup (agreement, door) is still open.
+  try {
+    \Drupal::service('instructor_companion.setup_deadline_alert')->run();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('instructor_companion')->error('Setup deadline alert failed: @m', ['@m' => $e->getMessage()]);
+  }
   // Nudge instructors who still have post-class tasks ~48h after the class.
   \Drupal::service('instructor_companion.post_event_reminder')->run();
   // Multi-session classes: hold CiviCRM's first-session evaluation and send
@@ -57,6 +65,26 @@ function instructor_companion_cron() {
   // Waitlisted events made outside the CiviCRM copy path get the offer window
   // here, so an unpaid offer cannot hold a seat forever.
   \Drupal::service('instructor_companion.event_hygiene')->backfillWaitlistExpiry();
+}
+
+/**
+ * Implements hook_block_access().
+ *
+ * The "Thinking about becoming a member?" prompt is placed on every /user/*
+ * page, so a non-member instructor got it on top of the Log hours form and
+ * their instructor profile. Instructors keep it on their own account page,
+ * where joining is a fair suggestion, and lose it on the pages they use to
+ * work for us.
+ */
+function instructor_companion_block_access(\Drupal\block\Entity\Block $block, $operation, \Drupal\Core\Session\AccountInterface $account) {
+  if ($operation !== 'view'
+    || $block->getPluginId() !== 'chargebee_portal_membership_self_service'
+    || !str_ends_with((string) $block->id(), 'membership_join_account')) {
+    return \Drupal\Core\Access\AccessResult::neutral();
+  }
+  $hide = in_array('instructor', $account->getRoles(), TRUE)
+    && \Drupal::routeMatch()->getRouteName() !== 'entity.user.canonical';
+  return \Drupal\Core\Access\AccessResult::forbiddenIf($hide)->addCacheContexts(['user.roles', 'route']);
 }
 
 /**
@@ -570,6 +598,20 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = (string) $params['subject'];
       $message['body'][] = (string) $params['body'];
+      break;
+
+    case 'setup_deadline_alert':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = t('Instructor setup not finished: @name teaches @when', ['@name' => $params['instructor_name'], '@when' => $params['event_start']]);
+      $message['body'][] = t('@name teaches @event on @when and has not finished setting up. Still open:', [
+        '@name' => $params['instructor_name'],
+        '@event' => $params['event_title'],
+        '@when' => $params['event_start'],
+      ]);
+      foreach ((array) $params['open_steps'] as $item) {
+        $message['body'][] = '  • ' . $item;
+      }
+      $message['body'][] = t('Their progress is on the Education console: @url', ['@url' => $params['console_url']]);
       break;
 
     case 'post_event_reminder':

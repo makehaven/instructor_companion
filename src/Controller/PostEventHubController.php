@@ -3,7 +3,6 @@
 namespace Drupal\instructor_companion\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 use Drupal\instructor_companion\Service\SessionSchedule;
@@ -59,8 +58,8 @@ class PostEventHubController extends ControllerBase {
       ? ' <span class="peh-date">· ' . SessionSchedule::summary($schedule) . '</span>'
       : '';
     $build['header'] = [
+      // The page title already says "Post-Class Tasks".
       '#markup' => '<div class="peh-header">'
-      . '<h2>' . $this->t('Post-Class Tasks') . '</h2>'
       . '<p class="peh-event">' . $event->label()
       . ($date ? ' <span class="peh-date">· ' . $date . '</span>' : '') . $shape . '</p>'
       . '<p class="peh-progress"><span class="peh-pill">' . $status['progress'] . ' '
@@ -81,11 +80,6 @@ class PostEventHubController extends ControllerBase {
       ];
     }
 
-    $build['email_class'] = [
-      '#markup' => '<p class="peh-email-class">' . Link::fromTextAndUrl($this->t('Email your class'), Url::fromRoute('instructor_companion.class_email', ['event_id' => $event_id]))->toString()
-      . ' · ' . $this->t('a thank-you, the slides, or what to bring next time') . '</p>',
-    ];
-
     if ($status['all_complete']) {
       $build['done'] = [
         '#markup' => '<div class="messages messages--status peh-alldone">'
@@ -100,6 +94,28 @@ class PostEventHubController extends ControllerBase {
     foreach ($status['steps'] as $i => $step) {
       $build['steps'][$step['key']] = $this->buildStep($event_id, $i + 1, $step, $status);
     }
+    // Optional, so it is not counted in "n/4 done" — but it belongs in the
+    // list rather than floating above it.
+    $build['steps']['email_class'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['peh-step', 'peh-step--optional']],
+      'icon' => ['#markup' => '<span class="peh-step-icon" aria-hidden="true">✉</span>'],
+      'body' => [
+        '#markup' => '<div class="peh-step-body"><span class="peh-step-title">'
+        . (count($status['steps']) + 1) . '. ' . $this->t('Email your class (optional)') . '</span>'
+        . '<span class="peh-step-detail">' . $this->t('A thank-you, the slides, or what to bring next time.') . '</span></div>',
+      ],
+      'action' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['peh-step-action']],
+        'link' => [
+          '#type' => 'link',
+          '#title' => $this->t('Write an email'),
+          '#url' => Url::fromRoute('instructor_companion.class_email', ['event_id' => $event_id]),
+          '#attributes' => ['class' => ['button', 'button--small', 'button--secondary']],
+        ],
+      ],
+    ];
 
     $staff = $this->currentUser()->hasPermission('access education console');
     $build['back'] = [
@@ -205,7 +221,7 @@ class PostEventHubController extends ControllerBase {
       if ($pending) {
         $action['tip'] = [
           '#markup' => '<p class="peh-step-tip">'
-          . $this->t('Tip: finishing attendance, badges and feedback first helps staff process your payment faster — but you can request it now.')
+          . $this->t('You can request it now. Finishing steps 1 to 3 first helps us pay you sooner.')
           . '</p>',
         ];
       }
