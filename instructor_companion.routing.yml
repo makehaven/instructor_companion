@@ -106,6 +106,7 @@ instructor_companion.setup:
     _user_is_logged_in: 'TRUE'
   options:
     no_cache: TRUE
+    _admin_route: TRUE
 
 instructor_companion.class_checkout:
   path: '/instructor/class-checkout/{event_id}'
@@ -115,6 +116,8 @@ instructor_companion.class_checkout:
   requirements:
     _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
     event_id: '\d+'
+  options:
+    _admin_route: TRUE
 
 instructor_companion.class_checkout_mark:
   path: '/instructor/class-checkout/{event_id}/mark/{user_id}/{badge_tid}'
@@ -148,6 +151,8 @@ instructor_companion.post_event_hub:
   requirements:
     _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
     event_id: '\d+'
+  options:
+    _admin_route: TRUE
 
 instructor_companion.attendance:
   path: '/instructor/attendance/{event_id}'
@@ -157,6 +162,8 @@ instructor_companion.attendance:
   requirements:
     _custom_access: '\Drupal\instructor_companion\Controller\ClassCheckoutController::access'
     event_id: '\d+'
+  options:
+    _admin_route: TRUE
 
 instructor_companion.class_email:
   path: '/instructor/class-email/{event_id}'
@@ -168,6 +175,7 @@ instructor_companion.class_email:
     event_id: '\d+'
   options:
     no_cache: TRUE
+    _admin_route: TRUE
 
 instructor_companion.settings:
   path: '/admin/config/makerspace/instructor-companion'

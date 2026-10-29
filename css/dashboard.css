@@ -66,6 +66,7 @@
 }
 .toolkit-links-list li,
 .toolkit-links-list .list-group-item {
+  list-style: none;
   margin: 0;
   padding: 0;
   border: 0;
@@ -102,11 +103,10 @@ a.toolkit-link-card:focus {
   background: #fafafa;
 }
 
+/* Padding is left to the theme: Gin positions its own arrow in it. */
 .instructor-toolkit summary {
   font-weight: bold;
-  padding: 0.75rem 1rem;
   cursor: pointer;
-  outline: none;
 }
 
 .instructor-toolkit[open] summary {
@@ -259,4 +259,24 @@ a.toolkit-link-card:focus {
 .instructor-guidebook-link__note {
   margin-left: .5rem;
   font-size: .95em;
+}
+
+/* Class checkout: the two outcome buttons in a row, spaced apart. */
+.ic-checkout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.ic-checkout-actions .button {
+  margin: 0;
+}
+
+/* The logged-in theme (Gin) indents and marks list items. */
+.instructor-toolkit .toolkit-links-list > li {
+  margin: 0;
+  padding: 0;
+}
+.toolkit-links-list li::before,
+.toolkit-links-list li::marker {
+  content: none;
 }

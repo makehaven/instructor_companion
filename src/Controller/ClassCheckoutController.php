@@ -503,7 +503,8 @@ class ClassCheckoutController extends ControllerBase {
       'quiz' => $quiz_passed ? $this->t('✓') : $this->t('—'),
       'class' => $class_cell,
       'status' => ucfirst($badge_status),
-      'action' => ['data' => $actions],
+      // A spaced row: two buttons back to back read as one long button.
+      'action' => ['data' => ['#type' => 'container', '#attributes' => ['class' => ['ic-checkout-actions']]] + $actions],
     ];
   }
 
