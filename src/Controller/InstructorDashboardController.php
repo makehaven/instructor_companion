@@ -585,6 +585,7 @@ class InstructorDashboardController extends ControllerBase {
       '#type' => 'table',
       '#header' => $header,
       '#rows' => $upcoming_rows,
+      '#attributes' => ['class' => ['instructor-classes-table']],
       '#empty' => $this->t('You have no upcoming classes assigned.'),
       '#caption' => $this->t('My Upcoming Classes'),
     ];
@@ -598,6 +599,7 @@ class InstructorDashboardController extends ControllerBase {
       '#type' => 'table',
       '#header' => $header,
       '#rows' => $completed_rows,
+      '#attributes' => ['class' => ['instructor-classes-table']],
       '#empty' => $this->t('You have no recently completed classes.'),
       '#caption' => $this->t('Recent / Completed Classes'),
     ];
@@ -847,6 +849,19 @@ class InstructorDashboardController extends ControllerBase {
       'title' => $this->t('Email your class'),
       'url' => Url::fromRoute('instructor_companion.class_email', ['event_id' => $event_id]),
     ];
+    // Before the class (until the attendance list opens) and between the
+    // sessions of a multi-session class, the useful thing to do is write to
+    // the class — what to bring, prep, parking — so that leads the button
+    // instead of an attendance list that is not open yet (JR 2026-10-29).
+    $lead = max(0, -\Drupal::service('instructor_companion.attendance_prompt')->offsetMinutes()) * 60;
+    $first_start = $schedule[0]['start'] ?? date('Y-m-d H:i:s', strtotime((string) $event->get('start_date')->value));
+    $not_started = $first_start > date('Y-m-d H:i:s', time() + $lead);
+    $between_sessions = count($schedule) > 1 && !$current_session
+      && $sessions->nextSession($event_id, date('Y-m-d H:i:s', time() + $lead)) !== NULL
+      && !$not_started;
+    if ($not_started || $between_sessions) {
+      $links = ['email_class' => $links['email_class']] + $links;
+    }
     if ($payment_url) {
       $links['log_hours'] = [
         'title' => $this->t('Log hours for this class'),
@@ -913,9 +928,12 @@ class InstructorDashboardController extends ControllerBase {
     // not taught, and a program's first session is not the moment to take
     // attendance for the cohort. Any SESSION of a class counts as live.
     $types = \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes();
+    // Shows from when the attendance email goes out (15 minutes before the
+    // start by default), so the list is in hand as people arrive.
+    $lead = max(0, -\Drupal::service('instructor_companion.attendance_prompt')->offsetMinutes()) * 60;
     $live = \Drupal::service('instructor_companion.sessions')->sessionsStartingBetween(
       $window_start,
-      date('Y-m-d H:i:s', $now),
+      date('Y-m-d H:i:s', $now + $lead),
       function ($q) use ($uid, $types) {
         $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
         $q->addField('e', 'title', 'title');
@@ -944,15 +962,19 @@ class InstructorDashboardController extends ControllerBase {
       '#attributes' => ['class' => ['instructor-live-class']],
       'heading' => [
         '#markup' => '<h2 class="instructor-live-class__title">'
-        . ($multi
-          ? $this->t('Happening now: @title (session @n of @c)', ['@title' => $row->title, '@n' => $session['index'] + 1, '@c' => $session['count']])
-          : $this->t('Happening now: @title', ['@title' => $row->title])) . '</h2>',
+        . (strtotime($session['start']) > $now
+          ? ($multi
+            ? $this->t('Starting soon: @title (session @n of @c)', ['@title' => $row->title, '@n' => $session['index'] + 1, '@c' => $session['count']])
+            : $this->t('Starting soon: @title', ['@title' => $row->title]))
+          : ($multi
+            ? $this->t('Happening now: @title (session @n of @c)', ['@title' => $row->title, '@n' => $session['index'] + 1, '@c' => $session['count']])
+            : $this->t('Happening now: @title', ['@title' => $row->title]))) . '</h2>',
       ],
       'body' => [
         '#markup' => '<p class="instructor-live-class__body">' . $this->t(
-          'Tick off who actually came while everyone is still here. @n registered;
-           anyone else who turned up can be added on the page, and anyone you do
-           not tick is recorded as a no-show so we know to follow up.',
+          'Tick off who is here as people arrive. @n registered; anyone else who
+           turns up can be added on the page, and anyone you do not tick is
+           recorded as a no-show so we know to follow up.',
           ['@n' => $registered]
         ) . '</p>',
       ],

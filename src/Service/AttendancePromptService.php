@@ -32,12 +32,13 @@ class AttendancePromptService {
   protected const SENT_STATE_KEY = 'instructor_companion.attendance_prompt_sent';
 
   /**
-   * Default minutes after the start time before prompting.
+   * Default minutes relative to the start time; negative is before.
    *
-   * Not zero: the instructor is greeting people and setting up at the bell.
-   * Late arrivals are handled by the form itself, which can be re-saved.
+   * 15 minutes BEFORE (JR 2026-10-29): introductions and attendance happen as
+   * people arrive, not a quarter hour into the class. Late arrivals are
+   * handled by the form itself, which can be re-saved.
    */
-  public const DEFAULT_OFFSET_MINUTES = 15;
+  public const DEFAULT_OFFSET_MINUTES = -15;
 
   /**
    * How long after the offset a class stays eligible, in hours.
@@ -140,12 +141,12 @@ class AttendancePromptService {
   }
 
   /**
-   * Minutes after the start time before prompting.
+   * Minutes relative to the start time to prompt; negative is before.
    */
   public function offsetMinutes(): int {
     $configured = (int) ($this->configFactory->get('instructor_companion.settings')
       ->get('attendance_prompt_offset_minutes') ?? 0);
-    return $configured > 0 ? $configured : self::DEFAULT_OFFSET_MINUTES;
+    return $configured !== 0 ? $configured : self::DEFAULT_OFFSET_MINUTES;
   }
 
   /**

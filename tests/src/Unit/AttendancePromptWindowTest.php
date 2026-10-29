@@ -92,4 +92,18 @@ class AttendancePromptWindowTest extends UnitTestCase {
     $this->assertSame(25, $this->service(25)->offsetMinutes());
   }
 
+  /**
+   * The default sends the list 15 minutes before the class starts.
+   *
+   * @covers ::dueWindow
+   */
+  public function testDefaultIsBeforeTheStart(): void {
+    $now = strtotime('2026-10-29 17:45:00');
+    [$lower, $upper] = $this->service(-15)->dueWindow($now);
+    $this->assertSame('2026-10-29 18:00:00', $upper, 'A 6pm class is due at 5:45.');
+    $this->assertGreaterThan($upper, '2026-10-29 18:30:00', 'A 6:30 class is not due yet.');
+    $this->assertSame(AttendancePromptService::DEFAULT_OFFSET_MINUTES, $this->service(0)->offsetMinutes());
+    $this->assertSame(-15, AttendancePromptService::DEFAULT_OFFSET_MINUTES);
+  }
+
 }

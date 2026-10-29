@@ -55,7 +55,7 @@ instructor_companion.settings:
       label: 'Ask the instructor for attendance at the start of the class'
     attendance_prompt_offset_minutes:
       type: integer
-      label: 'Minutes after the start time before prompting for attendance'
+      label: 'Minutes relative to the start time to send the attendance list (negative = before)'
     follower_notice_enabled:
       type: boolean
       label: 'Email course followers when a new run of the course opens'

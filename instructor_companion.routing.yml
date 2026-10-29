@@ -458,3 +458,22 @@ instructor_companion.guidebook_coming_soon:
     _title: 'Instructor Guidebook'
   requirements:
     _access: 'TRUE'
+
+# The classroom-wall QR code: the evaluation for whichever class is running.
+instructor_companion.evaluate_now:
+  path: '/how-was-class'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EvaluateNowController::build'
+    _title: 'How was class?'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: TRUE
+
+instructor_companion.evaluate_poster:
+  path: '/admin/education/how-was-class-poster'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EvaluateNowController::poster'
+    _title: 'Classroom evaluation sign'
+  requirements:
+    _permission: 'access education console'

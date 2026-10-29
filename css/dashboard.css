@@ -280,3 +280,17 @@ a.toolkit-link-card:focus {
 .toolkit-links-list li::marker {
   content: none;
 }
+
+/* Class tables' "Take attendance ▾" dropbutton in the logged-in theme (Gin):
+   its arrow is positioned over the end of the first link, and the link draws
+   its own divider, so the label was struck through by two lines. Give the
+   label room to clear the arrow and keep the arrow's divider only. */
+.instructor-classes-table .dropbutton--multiple .dropbutton__item:first-of-type > a {
+  padding-inline-end: calc(49px + 1rem);
+  white-space: nowrap;
+}
+/* Gin's own divider rules outrank this module's CSS. */
+.instructor-classes-table .dropbutton--multiple .dropbutton__item:first-of-type,
+.instructor-classes-table .dropbutton--multiple .dropbutton__item:first-of-type > a {
+  border-right: 0 !important;
+}

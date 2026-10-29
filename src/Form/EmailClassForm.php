@@ -145,7 +145,7 @@ class EmailClassForm extends FormBase {
       '#title' => $this->t('Message'),
       '#required' => TRUE,
       '#rows' => 10,
-      '#description' => $this->t('Plain text. Your name is added at the end.'),
+      '#description' => $this->t('Before class: what to bring, what to read or watch first, where to park. Between sessions: homework or what is next. Afterwards: a thank-you or the slides. Plain text; your name is added at the end.'),
     ];
     $form['actions'] = ['#type' => 'actions'];
     $form['actions']['submit'] = [

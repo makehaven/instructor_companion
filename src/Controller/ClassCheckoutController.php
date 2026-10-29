@@ -482,7 +482,7 @@ class ClassCheckoutController extends ControllerBase {
         '#type' => 'link',
         '#title' => $this->t('Attended, did not pass'),
         '#url' => $fail_url,
-        '#attributes' => ['class' => ['button', 'button--small', 'button--danger']],
+        '#attributes' => ['class' => ['button', 'button--small', 'button--secondary']],
       ];
     }
 

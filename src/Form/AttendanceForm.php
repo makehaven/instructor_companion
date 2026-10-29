@@ -102,6 +102,22 @@ class AttendanceForm extends FormBase {
       . '</h2><p>' . $intro . '</p></div>',
     ];
 
+    // Evaluations come back far more often when the instructor asks for them
+    // in the room (JR 2026-10-29). A reminder to say so, and this class's QR
+    // code to show; the same page is behind the poster on the classroom wall.
+    $eval_url = \Drupal::service('instructor_companion.session_evaluation')
+      ->evaluationUrl((int) $event_id, (int) $event->get('event_type_id')->value);
+    $form['evaluation_reminder'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Before everyone leaves: ask for the evaluation'),
+      '#open' => TRUE,
+      '#attributes' => ['class' => ['attendance-eval-reminder']],
+      'text' => [
+        '#markup' => '<p>' . $this->t('Tell the class they will get a short evaluation by email as class ends, and that you would appreciate everyone filling it in. Or they can scan the code on the classroom wall, or this one, right now.') . '</p>',
+      ],
+      'qr' => \Drupal\instructor_companion\Controller\EvaluateNowController::qrImage($eval_url, 160),
+    ];
+
     if ($multi) {
       $marks = $this->attendance->getMarks($event_id);
       $links = [];

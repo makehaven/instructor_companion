@@ -584,7 +584,7 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = t('Who turned up for @event?', ['@event' => $params['event_label']]);
       $message['body'][] = t('Hi @name,', ['@name' => $params['instructor_name']]);
-      $message['body'][] = t('While everyone is still in the room, please tick off who actually came to @event. It takes a few seconds: @url', [
+      $message['body'][] = t('@event starts soon. As people arrive and introduce themselves, tick off who is there. It takes a few seconds: @url', [
         '@event' => $params['event_label'],
         '@url' => $params['attendance_url'],
       ]);

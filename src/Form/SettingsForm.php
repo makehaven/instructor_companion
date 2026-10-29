@@ -188,18 +188,18 @@ class SettingsForm extends ConfigFormBase {
       ];
       $form['closeout']['attendance_prompt_enabled'] = [
         '#type' => 'checkbox',
-        '#title' => $this->t('Ask for attendance at the start of the class'),
+        '#title' => $this->t('Send the attendance list as the class begins'),
         '#default_value' => (bool) ($config->get('attendance_prompt_enabled') ?? TRUE),
-        '#description' => $this->t('Emails the instructor shortly after the class begins with a direct link to the attendance list. This is the prompt that decides whether attendance data is any good — asked two days later, an instructor is guessing, and a walk-in nobody registered has long gone.'),
+        '#description' => $this->t('Emails the instructor a direct link to the attendance list just before the class starts. This is the prompt that decides whether attendance data is any good — asked two days later, an instructor is guessing, and a walk-in nobody registered has long gone.'),
       ];
 
       $form['closeout']['attendance_prompt_offset_minutes'] = [
         '#type' => 'number',
-        '#title' => $this->t('Minutes after the start time'),
-        '#min' => 1,
+        '#title' => $this->t('Minutes before the class starts'),
+        '#min' => -240,
         '#max' => 240,
-        '#default_value' => $config->get('attendance_prompt_offset_minutes') ?: \Drupal\instructor_companion\Service\AttendancePromptService::DEFAULT_OFFSET_MINUTES,
-        '#description' => $this->t('Not zero — at the bell the instructor is greeting people and setting up.'),
+        '#default_value' => -((int) ($config->get('attendance_prompt_offset_minutes') ?: \Drupal\instructor_companion\Service\AttendancePromptService::DEFAULT_OFFSET_MINUTES)),
+        '#description' => $this->t('So the list is in hand while people arrive and introduce themselves. A negative number sends it after the start instead.'),
         '#states' => [
           'visible' => [':input[name="attendance_prompt_enabled"]' => ['checked' => TRUE]],
         ],
@@ -481,7 +481,7 @@ class SettingsForm extends ConfigFormBase {
         ? (bool) $form_state->getValue('attendance_prompt_enabled')
         : $this->config('instructor_companion.settings')->get('attendance_prompt_enabled'))
       ->set('attendance_prompt_offset_minutes', $form_state->hasValue('attendance_prompt_offset_minutes')
-        ? (int) $form_state->getValue('attendance_prompt_offset_minutes')
+        ? -(int) $form_state->getValue('attendance_prompt_offset_minutes')
         : $this->config('instructor_companion.settings')->get('attendance_prompt_offset_minutes'))
       ->set('session_evaluation_enabled', $form_state->hasValue('session_evaluation_enabled')
         ? (bool) $form_state->getValue('session_evaluation_enabled')
