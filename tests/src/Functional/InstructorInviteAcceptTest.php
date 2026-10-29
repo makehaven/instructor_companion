@@ -90,7 +90,7 @@ class InstructorInviteAcceptTest extends BrowserTestBase {
     $this->assertSession()->addressMatches('#/instructor/setup$#');
     $this->assertSession()->pageTextContains('You are signed in');
     $this->assertSession()->pageTextContains('Choose a password');
-    $this->assertSession()->pageTextContains('Add your photo and bio');
+    $this->assertSession()->pageTextContains('Add your bio and a photo');
     $this->assertSession()->pageTextContains('Watch the member orientation video and pass the quiz');
     $this->assertSession()->pageTextContains('Book your in-person Site Orientation');
 

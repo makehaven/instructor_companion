@@ -317,6 +317,119 @@ class AttendanceManager {
   }
 
   /**
+   * The guest waiver webform (signed on a phone at the door).
+   */
+  public const GUEST_WAIVER_WEBFORM = 'guest_waiver';
+
+  /**
+   * Whether this person has signed a MakeHaven waiver we can find.
+   *
+   * JR 2026-10-28: walk-ins should have a digital waiver on file. The waiver
+   * lives in three places, any of which counts:
+   * - the class registration form's "Waiver Agreement" (participant field);
+   * - the site terms every account accepts (legal module; the terms text is
+   *   the "Guest Waiver & Release of Liability"), or the account's
+   *   field_waiver_signed_at set by the guest waiver;
+   * - a guest waiver submission linked to the contact.
+   */
+  public function waiverOnFile(int $contact_id, ?int $uid = NULL): bool {
+    if ($contact_id <= 0) {
+      return FALSE;
+    }
+    $schema = $this->database->schema();
+
+    $col = $this->registrationWaiverColumn();
+    if ($col) {
+      $q = $this->database->select('civicrm_participant', 'p');
+      $q->innerJoin($col['table'], 'w', 'w.entity_id = p.id');
+      $q->condition('p.contact_id', $contact_id);
+      $q->condition('w.' . $col['column'], '1');
+      if ($q->countQuery()->execute()->fetchField()) {
+        return TRUE;
+      }
+    }
+
+    if ($uid === NULL) {
+      $found = $this->database->select('civicrm_uf_match', 'm')
+        ->fields('m', ['uf_id'])
+        ->condition('m.contact_id', $contact_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      $uid = $found ? (int) $found : NULL;
+    }
+    if ($uid) {
+      if ($schema->tableExists('legal_accepted')
+        && $this->database->select('legal_accepted', 'l')->condition('l.uid', $uid)->countQuery()->execute()->fetchField()) {
+        return TRUE;
+      }
+      if ($schema->tableExists('user__field_waiver_signed_at')
+        && $this->database->select('user__field_waiver_signed_at', 'f')->condition('f.entity_id', $uid)->countQuery()->execute()->fetchField()) {
+        return TRUE;
+      }
+    }
+
+    return $this->guestWaiverContactQuery()
+      ->condition('wcs.contact_id', '-' . $contact_id . '-%', 'LIKE')
+      ->countQuery()->execute()->fetchField() > 0;
+  }
+
+  /**
+   * The contact of the latest guest waiver signed with this email, or NULL.
+   *
+   * Lets an instructor add a walk-in who has no account: they sign the
+   * guest waiver on their phone, which makes the CiviCRM contact.
+   */
+  public function findContactIdByGuestWaiverEmail(string $email): ?int {
+    $email = trim($email);
+    if ($email === '') {
+      return NULL;
+    }
+    $q = $this->guestWaiverContactQuery();
+    $q->innerJoin('webform_submission_data', 'd', "d.sid = ws.sid AND d.name = 'civicrm_1_contact_1_email_email'");
+    $q->condition('d.value', $email);
+    $q->fields('wcs', ['contact_id']);
+    $q->orderBy('ws.created', 'DESC');
+    $q->range(0, 1);
+    $raw = (string) $q->execute()->fetchField();
+    return preg_match('/^-(\d+)-/', $raw, $m) && (int) $m[1] > 0 ? (int) $m[1] : NULL;
+  }
+
+  /**
+   * Guest waiver submissions joined to the contacts webform_civicrm made.
+   */
+  protected function guestWaiverContactQuery() {
+    $q = $this->database->select('webform_submission', 'ws');
+    $q->innerJoin('webform_civicrm_submissions', 'wcs', 'wcs.sid = ws.sid');
+    $q->condition('ws.webform_id', self::GUEST_WAIVER_WEBFORM);
+    return $q;
+  }
+
+  /**
+   * Table and column of the registration form's "Waiver Agreement" field.
+   *
+   * Looked up by name, not hardcoded (custom_63 on live today).
+   *
+   * @return array{table: string, column: string}|null
+   *   NULL when the field does not exist.
+   */
+  protected function registrationWaiverColumn(): ?array {
+    static $col = FALSE;
+    if ($col === FALSE) {
+      $q = $this->database->select('civicrm_custom_field', 'f');
+      $q->innerJoin('civicrm_custom_group', 'g', 'g.id = f.custom_group_id');
+      $q->addField('g', 'table_name', 'table');
+      $q->addField('f', 'column_name', 'column');
+      $q->condition('f.name', 'Waiver_Agreement');
+      $q->condition('g.extends', 'Participant');
+      $q->range(0, 1);
+      $row = $q->execute()->fetchAssoc();
+      $col = $row ?: NULL;
+    }
+    return $col;
+  }
+
+  /**
    * Adds a walk-in: ensures the contact is a participant marked Attended.
    *
    * Idempotent — if the contact already has a participant row for the event

@@ -142,9 +142,15 @@ class AttendanceForm extends FormBase {
 
     $options = [];
     $default = [];
+    $no_waiver = 0;
     foreach ($roster as $row) {
       $pid = $row['participant_id'];
-      $label = $row['name'];
+      $label = htmlspecialchars($row['name']);
+      // Waivers matter (JR 10-28): say so beside anyone without one.
+      if (!$this->attendance->waiverOnFile($row['contact_id'], $row['uid'])) {
+        $label .= ' <span class="attendance-note attendance-note--never">' . $this->t('no waiver on file') . '</span>';
+        $no_waiver++;
+      }
       if ($multi) {
         $sum = $summary[$pid] ?? NULL;
         if ($sum && $sum['attended']) {
@@ -200,6 +206,17 @@ class AttendanceForm extends FormBase {
       '#value' => array_keys($options),
     ];
 
+    $waiver_url = Url::fromRoute('entity.webform.canonical', ['webform' => AttendanceManager::GUEST_WAIVER_WEBFORM], ['absolute' => TRUE])->toString();
+    if ($no_waiver) {
+      $form['waiver_note'] = [
+        '#markup' => '<p class="attendance-waiver-note">' . $this->t('Anyone marked "no waiver on file" should sign the guest waiver on their phone before they use any tools: <a href=":url">@short</a>.', [
+          ':url' => $waiver_url,
+          '@short' => preg_replace('#^https?://(www\.)?#', '', $waiver_url),
+        ]) . '</p>',
+        '#weight' => 5,
+      ];
+    }
+
     $form['walk_in'] = [
       '#type' => 'details',
       '#title' => $this->t('Add a walk-in'),
@@ -207,8 +224,11 @@ class AttendanceForm extends FormBase {
     ];
     $form['walk_in']['walk_in_email'] = [
       '#type' => 'email',
-      '#title' => $this->t('MakeHaven account email'),
-      '#description' => $this->t('Enter the email of someone who attended but was not registered. They must already have a MakeHaven account. (Adding several? Save, then repeat.)'),
+      '#title' => $this->t('Their email'),
+      '#description' => $this->t('Every walk-in needs a signed waiver. If they have no MakeHaven account, have them sign the guest waiver on their phone first (<a href=":url">@short</a>), then enter the email they used. (Adding several? Save, then repeat.)', [
+        ':url' => $waiver_url,
+        '@short' => preg_replace('#^https?://(www\.)?#', '', $waiver_url),
+      ]),
     ];
 
     $form['actions'] = ['#type' => 'actions'];
@@ -249,12 +269,22 @@ class AttendanceForm extends FormBase {
 
     $walk_in = trim((string) $form_state->getValue('walk_in_email'));
     if ($walk_in !== '') {
-      $contact_id = $this->attendance->findContactIdByAccountEmail($walk_in);
-      if ($contact_id && $this->attendance->addWalkIn($event_id, $contact_id, $session_start, $uid)) {
-        $this->messenger()->addStatus($this->t('Added @email as a walk-in (marked attended).', ['@email' => $walk_in]));
+      $contact_id = $this->attendance->findContactIdByAccountEmail($walk_in)
+        ?? $this->attendance->findContactIdByGuestWaiverEmail($walk_in);
+      $waiver_url = Url::fromRoute('entity.webform.canonical', ['webform' => AttendanceManager::GUEST_WAIVER_WEBFORM], ['absolute' => TRUE])->toString();
+      if (!$contact_id) {
+        $this->messenger()->addWarning($this->t('Could not add @email: no MakeHaven account or signed waiver uses that address. Have them sign the guest waiver on their phone (<a href=":url">@url</a>) with that email, then add them again.', ['@email' => $walk_in, ':url' => $waiver_url, '@url' => $waiver_url]));
+      }
+      elseif ($this->attendance->addWalkIn($event_id, $contact_id, $session_start, $uid)) {
+        if ($this->attendance->waiverOnFile($contact_id)) {
+          $this->messenger()->addStatus($this->t('Added @email as a walk-in (marked attended). Their waiver is on file.', ['@email' => $walk_in]));
+        }
+        else {
+          $this->messenger()->addWarning($this->t('Added @email as a walk-in, but there is no signed waiver on file for them. Have them sign the guest waiver now: <a href=":url">@url</a>', ['@email' => $walk_in, ':url' => $waiver_url, '@url' => $waiver_url]));
+        }
       }
       else {
-        $this->messenger()->addWarning($this->t('Could not add @email — no MakeHaven account found for that address. Ask them to create an account, then add them.', ['@email' => $walk_in]));
+        $this->messenger()->addWarning($this->t('Could not add @email as a walk-in. Try again, or tell education@makehaven.org who it was.', ['@email' => $walk_in]));
       }
     }
 

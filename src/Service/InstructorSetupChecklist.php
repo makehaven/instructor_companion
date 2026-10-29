@@ -192,13 +192,28 @@ class InstructorSetupChecklist {
 
     $profile = $this->approvalGate->loadInstructorProfile($uid);
     $missing = $this->missingProfileParts($profile);
+    // JR 2026-10-28: the photo is encouraged, not required — the bio alone
+    // finishes the step. A member photo is used when they add none
+    // (instructor_companion_profile_presave), so say which applies.
+    $no_bio = in_array('a bio', $missing, TRUE);
+    $no_photo = in_array('a photo', $missing, TRUE);
+    $member_photo = $no_photo && $this->memberPhotoFid($uid) !== NULL;
+    if ($no_bio) {
+      $help = 'Your instructor page is what people read before they sign up for your class. Add a few sentences about yourself.';
+    }
+    else {
+      $help = 'Your instructor page has a bio.';
+    }
+    if ($no_photo) {
+      $help .= $member_photo
+        ? ' We will show your member photo; add a different one if you like.'
+        : ' A photo is optional but helps people decide to sign up.';
+    }
     $steps[self::STEP_PROFILE] = [
-      'title' => 'Add your photo and bio',
-      'help' => $missing
-        ? 'Your instructor page is what people read before they sign up for your class. Still missing: ' . implode(' and ', $missing) . '.'
-        : 'Your instructor page has a photo and a bio.',
-      'done' => !$missing,
-      'action' => 'Add photo and bio',
+      'title' => 'Add your bio and a photo',
+      'help' => $help,
+      'done' => !$no_bio,
+      'action' => $no_bio ? 'Add your bio' : 'Add a photo',
       'url' => Url::fromUserInput('/user/' . $uid . '/instructor'),
       'locked' => '',
     ];
@@ -319,6 +334,28 @@ class InstructorSetupChecklist {
     }
     uasort($out, static fn(array $a, array $b): int => ($b['last_sent'] ?? 0) <=> ($a['last_sent'] ?? 0));
     return $out;
+  }
+
+  /**
+   * The member (main profile) photo's file id, or NULL.
+   */
+  public function memberPhotoFid(int $uid): ?int {
+    if (!$this->entityTypeManager->hasDefinition('profile')) {
+      return NULL;
+    }
+    $storage = $this->entityTypeManager->getStorage('profile');
+    $ids = $storage->getQuery()->accessCheck(FALSE)
+      ->condition('uid', $uid)
+      ->condition('type', 'main')
+      ->exists('field_member_photo')
+      ->range(0, 1)
+      ->execute();
+    if (!$ids) {
+      return NULL;
+    }
+    $main = $storage->load(reset($ids));
+    $fid = $main ? (int) $main->get('field_member_photo')->target_id : 0;
+    return $fid > 0 ? $fid : NULL;
   }
 
   /**

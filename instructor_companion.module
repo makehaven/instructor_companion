@@ -68,6 +68,31 @@ function instructor_companion_cron() {
 }
 
 /**
+ * Implements hook_ENTITY_TYPE_presave() for profile.
+ *
+ * JR 2026-10-28: the instructor photo is optional; a member's photo stands in
+ * when they add none. Copied as a reference on save (rather than swapped in
+ * at display) so every place the photo shows — the instructor page, event
+ * pages, the /instructors list — gets it. The setup list tells them.
+ */
+function instructor_companion_profile_presave(EntityInterface $profile) {
+  if ($profile->bundle() !== 'instructor'
+    || !$profile->hasField('field_instructor_photo')
+    || !$profile->get('field_instructor_photo')->isEmpty()) {
+    return;
+  }
+  $uid = (int) $profile->getOwnerId();
+  $fid = $uid ? \Drupal::service('instructor_companion.setup_checklist')->memberPhotoFid($uid) : NULL;
+  if ($fid) {
+    $owner = $profile->getOwner();
+    $profile->set('field_instructor_photo', [
+      'target_id' => $fid,
+      'alt' => $owner ? 'Photo of ' . $owner->getDisplayName() : 'Instructor photo',
+    ]);
+  }
+}
+
+/**
  * Implements hook_block_access().
  *
  * The "Thinking about becoming a member?" prompt is placed on every /user/*
