@@ -13,13 +13,14 @@ use Drupal\Core\Url;
 use Drupal\instructor_companion\Service\PostEventStatusService;
 
 /**
- * One evaluation link for the classroom wall: /evaluate.
+ * One evaluation link for the classroom wall: /how-was-class.
  *
  * A QR code on the wall cannot know which class is in the room, so this
  * looks it up: the class (or session) that started in the last few hours,
- * or is about to. One match goes straight to that class's evaluation; more
- * than one gets a short list to pick from. JR 2026-10-29: people rarely fill
- * in the emailed evaluation after they leave.
+ * or is about to. One match goes straight to that class's evaluation;
+ * otherwise the existing chooser at /event/evaluate (recent classes, pick
+ * yours), which is also the address instructors read out. JR 2026-10-29:
+ * people rarely fill in the emailed evaluation after they leave.
  */
 class EvaluateNowController extends ControllerBase {
 
@@ -34,39 +35,23 @@ class EvaluateNowController extends ControllerBase {
   protected const AFTER_HOURS = 5;
 
   /**
+   * The site's existing "pick the class you took" evaluation page.
+   */
+  public const CHOOSER_PATH = '/event/evaluate';
+
+  /**
    * The page behind the wall QR code.
    */
-  public function build(): array|TrustedRedirectResponse {
+  public function build(): TrustedRedirectResponse {
     \Drupal::service('page_cache_kill_switch')->trigger();
     $classes = $this->classesNow();
-
-    if (count($classes) === 1) {
-      $class = reset($classes);
-      $response = new TrustedRedirectResponse($class['url'], 302);
-      $response->setPrivate();
-      $response->headers->addCacheControlDirective('no-store');
-      return $response;
-    }
-
-    $build = ['#cache' => ['max-age' => 0]];
-    if (!$classes) {
-      $build['none'] = [
-        '#markup' => '<p>' . $this->t('No class is running right now. If you took one recently, the evaluation link is in the email we sent as class ended, or write to <a href="mailto:education@makehaven.org">education@makehaven.org</a>.') . '</p>',
-      ];
-      return $build;
-    }
-    $items = [];
-    foreach ($classes as $class) {
-      $items[] = [
-        '#type' => 'link',
-        '#title' => $class['title'],
-        '#url' => Url::fromUri($class['url']),
-        '#attributes' => ['class' => ['button', 'button--primary']],
-      ];
-    }
-    $build['intro'] = ['#markup' => '<p>' . $this->t('Which class are you in?') . '</p>'];
-    $build['list'] = ['#theme' => 'item_list', '#items' => $items];
-    return $build;
+    $target = count($classes) === 1
+      ? reset($classes)['url']
+      : Url::fromUserInput(self::CHOOSER_PATH, ['absolute' => TRUE])->toString();
+    $response = new TrustedRedirectResponse($target, 302);
+    $response->setPrivate();
+    $response->headers->addCacheControlDirective('no-store');
+    return $response;
   }
 
   /**
@@ -84,7 +69,7 @@ class EvaluateNowController extends ControllerBase {
       ],
       'qr' => self::qrImage($url, 360),
       'foot' => [
-        '#markup' => '<p style="margin-top:1rem;font-size:1.1rem">' . htmlspecialchars(preg_replace('#^https?://(www\.)?#', '', $url)) . '</p>'
+        '#markup' => '<p style="margin-top:1rem;font-size:1.2rem">' . $this->t('No phone camera? Go to <strong>makehaven.org/event/evaluate</strong> and pick your class.') . '</p>'
         . '<p style="margin-top:2rem"><small>' . $this->t('Print this page (Ctrl+P) and put it on the classroom wall or screen.') . '</small></p>',
       ],
     ];

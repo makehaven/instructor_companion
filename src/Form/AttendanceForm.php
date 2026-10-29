@@ -113,7 +113,7 @@ class AttendanceForm extends FormBase {
       '#open' => TRUE,
       '#attributes' => ['class' => ['attendance-eval-reminder']],
       'text' => [
-        '#markup' => '<p>' . $this->t('Tell the class they will get a short evaluation by email as class ends, and that you would appreciate everyone filling it in. Or they can scan the code on the classroom wall, or this one, right now.') . '</p>',
+        '#markup' => '<p>' . $this->t('Tell the class they will get a short evaluation by email as class ends, and that you would appreciate everyone filling it in. Or they can do it now: scan the code on the classroom wall or this one, or go to <strong>makehaven.org/event/evaluate</strong> and pick this class.') . '</p>',
       ],
       'qr' => \Drupal\instructor_companion\Controller\EvaluateNowController::qrImage($eval_url, 160),
     ];
