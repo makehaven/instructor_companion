@@ -625,6 +625,18 @@ function instructor_companion_mail($key, &$message, $params) {
       $message['body'][] = (string) $params['body'];
       break;
 
+    case 'waiver_request':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['headers']['Reply-To'] = 'education@makehaven.org';
+      $message['subject'] = t('Please sign the MakeHaven waiver for @event', ['@event' => $params['event_label']]);
+      $message['body'][] = t('Hi @name,', ['@name' => $params['first_name']]);
+      $message['body'][] = t("You're in @event at MakeHaven. Before you use any tools, we need a signed waiver on file. It takes two minutes:", ['@event' => $params['event_label']]);
+      $message['body'][] = $params['waiver_url'];
+      $message['body'][] = t('Thanks,');
+      $message['body'][] = t('@instructor, your instructor', ['@instructor' => $params['instructor_name']]);
+      $message['body'][] = 'MakeHaven · www.makehaven.org';
+      break;
+
     case 'setup_deadline_alert':
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = t('Instructor setup not finished: @name teaches @when', ['@name' => $params['instructor_name'], '@when' => $params['event_start']]);

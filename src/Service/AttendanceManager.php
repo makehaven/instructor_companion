@@ -317,6 +317,31 @@ class AttendanceManager {
   }
 
   /**
+   * A contact's primary email, or NULL.
+   */
+  public function contactEmail(int $contact_id): ?string {
+    $email = $this->database->select('civicrm_email', 'e')
+      ->fields('e', ['email'])
+      ->condition('e.contact_id', $contact_id)
+      ->orderBy('e.is_primary', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    return $email ? (string) $email : NULL;
+  }
+
+  /**
+   * A contact's first name, or ''.
+   */
+  public function contactFirstName(int $contact_id): string {
+    return (string) $this->database->select('civicrm_contact', 'c')
+      ->fields('c', ['first_name'])
+      ->condition('c.id', $contact_id)
+      ->execute()
+      ->fetchField();
+  }
+
+  /**
    * The guest waiver webform (signed on a phone at the door).
    */
   public const GUEST_WAIVER_WEBFORM = 'guest_waiver';

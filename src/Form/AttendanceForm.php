@@ -29,6 +29,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class AttendanceForm extends FormBase {
 
+  /**
+   * When each participant was last emailed the waiver link: [pid => ts].
+   */
+  protected const WAIVER_SENT_STATE = 'instructor_companion.waiver_link_sent';
+
   public function __construct(
     protected AttendanceManager $attendance,
     protected PostEventStatusService $postEventStatus,
@@ -96,6 +101,7 @@ class AttendanceForm extends FormBase {
         '@when' => SessionSchedule::label($session_start),
       ])
       : $this->t('Check everyone who showed up. You can come back and fix this later if someone arrives late or you miss a name.');
+    $form_state->set('event_label', (string) $event->label());
     $form['intro'] = [
       '#markup' => '<div class="attendance-intro"><h2>'
       . $this->t('Attendance: @label', ['@label' => $event->label()])
@@ -158,14 +164,14 @@ class AttendanceForm extends FormBase {
 
     $options = [];
     $default = [];
-    $no_waiver = 0;
+    $no_waiver = [];
     foreach ($roster as $row) {
       $pid = $row['participant_id'];
       $label = htmlspecialchars($row['name']);
       // Waivers matter (JR 10-28): say so beside anyone without one.
       if (!$this->attendance->waiverOnFile($row['contact_id'], $row['uid'])) {
         $label .= ' <span class="attendance-note attendance-note--never">' . $this->t('no waiver on file') . '</span>';
-        $no_waiver++;
+        $no_waiver[$row['participant_id']] = $row;
       }
       if ($multi) {
         $sum = $summary[$pid] ?? NULL;
@@ -224,13 +230,43 @@ class AttendanceForm extends FormBase {
 
     $waiver_url = Url::fromRoute('entity.webform.canonical', ['webform' => AttendanceManager::GUEST_WAIVER_WEBFORM], ['absolute' => TRUE])->toString();
     if ($no_waiver) {
-      $form['waiver_note'] = [
-        '#markup' => '<p class="attendance-waiver-note">' . $this->t('Anyone marked "no waiver on file" should sign the guest waiver on their phone before they use any tools: <a href=":url">@short</a>.', [
-          ':url' => $waiver_url,
-          '@short' => preg_replace('#^https?://(www\.)?#', '', $waiver_url),
-        ]) . '</p>',
-        '#weight' => 5,
+      // A way to fix it, not just a flag (JR 2026-10-29): email the person the
+      // link, or have them scan the code in the room.
+      $sent = (array) \Drupal::state()->get(self::WAIVER_SENT_STATE, []);
+      $form['waivers'] = [
+        '#type' => 'details',
+        '#title' => $this->formatPlural(count($no_waiver), 'No waiver on file (1 person)', 'No waiver on file (@count people)'),
+        '#open' => TRUE,
+        '#attributes' => ['class' => ['attendance-waivers']],
+        'text' => [
+          '#markup' => '<p>' . $this->t('They need to sign the guest waiver before they use any tools. Email them the link, or have them scan this code on their phone now (<a href=":url">@short</a>).', [
+            ':url' => $waiver_url,
+            '@short' => preg_replace('#^https?://(www\.)?#', '', $waiver_url),
+          ]) . '</p>',
+        ],
+        'qr' => \Drupal\instructor_companion\Controller\EvaluateNowController::qrImage($waiver_url, 140),
       ];
+      foreach ($no_waiver as $pid => $row) {
+        $form['waivers']['row_' . $pid] = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['attendance-waiver-row']],
+          'name' => ['#markup' => '<strong>' . htmlspecialchars($row['name']) . '</strong> '],
+          'send' => [
+            '#type' => 'submit',
+            '#value' => !empty($sent[$pid]) ? $this->t('Email the waiver again') : $this->t('Email them the waiver'),
+            '#name' => 'send_waiver_' . $pid,
+            '#participant_id' => $pid,
+            '#contact_id' => $row['contact_id'],
+            '#person_name' => $row['name'],
+            '#submit' => ['::sendWaiver'],
+            '#limit_validation_errors' => [],
+            '#attributes' => ['class' => ['button--small']],
+          ],
+          'sent' => !empty($sent[$pid]) ? [
+            '#markup' => ' <span class="attendance-note">' . $this->t('emailed @when', ['@when' => date('M j, g:ia', (int) $sent[$pid])]) . '</span>',
+          ] : [],
+        ];
+      }
     }
 
     $form['walk_in'] = [
@@ -263,6 +299,39 @@ class AttendanceForm extends FormBase {
     ];
 
     return $form;
+  }
+
+  /**
+   * Emails one registered person the guest waiver link.
+   */
+  public function sendWaiver(array &$form, FormStateInterface $form_state): void {
+    $button = $form_state->getTriggeringElement();
+    $pid = (int) ($button['#participant_id'] ?? 0);
+    $contact_id = (int) ($button['#contact_id'] ?? 0);
+    $name = (string) ($button['#person_name'] ?? '');
+    $email = $this->attendance->contactEmail($contact_id);
+    if (!$pid || !$email) {
+      $this->messenger()->addWarning($this->t('There is no email address on file for @name. Have them scan the code on this page instead.', ['@name' => $name]));
+      return;
+    }
+    $event = $form_state->get('event_label') ?? '';
+    $waiver_url = Url::fromRoute('entity.webform.canonical', ['webform' => AttendanceManager::GUEST_WAIVER_WEBFORM], ['absolute' => TRUE])->toString();
+    $result = \Drupal::service('plugin.manager.mail')->mail('instructor_companion', 'waiver_request', $email, \Drupal::languageManager()->getDefaultLanguage()->getId(), [
+      'first_name' => $this->attendance->contactFirstName($contact_id) ?: $name,
+      'event_label' => $event,
+      'waiver_url' => $waiver_url,
+      'instructor_name' => $this->currentUser->getDisplayName(),
+    ]);
+    if (!empty($result['result'])) {
+      $sent = (array) \Drupal::state()->get(self::WAIVER_SENT_STATE, []);
+      $sent[$pid] = \Drupal::time()->getRequestTime();
+      \Drupal::state()->set(self::WAIVER_SENT_STATE, $sent);
+      $this->messenger()->addStatus($this->t('Emailed @name the waiver link.', ['@name' => $name]));
+    }
+    else {
+      $this->messenger()->addWarning($this->t('The email to @name did not send. Have them scan the code on this page instead.', ['@name' => $name]));
+    }
+    $form_state->setRebuild();
   }
 
   /**
