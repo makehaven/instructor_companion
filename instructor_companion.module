@@ -1749,14 +1749,79 @@ function instructor_companion_webform_submission_form_alter(array &$form, FormSt
     $form['elements']['instructor_uid']['#default_value'] = (string) $account->id();
   }
 
-  // Prefill actual attendance once (don't clobber an edit in progress).
-  $attendance =& $form['elements']['classsection']['attendance_list_actual'];
-  if (isset($attendance) && empty($attendance['#default_value']) && $submission->isNew()) {
-    $list = instructor_companion_event_attendance_list($event_id);
-    if ($list !== '') {
-      $attendance['#default_value'] = $list;
+  // The materials this class uses, as tick boxes (JR 2026-10-29). A course
+  // has no materials list of its own, so they come from what it badges for:
+  // course badges -> the tools needing those badges -> materials used with
+  // those tools. Ticked ones join "Other shop materials" on submit, so the
+  // reorder handler sees one list.
+  $materials = instructor_companion_class_materials($event_id);
+  if ($materials && isset($form['elements']['materialssection'])) {
+    $form['elements']['materialssection']['class_materials'] = [
+      '#type' => 'checkboxes',
+      '#title' => t('Materials this class uses'),
+      '#description' => t('Tick any that ran low or out. Each one is sent to the store reorder queue.'),
+      '#options' => $materials,
+      '#weight' => -10,
+    ];
+    $form['elements']['materialssection']['materials_to_reorder']['#weight'] = 0;
+    $form['elements']['materialssection']['materials_notes']['#weight'] = 1;
+    array_unshift($form['#validate'], 'instructor_companion_feedback_materials_validate');
+  }
+  else {
+    // No list for this class: the search is the first question, so it is not
+    // "other".
+    $form['elements']['materialssection']['materials_to_reorder']['#title'] = t('Shop materials that ran low or out');
+    $form['elements']['materialssection']['materials_to_reorder']['#description'] = t('Start typing a material name. Each one you add is sent to the store reorder queue.');
+  }
+}
+
+/**
+ * Material nodes a class uses, [nid => title], via its course's badges.
+ */
+function instructor_companion_class_materials(int $event_id): array {
+  $db = \Drupal::database();
+  foreach (['civicrm_event__field_parent_course', 'node__field_course_badges', 'node__field_member_badges', 'node__field_material_equipment'] as $table) {
+    if (!$db->schema()->tableExists($table)) {
+      return [];
     }
   }
+  $q = $db->select('civicrm_event__field_parent_course', 'pc');
+  $q->innerJoin('node__field_course_badges', 'cb', 'cb.entity_id = pc.field_parent_course_target_id AND cb.deleted = 0');
+  $q->innerJoin('node__field_member_badges', 'ib', "ib.field_member_badges_target_id = cb.field_course_badges_target_id AND ib.bundle = 'item' AND ib.deleted = 0");
+  $q->innerJoin('node__field_material_equipment', 'me', 'me.field_material_equipment_target_id = ib.entity_id AND me.deleted = 0');
+  $q->innerJoin('node_field_data', 'n', "n.nid = me.entity_id AND n.status = 1 AND n.type = 'material'");
+  $q->condition('pc.entity_id', $event_id);
+  $q->condition('pc.deleted', 0);
+  $q->fields('n', ['nid', 'title']);
+  $q->distinct();
+  $q->orderBy('n.title');
+  $q->range(0, 30);
+  return $q->execute()->fetchAllKeyed();
+}
+
+/**
+ * Validate: ticked class materials join the reorder list the handler reads.
+ */
+function instructor_companion_feedback_materials_validate(array &$form, FormStateInterface $form_state): void {
+  $ticked = array_map('intval', array_filter((array) $form_state->getValue('class_materials')));
+  if (!$ticked) {
+    return;
+  }
+  $current = $form_state->getValue('materials_to_reorder');
+  $ids = [];
+  foreach ((array) $current as $item) {
+    $ids[] = (int) (is_array($item) ? ($item['target_id'] ?? 0) : $item);
+  }
+  $ids = array_values(array_unique(array_filter(array_merge($ids, $ticked))));
+  $form_state->setValue('materials_to_reorder', $ids);
+  // Ticking a material is reporting one, even if the box above was missed.
+  // Webform keeps checkbox answers as a plain list (the keys become row
+  // numbers when saved), so append rather than key by value.
+  $report = array_values(array_filter((array) $form_state->getValue('report')));
+  if (!in_array('materials', $report, TRUE)) {
+    $report[] = 'materials';
+  }
+  $form_state->setValue('report', $report);
 }
 
 /**
@@ -1785,25 +1850,6 @@ function instructor_companion_feedback_once_validate(array &$form, FormStateInte
   if ($event_id && $uid && instructor_companion_existing_feedback_sid($event_id, $uid)) {
     $form_state->setErrorByName('event_id', t('You already sent feedback for this class. Open it from your Instructor Dashboard to change it.'));
   }
-}
-
-/**
- * Returns one registered participant per line for an event.
- *
- * Counted, non-test participants joined to their contact display name.
- * Direct DB query (same pattern as the rest of this module's CiviCRM reads).
- */
-function instructor_companion_event_attendance_list(int $event_id): string {
-  $q = \Drupal::database()->select('civicrm_participant', 'p');
-  $q->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
-  $q->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
-  $q->addField('c', 'display_name', 'name');
-  $q->condition('p.event_id', $event_id);
-  $q->condition('p.is_test', 0);
-  $q->condition('pst.is_counted', 1);
-  $q->orderBy('c.display_name');
-  $names = $q->execute()->fetchCol();
-  return $names ? implode("\n", array_filter(array_map('trim', $names))) : '';
 }
 
 /**
