@@ -1549,7 +1549,10 @@ function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $vi
   if ($view->id() === 'public_program_catalog') {
     // The catalog leads with what someone can act on today: enrolling
     // programs first (an upcoming linked event), then by offering mode —
-    // interest list, partner groups, partner-delivered, paused — then title.
+    // interest list, partner groups, partner-delivered, always open, paused —
+    // then title. Always-open programs (use any time, no enrollment dates)
+    // sort after every cohort program so enrollable ones are never buried.
+    // A mode missing from the FIELD() list sorts FIRST, so add new modes here.
     // field_offering_mode may not be installed yet on an environment whose
     // config import has not run; the sort degrades to upcoming + title.
     $query->orderby = [];
@@ -1565,7 +1568,7 @@ function instructor_companion_views_query_alter(\Drupal\views\ViewExecutable $vi
       ];
       $join = \Drupal::service('plugin.manager.views.join')->createInstance('standard', $configuration);
       $mode = $query->addTable('node__field_offering_mode', NULL, $join, 'program_mode');
-      $query->addOrderBy(NULL, "FIELD(COALESCE($mode.field_offering_mode_value, 'public_schedule'), 'public_schedule', 'interest_list', 'partner_groups', 'partner_delivered', 'paused')", 'ASC', 'program_mode_sort');
+      $query->addOrderBy(NULL, "FIELD(COALESCE($mode.field_offering_mode_value, 'public_schedule'), 'public_schedule', 'interest_list', 'partner_groups', 'partner_delivered', 'always_open', 'paused')", 'ASC', 'program_mode_sort');
     }
     $query->addOrderBy('node_field_data', 'title', 'ASC', 'program_title_sort');
     return;

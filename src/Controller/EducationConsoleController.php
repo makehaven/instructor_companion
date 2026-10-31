@@ -601,6 +601,7 @@ class EducationConsoleController extends ControllerBase {
         'interest_list' => $this->t('interest list'),
         'partner_groups' => $this->t('for partner groups'),
         'partner_delivered' => $this->t('running with a partner'),
+        'always_open' => $this->t('always open'),
         'paused' => $this->t('not offered'),
       ];
       $last = (string) ($node->get('field_stat_last_run')->value ?? '');
