@@ -161,3 +161,12 @@ instructor_companion.settings:
     profile_nudge_body:
       type: text
       label: 'Incomplete instructor profile nudge body'
+    teach_invitation_enabled:
+      type: boolean
+      label: 'Show the teaching invitation card on the member hub'
+    teach_invitation_min_badges:
+      type: integer
+      label: 'Skill badges needed to see the teaching invitation'
+    teach_invitation_min_months:
+      type: integer
+      label: 'Months at MakeHaven needed to see the teaching invitation'

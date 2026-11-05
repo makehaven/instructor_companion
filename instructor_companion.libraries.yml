@@ -21,3 +21,11 @@ setup:
       css/setup.css: {}
   dependencies:
     - core/drupal
+
+teaching:
+  version: 1.0
+  css:
+    theme:
+      css/teaching.css: {}
+  dependencies:
+    - core/drupal

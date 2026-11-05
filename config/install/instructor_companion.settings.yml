@@ -178,3 +178,6 @@ profile_nudge_body: |
   Thanks for teaching at MakeHaven,
   The Education Team
   education@makehaven.org
+teach_invitation_enabled: false
+teach_invitation_min_badges: 5
+teach_invitation_min_months: 6

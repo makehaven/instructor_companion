@@ -1,0 +1,39 @@
+/* Teaching invitation card and "available to teach" list. */
+.mh-teach-card {
+  margin: 0 0 var(--mh-space-lg, 1.5rem);
+  padding: var(--mh-space-md, 1rem) var(--mh-space-lg, 1.5rem);
+  background: var(--mh-color-surface-muted, #f8f9fa);
+  border: 1px solid var(--mh-color-border, #d9d9d9);
+  border-left: 4px solid var(--mh-color-brand-primary, #8b1919);
+  border-radius: var(--mh-radius-md, 0.5rem);
+}
+.mh-teach-card__title {
+  margin: 0 0 var(--mh-space-2xs, 0.25rem);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.mh-teach-card__body {
+  margin: 0 0 var(--mh-space-sm, 0.75rem);
+}
+.mh-teach-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mh-space-md, 1rem);
+}
+.mh-teach-tag {
+  display: inline-block;
+  margin: 0 var(--mh-space-2xs, 0.25rem) var(--mh-space-2xs, 0.25rem) 0;
+  padding: var(--mh-space-3xs, 0.125rem) var(--mh-space-xs, 0.5rem);
+  background: var(--mh-color-surface-muted, #f8f9fa);
+  border: 1px solid var(--mh-color-border, #d9d9d9);
+  border-radius: var(--mh-radius-sm, 0.25rem);
+}
+.mh-teach-tag--match {
+  border-color: var(--mh-color-success, #1f8c5b);
+  font-weight: 600;
+}
+.mh-teach-status--open {
+  color: var(--mh-color-success, #1f8c5b);
+  font-weight: 600;
+}

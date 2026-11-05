@@ -5,7 +5,7 @@ namespace Drupal\instructor_companion\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
-use Drupal\instructor_companion\Service\InstructorApprovalGate;
+use Drupal\instructor_companion\Service\WorkshopInsightsService;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -75,11 +75,8 @@ class CoursePickerController extends ControllerBase {
       ->notExists('field_course_type');
     $query->condition($meetup_filter);
 
-    if ($filter_tid > 0) {
-      $query->condition('field_instructor_expertise', $filter_tid);
-    }
-
     $nids = $query->execute();
+    $demand = \Drupal::service('instructor_companion.workshop_insights')->teachingDemand(array_values($nids));
 
     // Load interest counts for all matching courses.
     $interest_counts = [];
@@ -98,9 +95,13 @@ class CoursePickerController extends ControllerBase {
       }
     }
 
-    // Current user's own area-of-interest tids (from main profile). Used to
-    // rank topic-aligned workshops above the rest and visually mark matches.
+    // What the current user has told us they care about, and what they have
+    // shown they can do. Used to rank topic-aligned workshops above the rest
+    // and visibly mark why. field_member_areas_interest, not
+    // field_member_interests: that one references a different vocabulary, so
+    // comparing it to course topics could never match.
     $user_interest_tids = [];
+    $user_badge_tids = [];
     if (!$current_user->isAnonymous()) {
       $main_profiles = $profile_storage->loadByProperties([
         'uid' => $current_user->id(),
@@ -108,14 +109,15 @@ class CoursePickerController extends ControllerBase {
       ]);
       if ($main_profiles) {
         $main_profile = reset($main_profiles);
-        if ($main_profile->hasField('field_member_interests')) {
-          foreach ($main_profile->get('field_member_interests') as $item) {
+        if ($main_profile->hasField('field_member_areas_interest')) {
+          foreach ($main_profile->get('field_member_areas_interest') as $item) {
             if ($item->target_id) {
               $user_interest_tids[(int) $item->target_id] = TRUE;
             }
           }
         }
       }
+      $user_badge_tids = \Drupal::service('instructor_companion.teaching_invitation')->activeBadgeTids((int) $current_user->id());
     }
 
     $nodes = $nids ? $entity_type_manager->getStorage('node')->loadMultiple($nids) : [];
@@ -124,32 +126,34 @@ class CoursePickerController extends ControllerBase {
     // member interest, and have no upcoming sessions. They're rarely revival
     // candidates and just pad the list. Set field_publicly_listed = 0 to
     // suppress one explicitly; the auto-hide just trims noise.
-    $nodes = array_filter($nodes, function ($node) use ($interest_counts) {
+    $nodes = array_filter($nodes, function ($node) use ($interest_counts, $demand) {
       $nid = (int) $node->id();
       $interest = $interest_counts[$nid] ?? 0;
       $runs = (int) $node->get('field_stat_runs')->value;
       $upcoming = (int) $node->get('field_stat_upcoming')->value;
-      return ($interest > 0) || ($runs >= 2) || ($upcoming > 0);
+      return ($interest > 0) || ($runs >= 2) || ($upcoming > 0) || !empty($demand[$nid]['waiting']);
     });
 
-    // Tier-based opportunity ranking. The intent: surface workshops that
-    // NEED an instructor right now, ahead of ones already covered.
-    //   Tier 0 (top) — no upcoming sessions AND (member interest OR topic match)
-    //   Tier 1       — no upcoming sessions (revival pool: ran in the past, uncovered)
-    //   Tier 2 (bot) — already has upcoming sessions (someone else is teaching it)
-    // Within a tier: topic-match desc → interest desc → runs desc → title.
+    // Opportunity ranking: see WorkshopInsightsService::teachingTier(). Within
+    // a tier: personal match, then people waiting, then interest, then runs.
     $tier_by_nid = [];
     $topic_match_by_nid = [];
+    $badge_match_by_nid = [];
     $course_expertise_tids = [];
-    foreach ($nodes as $node) {
+    foreach ($nodes as $nid_key => $node) {
       $nid = (int) $node->id();
       $interest = $interest_counts[$nid] ?? 0;
       $upcoming = (int) $node->get('field_stat_upcoming')->value;
-      $tids = [];
+      $tids = $demand[$nid]['topics'] ?? [];
       foreach ($node->get('field_instructor_expertise') as $item) {
         if ($item->target_id) {
           $tids[] = (int) $item->target_id;
         }
+      }
+      $tids = array_values(array_unique($tids));
+      if ($filter_tid > 0 && !in_array($filter_tid, $tids, TRUE)) {
+        unset($nodes[$nid_key]);
+        continue;
       }
       $course_expertise_tids[$nid] = $tids;
       $match = 0;
@@ -158,20 +162,27 @@ class CoursePickerController extends ControllerBase {
           $match++;
         }
       }
-      $topic_match_by_nid[$nid] = $match;
-      if ($upcoming > 0) {
-        $tier_by_nid[$nid] = 2;
+      $held = [];
+      foreach ($node->get('field_course_badges') as $item) {
+        if (isset($user_badge_tids[(int) $item->target_id])) {
+          $held[] = (int) $item->target_id;
+        }
       }
-      elseif ($interest > 0 || $match > 0) {
-        $tier_by_nid[$nid] = 0;
-      }
-      else {
-        $tier_by_nid[$nid] = 1;
-      }
+      $badge_match_by_nid[$nid] = $held;
+      // A badge is shown skill and an interest is only stated, so a badge
+      // outweighs any number of topic matches.
+      $topic_match_by_nid[$nid] = $match + count($held) * 100;
+      $tier_by_nid[$nid] = WorkshopInsightsService::teachingTier(
+        $upcoming,
+        (int) ($demand[$nid]['waiting'] ?? 0),
+        $interest,
+        (int) ($demand[$nid]['instructors'] ?? 0),
+        ($match > 0 || $held),
+      );
     }
 
     // Sort.
-    uasort($nodes, function ($a, $b) use ($interest_counts, $tier_by_nid, $topic_match_by_nid, $sort) {
+    uasort($nodes, function ($a, $b) use ($interest_counts, $demand, $tier_by_nid, $topic_match_by_nid, $sort) {
       $nid_a = (int) $a->id();
       $nid_b = (int) $b->id();
       if ($sort === 'opportunity') {
@@ -180,6 +191,10 @@ class CoursePickerController extends ControllerBase {
           return $diff;
         }
         $diff = ($topic_match_by_nid[$nid_b] ?? 0) <=> ($topic_match_by_nid[$nid_a] ?? 0);
+        if ($diff !== 0) {
+          return $diff;
+        }
+        $diff = ($demand[$nid_b]['waiting'] ?? 0) <=> ($demand[$nid_a]['waiting'] ?? 0);
         if ($diff !== 0) {
           return $diff;
         }
@@ -193,7 +208,7 @@ class CoursePickerController extends ControllerBase {
         }
       }
       if ($sort === 'interest') {
-        $diff = ($interest_counts[$nid_b] ?? 0) <=> ($interest_counts[$nid_a] ?? 0);
+        $diff = (($demand[$nid_b]['waiting'] ?? 0) + ($interest_counts[$nid_b] ?? 0)) <=> (($demand[$nid_a]['waiting'] ?? 0) + ($interest_counts[$nid_a] ?? 0));
         if ($diff !== 0) {
           return $diff;
         }
@@ -213,7 +228,16 @@ class CoursePickerController extends ControllerBase {
       return strcmp($a->label(), $b->label());
     });
 
-    $build = [];
+    // Rows depend on who is looking and on the filter. Without these contexts
+    // one member's matches could be served to the next.
+    $build = [
+      '#cache' => [
+        'contexts' => ['user', 'url.query_args:expertise', 'url.query_args:sort'],
+        'tags' => ['node_list:course'],
+        'max-age' => 3600,
+      ],
+      '#attached' => ['library' => ['instructor_companion/teaching']],
+    ];
 
     // Page intro.
     $build['intro'] = [
@@ -222,7 +246,7 @@ class CoursePickerController extends ControllerBase {
       'heading' => ['#markup' => '<h2>' . $this->t('Browse Existing Workshops to Teach') . '</h2>'],
       'body' => [
         '#markup' => '<p>' . $this->t(
-          "These are MakeHaven workshops with proven member interest or strong run history that could use another instructor. The top of the list highlights workshops that ran successfully in the past but aren't currently covered — that's where the biggest opportunity is. After proposing a session, staff will review and reach out to coordinate the details."
+          "These are MakeHaven workshops people have asked for or that have run well before. The top of the list shows where another instructor would help most: classes with people waiting, and classes that ran well but aren't scheduled now. After proposing a session, staff will review and reach out to coordinate the details."
         ) . '</p>',
       ],
     ];
@@ -297,7 +321,7 @@ class CoursePickerController extends ControllerBase {
     $sort_options = '';
     foreach ([
       'opportunity' => $this->t('Best Opportunity'),
-      'interest' => $this->t('Most Member Interest'),
+      'interest' => $this->t('Most Demand'),
       'runs' => $this->t('Most Offered'),
       'new' => $this->t('Newest'),
     ] as $val => $label) {
@@ -327,13 +351,25 @@ class CoursePickerController extends ControllerBase {
         : $this->t('Never run');
       $upcoming = (int) $node->get('field_stat_upcoming')->value;
 
-      $interest_cell = $interest > 0
-        ? $interest . ' ' . ($interest === 1 ? $this->t('person') : $this->t('people'))
-        : '—';
+      $waiting = (int) ($demand[$nid]['waiting'] ?? 0);
+      $demand_parts = [];
+      if ($waiting > 0) {
+        $demand_parts[] = $this->t('@n waitlisted', ['@n' => $waiting]);
+      }
+      if ($interest > 0) {
+        $demand_parts[] = $this->t('@n interested', ['@n' => $interest]);
+      }
+      $interest_cell = $demand_parts ? implode(', ', array_map('strval', $demand_parts)) : '—';
 
-      $upcoming_cell = $upcoming > 0
-        ? '<span style="color:#c0392b">' . $this->t('@n upcoming — another instructor is scheduled', ['@n' => $upcoming]) . '</span>'
-        : '<span style="color:#27ae60">' . $this->t('No upcoming sessions') . '</span>';
+      if ($upcoming === 0) {
+        $upcoming_cell = '<span class="mh-teach-status mh-teach-status--open">' . $this->t('No upcoming sessions') . '</span>';
+      }
+      elseif (WorkshopInsightsService::needsSecondInstructor($upcoming, $waiting, (int) ($demand[$nid]['instructors'] ?? 0))) {
+        $upcoming_cell = '<span class="mh-teach-status mh-teach-status--open">' . $this->t('@n upcoming, people still waiting. Another instructor would help.', ['@n' => $upcoming]) . '</span>';
+      }
+      else {
+        $upcoming_cell = '<span class="mh-teach-status">' . $this->t('@n upcoming', ['@n' => $upcoming]) . '</span>';
+      }
 
       // Proposal-first funnel: any member can propose immediately. Staff
       // review each proposal, and approval is held until onboarding (quiz +
@@ -359,20 +395,22 @@ class CoursePickerController extends ControllerBase {
         $action_class = 'button button--primary button--small';
       }
 
-      // Expertise tags — matches against the current user's own interests
-      // are highlighted so the topic-alignment ranking is visible to the user.
+      // Topic tags. Badges the viewer holds and topics they picked are
+      // highlighted so the ranking is visible to them.
       $expertise_tags = [];
+      foreach ($badge_match_by_nid[$nid] ?? [] as $tid) {
+        $term = $term_storage->load($tid);
+        if ($term) {
+          $expertise_tags[] = '<span class="mh-teach-tag mh-teach-tag--match">' . $this->t('You hold @badge', ['@badge' => $term->label()]) . '</span>';
+        }
+      }
       foreach ($course_expertise_tids[$nid] ?? [] as $tid) {
         $term = $term_storage->load($tid);
         if (!$term) {
           continue;
         }
-        if (isset($user_interest_tids[$tid])) {
-          $expertise_tags[] = '<span class="tag tag--matches-me" style="background:#d4edda;color:#155724;font-weight:600;padding:2px 6px;border-radius:3px;margin-right:4px;display:inline-block">' . htmlspecialchars($term->label()) . '</span>';
-        }
-        else {
-          $expertise_tags[] = '<span class="tag" style="padding:2px 6px;border-radius:3px;margin-right:4px;display:inline-block;background:#f1f1f1">' . htmlspecialchars($term->label()) . '</span>';
-        }
+        $class = isset($user_interest_tids[$tid]) ? 'mh-teach-tag mh-teach-tag--match' : 'mh-teach-tag';
+        $expertise_tags[] = '<span class="' . $class . '">' . htmlspecialchars($term->label()) . '</span>';
       }
 
       $rows[] = [
@@ -403,7 +441,7 @@ class CoursePickerController extends ControllerBase {
       '#header' => [
         'title' => $this->t('Workshop'),
         'topics' => $this->t('Topics'),
-        'interest' => $this->t('Member Interest'),
+        'interest' => $this->t('Demand'),
         'runs' => $this->t('History'),
         'upcoming' => $this->t('Status'),
         'actions' => $this->t(''),

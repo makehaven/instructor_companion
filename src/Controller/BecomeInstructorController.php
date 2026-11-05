@@ -72,6 +72,17 @@ class BecomeInstructorController extends ControllerBase {
       ],
     ];
 
+    // Wording matches the published Instructor Interest page, which is the
+    // same promise made to the same people.
+    $build['first_time'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['become-instructor-first-time']],
+      'heading' => ['#markup' => '<h2>' . $this->t('Never taught before?') . '</h2>'],
+      'body' => [
+        '#markup' => '<p>' . $this->t('Teaching experience is helpful but not required. We help people turn their skills into a teachable class, and we have a template if you have never built one.') . '</p>',
+      ],
+    ];
+
     $build['what_to_expect'] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['become-instructor-details']],
@@ -80,7 +91,7 @@ class BecomeInstructorController extends ControllerBase {
         '#theme' => 'item_list',
         '#list_type' => 'ol',
         '#items' => [
-          $this->t('<strong>Propose a session</strong> — pitch a new class or pick from existing workshops that need an instructor. This is the first step; no paperwork needed yet.'),
+          $this->t('<strong>Tell us what you could teach</strong> — a short form starts a conversation with the education team. Or, if you already have a class in mind, propose a session or pick from existing workshops that need an instructor. No paperwork needed yet.'),
           $this->t('<strong>Staff review</strong> — the education team reviews your proposal and coordinates date, capacity, and compensation with you.'),
           $this->t('<strong>Complete onboarding</strong> — once approved: watch the orientation video, pass a short true/false quiz, and sign the Master Instructor Agreement (covers conduct, IP, and independent contractor status). About 10 minutes total, and your session is published automatically the moment you finish.'),
           $this->t('<strong>Teach &amp; get paid</strong> — we handle registration and marketing; you focus on a great experience.'),
@@ -128,17 +139,23 @@ class BecomeInstructorController extends ControllerBase {
         'heading' => ['#markup' => '<h2>' . $this->t('Ready to Get Started?') . '</h2>'],
         'body' => [
           '#markup' => '<p>' . $this->t(
-            'Since you\'re already a Makehaven member, you can propose a session right
-             now — browse workshops that need an instructor or pitch your own class.
-             Onboarding (orientation video, short quiz, instructor agreement) happens
+            'Not sure yet? Tell us what you know and talk it through with the education
+             team. Already have a class in mind? As a member you can propose a session
+             now. Onboarding (orientation video, short quiz, instructor agreement) happens
              after approval and takes about 10 minutes.'
           ) . '</p>',
         ],
         'button' => [
           '#type' => 'link',
+          '#title' => $this->t('Talk with the education team'),
+          '#url' => Url::fromUserInput('/instructor'),
+          '#attributes' => ['class' => ['button', 'button--primary', 'button--large']],
+        ],
+        'propose' => [
+          '#type' => 'link',
           '#title' => $this->t('Browse workshops & propose'),
           '#url' => Url::fromUserInput('/become-instructor/courses'),
-          '#attributes' => ['class' => ['button', 'button--primary', 'button--large']],
+          '#attributes' => ['class' => ['button', 'button--secondary', 'button--large']],
         ],
         // Deliberately NOT a shortcut into onboarding. This link used to read
         // "Prefer to knock out onboarding first? Start with the orientation

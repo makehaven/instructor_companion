@@ -178,6 +178,31 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('Off means approving only records the status; you would then invite them by hand.'),
     ];
 
+    $form['teaching_invitation'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Teaching invitation on the member hub'),
+      '#description' => $this->t('A card on Member Resources offering teaching to members who have shown skill. Nothing is emailed and staff are not involved until someone applies.'),
+      '#open' => TRUE,
+    ];
+    $form['teaching_invitation']['teach_invitation_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Show the card'),
+      '#default_value' => (bool) $config->get('teach_invitation_enabled'),
+    ];
+    $form['teaching_invitation']['teach_invitation_min_badges'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Badges needed'),
+      '#min' => 1,
+      '#default_value' => (int) ($config->get('teach_invitation_min_badges') ?? 5),
+      '#description' => $this->t('Door, orientation and safety badges do not count. Members who ticked "available to teach", facilitators and badge issuers see the card without this.'),
+    ];
+    $form['teaching_invitation']['teach_invitation_min_months'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Months at MakeHaven needed'),
+      '#min' => 0,
+      '#default_value' => (int) ($config->get('teach_invitation_min_months') ?? 6),
+    ];
+
     $types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
     if ($types) {
       $form['closeout'] = [
@@ -518,6 +543,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('invite_subject', $form_state->getValue('invite_subject'))
       ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
+      ->set('teach_invitation_enabled', (bool) $form_state->getValue('teach_invitation_enabled'))
+      ->set('teach_invitation_min_badges', (int) $form_state->getValue('teach_invitation_min_badges'))
+      ->set('teach_invitation_min_months', (int) $form_state->getValue('teach_invitation_min_months'))
       ->set('preclass_enabled', (bool) $form_state->getValue('preclass_enabled'))
       ->set('preclass_event_types', $form_state->hasValue('preclass_event_types')
         ? array_values(array_map('intval', array_filter((array) $form_state->getValue('preclass_event_types'))))

@@ -8,11 +8,13 @@
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Url;
 use Drupal\node\Entity\Node;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\webform\WebformSubmissionInterface;
 use Drupal\instructor_companion\Service\CourseFollowerNotifier;
+use Drupal\instructor_companion\Service\TeachingInvitation;
 
 require_once __DIR__ . '/includes/sessions.inc';
 
@@ -676,6 +678,66 @@ function instructor_companion_mail($key, &$message, $params) {
  * Display. Default-on so it's visible without any setup post-deploy.
  */
 /**
+ * Offers teaching on the member hub to members who have shown skill.
+ *
+ * A card, never an email: see TeachingInvitation.
+ */
+function _instructor_companion_teaching_invitation_card(array &$build, EntityInterface $entity, $view_mode): void {
+  if ($view_mode !== 'full' || (int) $entity->id() !== TeachingInvitation::HUB_NID) {
+    return;
+  }
+  $build['#cache']['contexts'][] = 'user';
+  $build['#cache']['tags'][] = 'config:instructor_companion.settings';
+  // Badges and waitlists change without touching this node.
+  $build['#cache']['max-age'] = 3600;
+
+  $account = \Drupal::currentUser();
+  $uid = (int) $account->id();
+  $build['#cache']['tags'][] = TeachingInvitation::cacheTag($uid);
+  /** @var \Drupal\instructor_companion\Service\TeachingInvitation $invitation */
+  $invitation = \Drupal::service('instructor_companion.teaching_invitation');
+  if (!$invitation->shouldShow($uid, $account->getRoles())) {
+    return;
+  }
+  $invitation->record($uid, TeachingInvitation::SHOWN);
+
+  $topic = $invitation->topic($uid);
+  $support = t('You do not need teaching experience. We help first-time instructors turn their skills into a class.');
+  $body = $topic
+    ? t('People have been waiting for @class, and you hold the badge for it. @support', ['@class' => $topic, '@support' => $support])
+    : $support;
+
+  $dismiss = Url::fromRoute('instructor_companion.teaching_invitation_dismiss');
+  $dismiss->setOption('query', ['token' => \Drupal::csrfToken()->get($dismiss->getInternalPath())]);
+
+  $build['teaching_invitation'] = [
+    '#type' => 'container',
+    '#weight' => -90,
+    '#attributes' => ['class' => ['mh-teach-card']],
+    '#attached' => ['library' => ['instructor_companion/teaching']],
+    'title' => [
+      '#markup' => '<p class="mh-teach-card__title">' . t('You have built real skills here. Ever thought about teaching?') . '</p>',
+    ],
+    'body' => ['#markup' => '<p class="mh-teach-card__body">' . $body . '</p>'],
+    'actions' => [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['mh-teach-card__actions']],
+      'open' => [
+        '#type' => 'link',
+        '#title' => t('See how it works'),
+        '#url' => Url::fromRoute('instructor_companion.teaching_invitation_open'),
+        '#attributes' => ['class' => ['button', 'button--primary', 'button--small']],
+      ],
+      'dismiss' => [
+        '#type' => 'link',
+        '#title' => t('Not for me'),
+        '#url' => $dismiss,
+      ],
+    ],
+  ];
+}
+
+/**
  * Renders the "teach this workshop" call-to-action on a course page.
  *
  * A course page was a dead end for anyone who read it and thought they could
@@ -818,6 +880,7 @@ function instructor_companion_entity_extra_field_info() {
  * theme-agnostic.
  */
 function instructor_companion_node_view(array &$build, EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display, $view_mode) {
+  _instructor_companion_teaching_invitation_card($build, $entity, $view_mode);
   // The Instructor Guidebook: signed-in readers confirm they have read
   // it, which is a step of instructor setup and a column staff can see.
   if ($view_mode === 'full'

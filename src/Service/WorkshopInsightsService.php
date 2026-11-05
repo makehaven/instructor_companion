@@ -20,6 +20,11 @@ use Drupal\Core\State\StateInterface;
 class WorkshopInsightsService {
 
   public const SOLD_STATUSES = [1, 2, 14, 15];
+
+  /**
+   * People still waiting before a class with one instructor asks for another.
+   */
+  public const SECOND_INSTRUCTOR_WAITING = 5;
   protected const ROLE_ATTENDEE = '1';
 
   public function __construct(
@@ -221,6 +226,111 @@ class WorkshopInsightsService {
       ];
     }
     return $out;
+  }
+
+  /**
+   * Teaching demand per course, for the course picker and the invitation.
+   *
+   * One batched read rather than a query per row: the picker lists about 80
+   * courses. Waiting means turned away in the last year and never seated on a
+   * later run, the same definition CourseFollowerNotifier::waitlisted() uses.
+   * Topics come from the runs' own tags because only a handful of courses
+   * carry field_instructor_expertise; top-level terms are group headings, so
+   * only child terms count.
+   *
+   * @param int[] $nids
+   *   Course node ids.
+   *
+   * @return array<int, array{waiting:int, instructors:int, topics:int[]}>
+   *   Keyed by course nid. Every requested nid is present.
+   */
+  public function teachingDemand(array $nids): array {
+    $out = [];
+    foreach ($nids as $nid) {
+      $out[(int) $nid] = ['waiting' => 0, 'instructors' => 0, 'topics' => []];
+    }
+    if (!$out) {
+      return [];
+    }
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_participant') || !$schema->tableExists('civicrm_event__field_parent_course')) {
+      return $out;
+    }
+    $now = $this->time->getRequestTime();
+    $args = [
+      ':nids[]' => array_keys($out),
+      ':year' => date('Y-m-d H:i:s', strtotime('-12 months', $now)),
+    ];
+    $waiting = $this->database->query("
+      SELECT pc.field_parent_course_target_id AS nid, COUNT(DISTINCT p.contact_id) AS n
+      FROM {civicrm_participant} p
+      INNER JOIN {civicrm_event} e ON e.id = p.event_id AND e.is_template = 0 AND e.is_active = 1
+      INNER JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id AND pc.deleted = 0
+      WHERE pc.field_parent_course_target_id IN (:nids[])
+        AND p.is_test = 0 AND p.status_id IN (7, 9, 12) AND e.start_date >= :year
+        AND NOT EXISTS (
+          SELECT 1 FROM {civicrm_participant} p2
+          INNER JOIN {civicrm_event} e2 ON e2.id = p2.event_id
+          INNER JOIN {civicrm_event__field_parent_course} pc2 ON pc2.entity_id = e2.id AND pc2.deleted = 0
+          WHERE p2.contact_id = p.contact_id AND p2.is_test = 0 AND p2.status_id IN (1, 2, 5, 14, 15)
+            AND pc2.field_parent_course_target_id = pc.field_parent_course_target_id
+            AND e2.start_date > e.start_date)
+      GROUP BY pc.field_parent_course_target_id", $args);
+    foreach ($waiting as $r) {
+      $out[(int) $r->nid]['waiting'] = (int) $r->n;
+    }
+    if ($schema->tableExists('civicrm_event__field_civi_event_instructor')) {
+      $instructors = $this->database->query("
+        SELECT pc.field_parent_course_target_id AS nid, COUNT(DISTINCT i.field_civi_event_instructor_target_id) AS n
+        FROM {civicrm_event__field_parent_course} pc
+        INNER JOIN {civicrm_event} e ON e.id = pc.entity_id AND e.is_template = 0 AND e.is_active = 1
+        INNER JOIN {civicrm_event__field_civi_event_instructor} i ON i.entity_id = e.id AND i.deleted = 0
+        WHERE pc.field_parent_course_target_id IN (:nids[]) AND pc.deleted = 0 AND e.start_date >= :since
+        GROUP BY pc.field_parent_course_target_id", [
+          ':nids[]' => array_keys($out),
+          ':since' => date('Y-m-d H:i:s', strtotime('-24 months', $now)),
+        ]);
+      foreach ($instructors as $r) {
+        $out[(int) $r->nid]['instructors'] = (int) $r->n;
+      }
+    }
+    if ($schema->tableExists('civicrm_event__field_civi_event_area_interest')) {
+      $topics = $this->database->query("
+        SELECT DISTINCT pc.field_parent_course_target_id AS nid, a.field_civi_event_area_interest_target_id AS tid
+        FROM {civicrm_event__field_parent_course} pc
+        INNER JOIN {civicrm_event__field_civi_event_area_interest} a ON a.entity_id = pc.entity_id AND a.deleted = 0
+        INNER JOIN {taxonomy_term__parent} tp ON tp.entity_id = a.field_civi_event_area_interest_target_id AND tp.parent_target_id <> 0
+        WHERE pc.field_parent_course_target_id IN (:nids[]) AND pc.deleted = 0", [':nids[]' => array_keys($out)]);
+      foreach ($topics as $r) {
+        $out[(int) $r->nid]['topics'][] = (int) $r->tid;
+      }
+    }
+    return $out;
+  }
+
+  /**
+   * Where a course ranks on the "available to teach" list. Lower is higher.
+   *
+   * A class with upcoming runs and a long waitlist taught by one person
+   * outranks a dormant class nobody is asking for; it used to sink to the
+   * bottom as already covered.
+   *
+   * @return int
+   *   0 uncovered with demand or a personal match, 1 needs a second instructor,
+   *   2 uncovered, 3 covered.
+   */
+  public static function teachingTier(int $upcoming, int $waiting, int $interest, int $instructors, bool $personal_match): int {
+    if ($upcoming === 0) {
+      return ($waiting > 0 || $interest > 0 || $personal_match) ? 0 : 2;
+    }
+    return self::needsSecondInstructor($upcoming, $waiting, $instructors) ? 1 : 3;
+  }
+
+  /**
+   * Whether more people are waiting than one instructor is keeping up with.
+   */
+  public static function needsSecondInstructor(int $upcoming, int $waiting, int $instructors): bool {
+    return $upcoming > 0 && $waiting >= self::SECOND_INSTRUCTOR_WAITING && $instructors <= 1;
   }
 
   /**

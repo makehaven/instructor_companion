@@ -283,6 +283,15 @@ services:
       - '@logger.channel.instructor_companion'
       - '@request_stack'
 
+  instructor_companion.teaching_invitation:
+    class: Drupal\instructor_companion\Service\TeachingInvitation
+    arguments:
+      - '@database'
+      - '@config.factory'
+      - '@user.data'
+      - '@datetime.time'
+      - '@instructor_companion.workshop_insights'
+
   instructor_companion.workshop_insights:
     class: Drupal\instructor_companion\Service\WorkshopInsightsService
     arguments:

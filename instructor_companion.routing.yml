@@ -477,3 +477,22 @@ instructor_companion.evaluate_poster:
     _title: 'Classroom evaluation sign'
   requirements:
     _permission: 'access education console'
+
+instructor_companion.teaching_invitation_open:
+  path: '/become-instructor/from-invitation'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\TeachingInvitationController::open'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    no_cache: TRUE
+
+instructor_companion.teaching_invitation_dismiss:
+  path: '/become-instructor/not-for-me'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\TeachingInvitationController::dismiss'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _csrf_token: 'TRUE'
+  options:
+    no_cache: TRUE
