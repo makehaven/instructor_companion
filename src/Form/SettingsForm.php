@@ -178,6 +178,13 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('Off means approving only records the status; you would then invite them by hand.'),
     ];
 
+    $form['interest_approval']['interest_booking_url'] = [
+      '#type' => 'url',
+      '#title' => $this->t('Intro meeting booking link'),
+      '#default_value' => (string) $config->get('interest_booking_url'),
+      '#description' => $this->t('Offered on the Instructor Interest thank-you page and confirmation email, so an applicant can book straight away. Staff can cancel a meeting if it is not a fit. Leave empty to have applicants email the education team instead.'),
+    ];
+
     $form['teaching_invitation'] = [
       '#type' => 'details',
       '#title' => $this->t('Teaching invitation on the member hub'),
@@ -543,6 +550,7 @@ class SettingsForm extends ConfigFormBase {
       ->set('invite_subject', $form_state->getValue('invite_subject'))
       ->set('invite_body', $form_state->getValue('invite_body'))
       ->set('interest_approval_enabled', (bool) $form_state->getValue('interest_approval_enabled'))
+      ->set('interest_booking_url', trim((string) $form_state->getValue('interest_booking_url')))
       ->set('teach_invitation_enabled', (bool) $form_state->getValue('teach_invitation_enabled'))
       ->set('teach_invitation_min_badges', (int) $form_state->getValue('teach_invitation_min_badges'))
       ->set('teach_invitation_min_months', (int) $form_state->getValue('teach_invitation_min_months'))

@@ -181,3 +181,4 @@ profile_nudge_body: |
 teach_invitation_enabled: false
 teach_invitation_min_badges: 5
 teach_invitation_min_months: 6
+interest_booking_url: 'https://calendly.com/ashley-zdeb/30min'

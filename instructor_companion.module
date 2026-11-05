@@ -7,6 +7,7 @@
 
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\BubbleableMetadata;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\node\Entity\Node;
@@ -14,6 +15,7 @@ use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\webform\WebformSubmissionInterface;
 use Drupal\instructor_companion\Service\CourseFollowerNotifier;
+use Drupal\instructor_companion\Service\InstructorPayRate;
 use Drupal\instructor_companion\Service\TeachingInvitation;
 
 require_once __DIR__ . '/includes/sessions.inc';
@@ -677,6 +679,65 @@ function instructor_companion_mail($key, &$message, $params) {
  * the course content type. Admins can hide / reposition it via Manage
  * Display. Default-on so it's visible without any setup post-deploy.
  */
+/**
+ * Implements hook_preprocess_HOOK() for the body field of a node.
+ *
+ * Shows the current base rate on pages that state instructor pay. At field
+ * level because some of these pages are built with Layout Builder, where the
+ * body never reaches hook_node_view().
+ *
+ * JR 2026-11-05: the published figure follows the living wage, which moves
+ * every year. The number lives in one place, the contractor rate in Xero Bills
+ * Sync settings, and these pages had $25 typed by hand long after it changed.
+ */
+function instructor_companion_preprocess_field__node__body(array &$variables): void {
+  $node = $variables['element']['#object'] ?? NULL;
+  if (!$node || !in_array((int) $node->id(), InstructorPayRate::PAGES, TRUE)) {
+    return;
+  }
+  $rate = (float) \Drupal::config('xero_bills_sync.settings')->get('default_hourly_rate');
+  foreach ($variables['items'] as &$item) {
+    if (isset($item['content']['#text'])) {
+      $item['content']['#text'] = InstructorPayRate::apply((string) $item['content']['#text'], $rate);
+      $item['content']['#cache']['tags'][] = 'config:xero_bills_sync.settings';
+    }
+  }
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function instructor_companion_token_info(): array {
+  return [
+    'tokens' => [
+      'webform_submission' => [
+        'instructor_booking_url' => [
+          'name' => t('Instructor intro meeting booking link'),
+          'description' => t('The link set in Instructor Companion settings, with the applicant name and email filled in.'),
+        ],
+      ],
+    ],
+  ];
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function instructor_companion_tokens($type, $tokens, array $data, array $options, BubbleableMetadata $bubbleable_metadata): array {
+  $replacements = [];
+  if ($type !== 'webform_submission' || empty($data['webform_submission']) || !isset($tokens['instructor_booking_url'])) {
+    return $replacements;
+  }
+  $bubbleable_metadata->addCacheTags(['config:instructor_companion.settings']);
+  $submission = $data['webform_submission'];
+  $replacements[$tokens['instructor_booking_url']] = InstructorPayRate::bookingUrl(
+    (string) \Drupal::config('instructor_companion.settings')->get('interest_booking_url'),
+    (string) $submission->getElementData('name_6'),
+    (string) $submission->getElementData('email_6'),
+  );
+  return $replacements;
+}
+
 /**
  * Offers teaching on the member hub to members who have shown skill.
  *

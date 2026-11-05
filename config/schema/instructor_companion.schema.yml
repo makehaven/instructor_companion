@@ -170,3 +170,6 @@ instructor_companion.settings:
     teach_invitation_min_months:
       type: integer
       label: 'Months at MakeHaven needed to see the teaching invitation'
+    interest_booking_url:
+      type: string
+      label: 'Link applicants use to book an intro meeting'
