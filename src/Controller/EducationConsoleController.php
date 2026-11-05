@@ -266,6 +266,7 @@ class EducationConsoleController extends ControllerBase {
       '#attributes' => ['class' => ['education-console__links']],
       '#items' => [
         $this->link($this->t('Workshops (upcoming classes by pace, demand turned away, what the automatic follow-ups did)'), Url::fromRoute('instructor_companion.workshops_console')),
+        $this->link($this->t('Teaching pipeline (by interest area: who could teach, who does, and where people are waiting)'), Url::fromRoute('instructor_companion.teaching_pipeline')),
         $this->link($this->t('Instructor roster (who is approved to teach, who actually does, whose public page is incomplete)'), Url::fromRoute('instructor_companion.roster')),
         $this->link($this->t('Prospective instructors (the onboarding lists above, plus members who said they would teach)'), Url::fromRoute('instructor_companion.prospective_instructors')),
         $this->link($this->t('Instructor dashboard (what instructors see)'), Url::fromRoute('instructor_companion.dashboard')),

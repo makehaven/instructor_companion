@@ -15,10 +15,10 @@ use Drupal\user\UserDataInterface;
  *
  * JR 2026-11-05: make the option available once someone has shown skill,
  * without pushing. So this is one card on a page the member already visits,
- * never an email, and "Not for me" ends it. Of 76 people who started teaching
- * since 2024, 44 held five or more badges before their first class. The other
- * main group came with outside expertise, so this gates only the card; the
- * public pages stay open to everyone.
+ * never an email, and "Not for me" ends it. Of 52 people who started teaching
+ * workshops or programs since 2024, 26 held five or more badges before their
+ * first class and 22 held two or fewer, having come with outside expertise. So
+ * this gates only the card; the public pages stay open to everyone.
  */
 class TeachingInvitation {
 

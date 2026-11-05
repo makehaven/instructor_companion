@@ -5,6 +5,7 @@
  * Primary module hooks for Instructor Companion.
  */
 
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\BubbleableMetadata;
@@ -739,6 +740,34 @@ function instructor_companion_tokens($type, $tokens, array $data, array $options
 }
 
 /**
+ * Limits the interest form's topic picker to areas, grouped under headings.
+ *
+ * The teaching pipeline counts areas, so picking a heading would count for
+ * nothing. Webform skips filling a term select once it carries the vocabulary's
+ * cache tag, which is how these options survive.
+ */
+function _instructor_companion_interest_topic_options(array &$form): void {
+  if (!str_contains((string) ($form['#form_id'] ?? ''), 'webform_14366')) {
+    return;
+  }
+  $element = &NestedArray::getValue($form, ['elements', 'fieldset_instructor_information', 'teaching_topics']);
+  if (!is_array($element)) {
+    return;
+  }
+  $options = [];
+  $group = '';
+  foreach (\Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadTree('area_of_interest') as $term) {
+    if ((int) $term->depth === 0) {
+      $group = $term->name;
+      continue;
+    }
+    $options[$group][$term->tid] = $term->name;
+  }
+  $element['#options'] = $options;
+  $element['#cache']['tags'][] = 'taxonomy_term_list:area_of_interest';
+}
+
+/**
  * Offers teaching on the member hub to members who have shown skill.
  *
  * A card, never an email: see TeachingInvitation.
@@ -1363,6 +1392,8 @@ function instructor_companion_form_civicrm_event_civicrm_event_add_form_alter(&$
  * still works.
  */
 function instructor_companion_form_alter(array &$form, FormStateInterface $form_state, string $form_id) {
+  _instructor_companion_interest_topic_options($form);
+
   // Delegate to the dedicated CiviCRM event add-form alter for any event
   // bundle. CiviCRM Entity creates a separate form id per bundle
   // (`civicrm_event_ticketed_workshop_add_form`, `civicrm_event_meetup_add_form`,

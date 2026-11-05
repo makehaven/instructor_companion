@@ -262,3 +262,107 @@ a.education-console__tile--goal .education-console__tile-count {
 .education-console__row--gap td:last-child {
   color: #8b1919;
 }
+
+/* Teaching pipeline: one hue, darker is further along. */
+.teaching-pipeline__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 1rem 0;
+}
+
+a.teaching-pipeline__filter {
+  padding: 4px 12px;
+  border: 1px solid var(--gin-border-color, #d4d4d8);
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.teaching-pipeline__filter[aria-current="true"] {
+  border-color: var(--gin-color-primary, #8b1919);
+  font-weight: 600;
+}
+
+.teaching-pipeline__legend {
+  color: var(--gin-color-text-light, #666);
+}
+
+.teaching-pipeline__key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin: 0 6px 0 16px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.teaching-pipeline__key:first-child {
+  margin-left: 0;
+}
+
+.teaching-pipeline__bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  min-width: 150px;
+  height: 10px;
+}
+
+.teaching-pipeline__seg {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+}
+
+.teaching-pipeline__seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.teaching-pipeline__seg--badge {
+  background: #8b1919;
+}
+
+.teaching-pipeline__seg--willing {
+  background: #c9706f;
+}
+
+.teaching-pipeline__seg--interested {
+  background: #edc9c8;
+}
+
+.teaching-pipeline__scroll {
+  overflow-x: auto;
+}
+
+.teaching-pipeline__table th,
+.teaching-pipeline__table td {
+  padding-inline: 8px;
+}
+
+.teaching-pipeline__table th:first-child,
+.teaching-pipeline__table td:first-child {
+  min-width: 11rem;
+}
+
+.teaching-pipeline__table th:nth-child(2),
+.teaching-pipeline__table td:nth-child(2) {
+  width: 26%;
+}
+
+.teaching-pipeline__table td:nth-child(n+3),
+.teaching-pipeline__table th:nth-child(n+3) {
+  white-space: nowrap;
+}
+
+.teaching-pipeline__table td:nth-child(n+3),
+.teaching-pipeline__table th:nth-child(n+3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.teaching-pipeline__notes {
+  max-width: 70ch;
+  margin-top: 1.5rem;
+  color: var(--gin-color-text-light, #666);
+}

@@ -496,3 +496,13 @@ instructor_companion.teaching_invitation_dismiss:
     _csrf_token: 'TRUE'
   options:
     no_cache: TRUE
+
+instructor_companion.teaching_pipeline:
+  path: '/admin/education/teaching-pipeline'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\TeachingPipelineController::build'
+    _title: 'Teaching pipeline'
+  requirements:
+    _permission: 'access education console'
+  options:
+    _admin_route: TRUE
