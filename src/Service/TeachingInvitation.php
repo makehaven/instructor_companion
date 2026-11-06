@@ -36,6 +36,11 @@ class TeachingInvitation {
    */
   private const NOT_SKILL_PATTERNS = ['%Door%', '%Orientation%', '%Safety%'];
 
+  /**
+   * Courses the card must not name. 40221 is a superseded cutting board class.
+   */
+  private const NEVER_NAMED = [40221];
+
   public function __construct(
     protected Connection $database,
     protected ConfigFactoryInterface $configFactory,
@@ -134,7 +139,7 @@ class TeachingInvitation {
       FROM {node_field_data} n
       INNER JOIN {node__field_course_badges} b ON b.entity_id = n.nid AND b.deleted = 0
       INNER JOIN {node__field_publicly_listed} l ON l.entity_id = n.nid AND l.field_publicly_listed_value = 1
-      WHERE n.type = 'course' AND n.status = 1");
+      WHERE n.type = 'course' AND n.status = 1 AND n.nid NOT IN (:never[])", [':never[]' => self::NEVER_NAMED]);
     foreach ($rows as $r) {
       $courses[(int) $r->nid]['title'] = (string) $r->title;
       $courses[(int) $r->nid]['badges'][] = (int) $r->badge;
