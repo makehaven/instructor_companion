@@ -104,7 +104,8 @@ class TeachingInvitation {
     if (!$uid || !$config->get('teach_invitation_enabled')
       || !in_array('member', $roles, TRUE) || in_array('instructor', $roles, TRUE)
       || $this->userData->get('instructor_companion', $uid, self::DISMISSED)
-      || $this->hasTaught($uid)) {
+      || $this->hasTaught($uid)
+      || $this->hasApplied($uid)) {
       return FALSE;
     }
     $created = (int) $this->database->query("SELECT MIN(created) FROM {profile} WHERE uid = :uid AND type = 'main'", [':uid' => $uid])->fetchField();
@@ -190,6 +191,23 @@ class TeachingInvitation {
    */
   protected function isBadgeIssuer(int $uid): bool {
     return (bool) $this->database->query('SELECT 1 FROM {taxonomy_term__field_badge_issuer} WHERE field_badge_issuer_target_id = :uid AND deleted = 0', [':uid' => $uid])->fetchField();
+  }
+
+  /**
+   * Whether the member already used the instructor interest form.
+   *
+   * Most of these submissions are anonymous, so this also matches by email.
+   * Having applied means the conversation already happened or is under way,
+   * whatever came of it, so the card has nothing to add.
+   */
+  protected function hasApplied(int $uid): bool {
+    return (bool) $this->database->query("
+      SELECT 1 FROM {webform_submission} s
+      LEFT JOIN {webform_submission_data} d ON d.sid = s.sid AND d.name = 'email_6'
+      LEFT JOIN {users_field_data} u ON u.uid = :uid
+      WHERE s.webform_id = 'webform_14366' AND s.in_draft = 0
+        AND (s.uid = :uid2 OR LOWER(d.value) = LOWER(u.mail))
+      LIMIT 1", [':uid' => $uid, ':uid2' => $uid])->fetchField();
   }
 
   /**
