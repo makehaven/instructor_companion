@@ -288,6 +288,7 @@ services:
     arguments:
       - '@database'
       - '@datetime.time'
+      - '@config.factory'
 
   instructor_companion.teaching_invitation:
     class: Drupal\instructor_companion\Service\TeachingInvitation

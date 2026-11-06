@@ -182,3 +182,46 @@ teach_invitation_enabled: false
 teach_invitation_min_badges: 5
 teach_invitation_min_months: 6
 interest_booking_url: ''
+area_badges:
+  # Casting & Mold Making
+  2410: [1568, 2555, 3495]
+  # Glassworks
+  3252: [3119, 3194, 3195]
+  # 2D Cutting
+  2406: [273, 636, 1919, 3288]
+  # 3D Fabrication
+  3324: [289, 2094, 1570, 1868, 430, 1600, 920]
+  # Ceramics & Pottery
+  2496: [2612, 3013, 3315]
+  # Jewelry & Small Metals
+  2495: [2553, 3164, 2556, 2555]
+  # Leather & Canvas
+  3338: [1846, 1586, 3341]
+  # Textiles & Fiber Arts
+  2420: [269, 1587, 2628, 474, 2882, 2350, 2354, 2169, 1588, 2842, 1846, 1586, 3341]
+  # Electronics, IoT & Radio
+  2415: [2959, 267]
+  # Biology & Life Sciences
+  2409: [2184, 3447, 3449, 3448, 2196, 3451, 3450]
+  # Culinary & Brewing
+  2412: [1655, 429, 2629, 3493, 2238, 2560]
+  # Sustainability & Upcycling
+  3334: [2651, 2119]
+  # Mechanics, Engine & Bike Repair
+  3332: [470, 2543]
+  # Metalworking
+  2416: [1913, 2080, 2003, 2002, 2084, 2004, 2005, 2544, 920, 2331, 2082, 1903, 2176]
+  # Plastics & Composites
+  2417: [649, 2149, 3495, 2651, 2119]
+  # Woodworking
+  2421: [455, 1579, 500, 1145, 1369, 279, 280, 2083, 2383, 2339, 2620, 2476, 1590, 2956, 1598]
+  # Digital Media
+  2414: [2907]
+  # Fine Art
+  3336: [2499]
+  # Graphic Design & Illustration
+  3331: [2183]
+  # Photography
+  2407: [3342]
+  # Printmaking
+  2418: [1668, 2568, 3499, 1620, 1577, 2570]

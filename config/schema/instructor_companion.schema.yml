@@ -173,3 +173,12 @@ instructor_companion.settings:
     interest_booking_url:
       type: string
       label: 'Link applicants use to book an intro meeting'
+    area_badges:
+      type: sequence
+      label: 'Badges that show skill in each interest area, keyed by area term ID'
+      sequence:
+        type: sequence
+        label: 'Badge term IDs'
+        sequence:
+          type: integer
+          label: 'Badge term ID'

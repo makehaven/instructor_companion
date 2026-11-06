@@ -77,7 +77,7 @@ class TeachingPipelineController extends ControllerBase {
 
     $build['legend'] = [
       '#markup' => '<p class="teaching-pipeline__legend">'
-        . '<span class="teaching-pipeline__key teaching-pipeline__seg--badge"></span>' . $this->t('Willing and holds a linked badge')
+        . '<span class="teaching-pipeline__key teaching-pipeline__seg--badge"></span>' . $this->t('Willing and holds a badge for this area')
         . '<span class="teaching-pipeline__key teaching-pipeline__seg--willing"></span>' . $this->t('Willing to teach')
         . '<span class="teaching-pipeline__key teaching-pipeline__seg--interested"></span>' . $this->t('Interested')
         . '</p>',
@@ -112,7 +112,7 @@ class TeachingPipelineController extends ControllerBase {
         'bar' => ['data' => ['#markup' => Markup::create($this->bar($row, $max))]],
         'interested' => $row['interested'],
         'willing' => $row['willing'],
-        'badge' => $row['badge'] ?? $this->t('no link'),
+        'badge' => $row['badge'] ?? $this->t('no badge'),
         'applied' => $row['applied'],
         'taught' => $row['taught'],
         'active' => $row['active'],
@@ -138,7 +138,7 @@ class TeachingPipelineController extends ControllerBase {
       '#items' => [
         $this->t('<strong>Interested:</strong> active members who picked this area.'),
         $this->t('<strong>Willing:</strong> of those, members who ticked "available to teach" and are not already teaching. The tick is not tied to a topic, so treat this as a ceiling.'),
-        $this->t('<strong>Badge:</strong> of those, members holding a badge from a class in this area. "No link" means no class in this area awards a badge, not that nobody has the skill.'),
+        $this->t('<strong>Badge:</strong> of those, members holding a badge for this area, not counting shop orientations. "No badge" means MakeHaven has no badge for this area, not that nobody has the skill.'),
         $this->t('<strong>Applied:</strong> people who picked this topic on the instructor interest form. The picker is new, so earlier applications are not counted.'),
         $this->t('<strong>Taught and Active:</strong> instructors of workshops, member-only classes and programs tagged with this area, ever and in the last 12 months, including non-members. Meetup hosts are not counted.'),
         $this->t('<strong>Waiting:</strong> people turned away from one of those classes in the last 12 months who never got a seat on a later run.'),

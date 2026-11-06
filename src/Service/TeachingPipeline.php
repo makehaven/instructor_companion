@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\instructor_companion\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 
 /**
@@ -29,6 +30,7 @@ class TeachingPipeline {
   public function __construct(
     protected Connection $database,
     protected TimeInterface $time,
+    protected ConfigFactoryInterface $configFactory,
   ) {}
 
   /**
@@ -63,12 +65,9 @@ class TeachingPipeline {
       INNER JOIN {profile__field_member_areas_interest} i ON i.entity_id = p.profile_id AND i.deleted = 0
       WHERE p.type = 'main'");
 
-    $topic_badges = $this->groupByKey("
-      SELECT DISTINCT a.field_civi_event_area_interest_target_id AS k, b.field_course_badges_target_id AS v
-      FROM {civicrm_event__field_parent_course} pc
-      INNER JOIN {civicrm_event__field_civi_event_area_interest} a ON a.entity_id = pc.entity_id AND a.deleted = 0
-      INNER JOIN {node__field_course_badges} b ON b.entity_id = pc.field_parent_course_target_id AND b.deleted = 0
-      WHERE pc.deleted = 0");
+    // Set by hand: most badges have no class that lists them, so classes alone
+    // would report no badge for areas like Glassworks that plainly have some.
+    $topic_badges = $this->configFactory->get('instructor_companion.settings')->get('area_badges') ?? [];
 
     $badge_holders = $this->groupByKey("
       SELECT r.field_badge_requested_target_id AS k, m.field_member_to_badge_target_id AS v
