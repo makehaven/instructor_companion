@@ -164,6 +164,8 @@ class AttendanceForm extends FormBase {
 
     $options = [];
     $default = [];
+    $waiting = [];
+    $waiting_default = [];
     $no_waiver = [];
     foreach ($roster as $row) {
       $pid = $row['participant_id'];
@@ -186,8 +188,17 @@ class AttendanceForm extends FormBase {
           $label .= ' <span class="attendance-note attendance-note--never">' . $this->t('not yet attended') . '</span>';
         }
       }
-      elseif (!$row['is_attended']) {
+      elseif (!$row['is_attended'] && !$row['is_waiting']) {
         $label .= ' (' . $row['status_name'] . ')';
+      }
+      // Waitlisted and unconfirmed people get their own list (#47008): they
+      // can be ticked if they came, and leaving them unticked changes nothing.
+      if ($row['is_waiting']) {
+        $waiting[$pid] = $label . ' <span class="attendance-note">(' . htmlspecialchars($row['status_name']) . ')</span>';
+        if (!empty($this_session[$pid])) {
+          $waiting_default[] = $pid;
+        }
+        continue;
       }
       $options[$pid] = $label;
 
@@ -222,10 +233,20 @@ class AttendanceForm extends FormBase {
         '#markup' => '<p>' . $this->t('Nobody is registered for this class yet. You can still add a walk-in below.') . '</p>',
       ];
     }
+    if ($waiting) {
+      $form['present_waitlist'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->formatPlural(count($waiting), 'On the waitlist (1 person)', 'On the waitlist (@count people)'),
+        '#description' => $this->t('These people did not have a seat. Tick anyone who came anyway; everyone you leave unticked stays on the waitlist and is not counted as a no-show.'),
+        '#options' => $waiting,
+        '#default_value' => $waiting_default,
+        '#attributes' => ['class' => ['attendance-checklist', 'attendance-checklist--waitlist']],
+      ];
+    }
     // Used by submit to know the full set being toggled.
     $form['all_participant_ids'] = [
       '#type' => 'value',
-      '#value' => array_keys($options),
+      '#value' => array_merge(array_keys($options), array_keys($waiting)),
     ];
 
     $waiver_url = Url::fromRoute('entity.webform.canonical', ['webform' => AttendanceManager::GUEST_WAIVER_WEBFORM], ['absolute' => TRUE])->toString();
@@ -341,7 +362,10 @@ class AttendanceForm extends FormBase {
     $event_id = (int) $form_state->getValue('event_id');
     $session_start = (string) $form_state->getValue('session_start');
     $all = array_map('intval', (array) $form_state->getValue('all_participant_ids'));
-    $present = array_values(array_filter(array_map('intval', (array) $form_state->getValue('present'))));
+    $present = array_values(array_filter(array_map('intval', array_merge(
+      (array) $form_state->getValue('present'),
+      (array) $form_state->getValue('present_waitlist'),
+    ))));
     $uid = (int) $this->currentUser->id();
 
     if ($all) {

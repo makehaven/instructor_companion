@@ -31,6 +31,21 @@ class AttendanceManager {
   protected const STATUS_NO_SHOW = 'No-show';
 
   /**
+   * Statuses of people who never held a confirmed seat.
+   *
+   * They appear on the roster so an instructor can tick one who turned up,
+   * but not ticking them must leave them as they are: they were right not
+   * to come (feedback sid 20988, #47008 — a stained glass class showed 9
+   * no-shows that were all waitlisted).
+   */
+  public const WAITING_STATUSES = [
+    'On waitlist',
+    'Awaiting approval',
+    'Pending from waitlist',
+    'Pending from approval',
+  ];
+
+  /**
    * Marks table.
    */
   public const TABLE = 'instructor_companion_attendance';
@@ -46,7 +61,8 @@ class AttendanceManager {
    *
    * @return array[]
    *   Each row: participant_id, contact_id, name, status_name, is_attended
-   *   (bool), uid (int|null Drupal account).
+   *   (bool), is_waiting (bool: waitlisted or unconfirmed, see
+   *   WAITING_STATUSES), uid (int|null Drupal account).
    */
   public function getRoster(int $event_id): array {
     $q = $this->database->select('civicrm_participant', 'p');
@@ -72,6 +88,7 @@ class AttendanceManager {
         'name' => (string) $r->name,
         'status_name' => (string) $r->status_name,
         'is_attended' => $r->status_name === self::STATUS_ATTENDED,
+        'is_waiting' => in_array((string) $r->status_name, self::WAITING_STATUSES, TRUE),
         'uid' => $r->uid !== NULL ? (int) $r->uid : NULL,
       ];
     }
@@ -247,10 +264,15 @@ class AttendanceManager {
     }
     $summary = self::summarize($this->getMarks($event_id));
     $current = $this->currentStatusIds($roster);
+    $names = $this->statusNamesById();
     $changed = 0;
     foreach ($roster as $pid) {
       $attended = isset($summary[$pid]) ? $summary[$pid]['attended'] : isset($present_now[$pid]);
-      $target = $attended ? $ids['attended'] : $ids['no_show'];
+      $target_name = self::derivedStatus($attended, $names[$current[$pid] ?? 0] ?? '');
+      if ($target_name === NULL) {
+        continue;
+      }
+      $target = $target_name === self::STATUS_ATTENDED ? $ids['attended'] : $ids['no_show'];
       if (($current[$pid] ?? 0) === $target) {
         continue;
       }
@@ -259,6 +281,41 @@ class AttendanceManager {
       }
     }
     return $changed;
+  }
+
+  /**
+   * Pure: the status attendance should write, or NULL to leave it alone.
+   *
+   * Present at any session means Attended. Never present means No-show,
+   * except for someone who never held a confirmed seat (waitlisted or
+   * awaiting approval): they keep their status.
+   *
+   * @param bool $attended
+   *   Present at one or more saved sessions.
+   * @param string $current_status
+   *   Their current participant status name.
+   *
+   * @return string|null
+   *   'Attended', 'No-show', or NULL for no change.
+   */
+  public static function derivedStatus(bool $attended, string $current_status): ?string {
+    if ($attended) {
+      return self::STATUS_ATTENDED;
+    }
+    if (in_array($current_status, self::WAITING_STATUSES, TRUE)) {
+      return NULL;
+    }
+    return self::STATUS_NO_SHOW;
+  }
+
+  /**
+   * Status_id => name for every participant status.
+   */
+  protected function statusNamesById(): array {
+    return $this->database->select('civicrm_participant_status_type', 's')
+      ->fields('s', ['id', 'name'])
+      ->execute()
+      ->fetchAllKeyed();
   }
 
   /**

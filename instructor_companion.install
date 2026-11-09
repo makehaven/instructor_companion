@@ -716,3 +716,58 @@ function instructor_companion_update_9020() {
   }
   return "Invite records updated; $marked account(s) were made by their invite.";
 }
+
+/**
+ * Puts waitlisted people that attendance marked No-show back on the waitlist.
+ *
+ * Until #47008 (feedback sid 20988) the attendance roster listed waitlisted
+ * people and saving it marked every unticked one No-show. On live
+ * 2026-11-09 that was 24 people across 6 classes. Their status before the
+ * save is read from CiviCRM's participant activity history.
+ */
+function instructor_companion_update_9021() {
+  $db = \Drupal::database();
+  if (!$db->schema()->tableExists('instructor_companion_attendance') || !$db->schema()->tableExists('civicrm_participant')) {
+    return 'No attendance marks or no CiviCRM; nothing to restore.';
+  }
+  \Drupal::service('civicrm')->initialize();
+  $status_ids = $db->query("SELECT name, id FROM {civicrm_participant_status_type}")->fetchAllKeyed();
+  $no_show = (int) ($status_ids['No-show'] ?? 0);
+  if (!$no_show) {
+    return 'No-show status not found; nothing to restore.';
+  }
+  // People never ticked at any saved session who are No-show now.
+  $pids = $db->query("SELECT a.participant_id FROM {instructor_companion_attendance} a
+    JOIN {civicrm_participant} p ON p.id = a.participant_id AND p.status_id = :ns
+    GROUP BY a.participant_id HAVING MAX(a.present) = 0", [':ns' => $no_show])->fetchCol();
+  $types = $db->query("SELECT ov.value FROM {civicrm_option_value} ov
+    JOIN {civicrm_option_group} og ON og.id = ov.option_group_id AND og.name = 'activity_type'
+    WHERE ov.name IN ('Event Registration', 'Participant Status Change')")->fetchCol();
+  if (!$pids || !$types) {
+    return 'No waitlisted no-shows to restore.';
+  }
+  $restored = [];
+  foreach ($pids as $pid) {
+    // Activity subjects end in " - <status>"; the latest one that is not an
+    // attendance result is the status they had before attendance was saved.
+    $subject = (string) $db->query("SELECT subject FROM {civicrm_activity}
+      WHERE source_record_id = :pid AND activity_type_id IN (:types[])
+        AND subject NOT LIKE '% - No-show' AND subject NOT LIKE '% - Attended'
+      ORDER BY activity_date_time DESC, id DESC LIMIT 1", [':pid' => $pid, ':types[]' => $types])->fetchField();
+    $before = trim((string) substr(strrchr($subject, '-') ?: '', 1));
+    if (!in_array($before, \Drupal\instructor_companion\Service\AttendanceManager::WAITING_STATUSES, TRUE) || empty($status_ids[$before])) {
+      continue;
+    }
+    try {
+      \Civi\Api4\Participant::update(FALSE)
+        ->addValue('status_id', (int) $status_ids[$before])
+        ->addWhere('id', '=', (int) $pid)
+        ->execute();
+      $restored[] = $pid;
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('instructor_companion')->error('Could not restore participant @p to @s: @m', ['@p' => $pid, '@s' => $before, '@m' => $e->getMessage()]);
+    }
+  }
+  return sprintf('Restored %d waitlisted participant(s) wrongly marked No-show%s.', count($restored), $restored ? ': ' . implode(', ', $restored) : '');
+}
