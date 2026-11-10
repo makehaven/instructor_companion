@@ -11,6 +11,7 @@ use Drupal\instructor_companion\Service\AttendeeFollowupService;
 use Drupal\instructor_companion\Service\EventHygieneService;
 use Drupal\instructor_companion\Service\InstructorProfileNudge;
 use Drupal\instructor_companion\Service\PreClassReminderService;
+use Drupal\instructor_companion\Service\WaitlistManager;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -26,6 +27,7 @@ final class FollowupCommands extends DrushCommands {
     private readonly TimeInterface $time,
     private readonly ?InstructorProfileNudge $profileNudge = NULL,
     private readonly ?PreClassReminderService $preclass = NULL,
+    private readonly ?WaitlistManager $waitlist = NULL,
   ) {
     parent::__construct();
   }
@@ -156,6 +158,43 @@ final class FollowupCommands extends DrushCommands {
       $n = $this->hygiene->backfillWaitlistExpiry();
       $this->io()->success("expiration_time set to $hours h on $n row(s). CiviCRM's 'Update Participant Statuses' job now expires unpaid offers and moves to the next person.");
     }
+  }
+
+  /**
+   * Lists (or removes) old waitlist entries: the one-time backlog cleanup.
+   *
+   * An entry goes when it is over a year old AND its course has run three or
+   * more times since. Entries are cancelled, not deleted, with no email.
+   *
+   * @command instructor-companion:waitlist-cleanup
+   * @aliases ic-waitlist-cleanup
+   * @option apply Cancel them (default: list only).
+   * @usage instructor-companion:waitlist-cleanup
+   * @usage instructor-companion:waitlist-cleanup --apply
+   */
+  public function waitlistCleanup(array $options = ['apply' => FALSE]): void {
+    if (!$this->waitlist) {
+      $this->io()->error('Waitlist service unavailable.');
+      return;
+    }
+    $rows = $this->waitlist->staleBacklog();
+    $people = count(array_unique(array_column($rows, 'contact_id')));
+    $courses = count(array_unique(array_column($rows, 'course_nid')));
+    foreach ($rows as $r) {
+      $this->io()->writeln(sprintf('  participant %d · %s · event %d · course %d · joined %s · %d run(s) since',
+        $r['participant_id'], $r['name'], $r['event_id'], $r['course_nid'], substr($r['registered'], 0, 10), $r['runs_since']));
+    }
+    $this->io()->writeln(sprintf('%d entr(ies), %d people, %d course(s): over a year old and the course has run %d+ times since.',
+      count($rows), $people, $courses, WaitlistManager::NOTICE_LIMIT));
+    if (empty($options['apply'])) {
+      $this->io()->writeln('List only. Add --apply to cancel them (no email; they stay in CiviCRM as Cancelled).');
+      return;
+    }
+    $n = 0;
+    foreach (array_chunk(array_column($rows, 'participant_id'), 50) as $chunk) {
+      $n += $this->waitlist->cancelParticipants($chunk, 'backlog cleanup: joined over a year ago and the course has run 3+ times since');
+    }
+    $this->io()->success("$n waitlist entr(ies) cancelled.");
   }
 
   /**

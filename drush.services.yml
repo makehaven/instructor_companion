@@ -62,5 +62,6 @@ services:
       - '@datetime.time'
       - '@instructor_companion.profile_nudge'
       - '@instructor_companion.preclass_reminder'
+      - '@instructor_companion.waitlist'
     tags:
       - { name: drush.command }

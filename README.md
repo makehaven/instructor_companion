@@ -200,9 +200,24 @@ page under **After the class**, and have a dry-run Drush command.
   backfills: `drush ic-reminder-cleanup [--apply]`, `drush ic-waitlist-expiry [--apply]`.
 - **`CourseFollowerNotifier::waitlisted()`** — the "a new run is open" notice now
   also goes to people waitlisted, offered-and-unpaid or expired on an earlier run
-  of the same course in the last year who never got a later seat, with wording
+  of the same course who never got a later seat, with wording
   that says why they are hearing ("you were on the waiting list"). A waitlist is
   per event; the course is what runs again.
+- **Three notices, then off the list (2026-11-10).** There is no age limit on a
+  waitlist entry: a course that rarely runs keeps its list for years. What ends
+  it is `WaitlistManager::NOTICE_LIMIT` (3) "another run is open" emails the
+  person did not act on. Each send is a `notice` row in
+  `instructor_companion_waitlist_log`; `strikes()` counts those since the person
+  last joined a waiting list for the course, so re-joining starts over. The
+  third email says it is the last, a fourth is never sent, and
+  `removeStruckOut()` (cron, before the notices) cancels the person's waiting and
+  expired entries once every run they were told about has started. Every
+  cancellation (staff, leave link, got a seat, three notices, cleanup) writes a
+  `removed` row with its reason, shown on `/admin/education/workshops/{event_id}/waitlist`.
+  Nothing is deleted. One-time backlog cleanup, because nobody was told about
+  other runs before 2026-09-30: update 9023 cancels entries over a year old
+  whose course has run three or more times since (`drush ic-waitlist-cleanup`
+  lists them; `--apply` repeats it by hand).
 
 **`/admin/education/workshops`** (`WorkshopsConsoleController`,
 `WorkshopInsightsService`) is the first sub-page of the education hub: the

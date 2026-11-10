@@ -101,9 +101,11 @@ final class CourseFollowerNotifier {
   /**
    * People turned away from an earlier run who never got a later seat.
    *
-   * Waitlisted, offered-and-unpaid, or expired, on an active run in the last
-   * year, with no counted registration on any run of the course that starts
-   * after the one they waited for.
+   * Waitlisted, offered-and-unpaid, or expired, on an active run, with no
+   * counted registration on any run of the course that starts after the one
+   * they waited for. There is no age limit (JR, 2026-11-10): a course that
+   * rarely runs keeps its list for years. What ends it is three notices the
+   * person did not act on, see WaitlistManager::removeStruckOut().
    *
    * In the twelve months to 2026-09-22, 119 people were waitlisted and only
    * 34 ever got a seat at a rerun. A waitlist is per event; the course is
@@ -118,7 +120,6 @@ final class CourseFollowerNotifier {
         return [];
       }
     }
-    $now = $this->time->getRequestTime();
     $q = $this->database->select('civicrm_participant', 'p');
     $q->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
     $q->innerJoin('civicrm_event__field_parent_course', 'pc', 'pc.entity_id = e.id AND pc.deleted = 0');
@@ -133,7 +134,6 @@ final class CourseFollowerNotifier {
       ->condition('p.status_id', [7, 9, 12], 'IN')
       ->condition('e.is_template', 0)
       ->condition('e.is_active', 1)
-      ->condition('e.start_date', date('Y-m-d H:i:s', $now - 365 * 86400), '>=')
       ->condition('c.is_deleted', 0)
       ->condition('c.is_deceased', 0)
       ->condition('c.do_not_email', 0)
@@ -189,6 +189,14 @@ final class CourseFollowerNotifier {
         return 0;
       }
     }
+    if ($this->waitlist) {
+      try {
+        $this->waitlist->removeStruckOut();
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Waitlist three-notice removal failed: @m', ['@m' => $e->getMessage()]);
+      }
+    }
     $notified = (array) $this->state->get(self::STATE_KEY, []);
     $candidates = $this->openEvents();
 
@@ -217,8 +225,18 @@ final class CourseFollowerNotifier {
       $this->state->set(self::STATE_KEY, $notified);
       $count = 0;
       foreach ($this->audience((int) $row['course_nid']) as $f) {
-        if ($this->email($f, $row)) {
+        $waited = ($f['reason'] ?? '') === 'waitlist' && !empty($f['contact_id']) && $this->waitlist;
+        $verdict = $waited
+          ? WaitlistManager::noticeVerdict($this->waitlist->strikes((int) $f['contact_id'], (int) $row['course_nid']))
+          : 'send';
+        if ($verdict === 'stop') {
+          continue;
+        }
+        if ($this->email($f, $row, $verdict === 'final')) {
           $count++;
+          if ($waited) {
+            $this->waitlist->recordNotice((int) $f['contact_id'], (int) $row['course_nid'], (int) $row['id']);
+          }
         }
       }
       $notified[$event_id]['sent'] = $count;
@@ -342,7 +360,7 @@ final class CourseFollowerNotifier {
    * @return array{subject:string, body:string}
    *   Subject and plain-text body.
    */
-  public static function compose(string $name, array $event, string $register_url, string $course_url, string $reason = 'follower', string $leave_url = ''): array {
+  public static function compose(string $name, array $event, string $register_url, string $course_url, string $reason = 'follower', string $leave_url = '', bool $final = FALSE): array {
     $noun = self::noun($event['course_type']);
     $start = strtotime($event['start']) ?: 0;
     $when = $start ? date('l, F j, Y \a\t g:i A', $start) : '';
@@ -350,7 +368,10 @@ final class CourseFollowerNotifier {
     if ($reason === 'waitlist') {
       $subject = sprintf('%s: another %s is open — you were on the waiting list', $event['course_title'], $noun);
       $opening = sprintf('You were on the waiting list for %s and did not get a seat. Another %s is open: %s%s.', $event['course_title'], $noun, $event['title'], $starts);
-      $closing = 'Places are limited and you are hearing first because you waited last time. This is a one-off note for this class, not a subscription.';
+      $closing = 'Places are limited and you are hearing first because you waited last time. ';
+      $closing .= $final
+        ? sprintf('This is the last note we will send you about %s. To hear about later dates, join the waiting list on a full date again.', $event['course_title'])
+        : sprintf('We will tell you about up to %d new dates and then stop.', WaitlistManager::NOTICE_LIMIT);
       if ($leave_url !== '') {
         $closing .= "\n\n" . sprintf('No longer interested in %s? One click takes you off its waiting list: %s', $event['course_title'], $leave_url);
       }
@@ -379,7 +400,7 @@ final class CourseFollowerNotifier {
   /**
    * Sends one notice.
    */
-  private function email(array $follower, array $event): bool {
+  private function email(array $follower, array $event, bool $final = FALSE): bool {
     $base = $this->baseUrl();
     $register_url = $base . '/civicrm/event/info?id=' . (int) $event['id'] . '&reset=1';
     $course_url = $base . $this->aliasManager->getAliasByPath('/node/' . (int) $event['course_nid']);
@@ -387,7 +408,7 @@ final class CourseFollowerNotifier {
     if (($follower['reason'] ?? '') === 'waitlist' && !empty($follower['contact_id']) && $this->waitlist) {
       $leave_url = $this->waitlist->leaveUrl((int) $follower['contact_id'], (int) $event['course_nid']);
     }
-    $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'), $leave_url);
+    $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'), $leave_url, $final);
     $result = $this->mailManager->mail(
       'instructor_companion',
       self::MAIL_KEY,

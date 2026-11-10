@@ -65,11 +65,19 @@ class WaitlistController extends ControllerBase {
     )->fetchField();
 
     $rows = [];
+    $removed = $this->waitlist->removalNotes(array_column($entries, 'participant_id'));
     foreach ($entries as $e) {
       $live = in_array($e['status_id'], [WaitlistManager::STATUS_WAITLIST, WaitlistManager::STATUS_OFFERED], TRUE);
       $state = $e['status'];
       if ($e['offered']) {
         $state = $this->t('Offered a seat, not yet paid');
+      }
+      elseif ($e['status_id'] === WaitlistManager::STATUS_CANCELLED && isset($removed[$e['participant_id']])) {
+        $note = $removed[$e['participant_id']];
+        $state = $this->t('Removed @when: @why', [
+          '@when' => $this->dateFormatter->format($note['created'], 'custom', 'j M Y'),
+          '@why' => $note['reason'],
+        ]);
       }
       $remove = $live ? [
         'data' => [
@@ -141,7 +149,9 @@ class WaitlistController extends ControllerBase {
       $this->t('<strong>A seat frees.</strong> CiviCRM\'s "Update Participant Statuses" job (every cron) moves the first person in line to <em>Pending from waitlist</em> and emails them a link to pay. Nobody else is told.'),
       $this->t('<strong>They do not pay.</strong> With an offer window on the event, CiviCRM expires the offer after that many hours, emails them that it expired, and offers the seat to the next person. Without a window the seat stays held.'),
       $this->t('<strong>They take the class another day.</strong> When someone on a waitlist gets a counted seat on any run of the same course, their other waitlist entries for that course are cancelled automatically (no email).'),
-      $this->t('<strong>A new run is scheduled.</strong> Everyone waitlisted, offered-and-unpaid or expired on earlier runs of the course, who never got a later seat, gets one "another run is open" email with a register link and a one-click "leave the waiting list" link.'),
+      $this->t('<strong>A new run is scheduled.</strong> Everyone waitlisted, offered-and-unpaid or expired on earlier runs of the course, who never got a later seat, gets one "another run is open" email with a register link and a one-click "leave the waiting list" link. There is no time limit, so people waiting on a course that rarely runs still hear when it comes back.'),
+      $this->t('<strong>Three emails, then off the list.</strong> After @n of those emails without a registration, and once the last date they were told about has started, the person is removed from the course\'s waiting list (no email). The third email says it is the last. Joining a waiting list again starts the count over.', ['@n' => WaitlistManager::NOTICE_LIMIT]),
+      $this->t('<strong>Nothing is deleted.</strong> Removed people stay in the table below as Cancelled, with the date and reason. To put someone back, set their registration to "On waitlist" in CiviCRM.'),
       $this->t('<strong>Staff removal.</strong> The Remove button below cancels the entry with no email. Use it when someone tells you they are no longer interested.'),
     ];
     return [

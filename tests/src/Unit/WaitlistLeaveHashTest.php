@@ -27,4 +27,17 @@ class WaitlistLeaveHashTest extends UnitTestCase {
     $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{20,}$/', $a, 'URL-safe.');
   }
 
+  /**
+   * @covers ::noticeVerdict
+   */
+  public function testThirdNoticeIsTheLastAndAFourthIsNeverSent(): void {
+    $this->assertSame(3, WaitlistManager::NOTICE_LIMIT);
+    $this->assertSame('send', WaitlistManager::noticeVerdict(0));
+    $this->assertSame('send', WaitlistManager::noticeVerdict(1));
+    $this->assertSame('final', WaitlistManager::noticeVerdict(2), 'The third email says it is the last.');
+    $this->assertSame('stop', WaitlistManager::noticeVerdict(3));
+    $this->assertSame('stop', WaitlistManager::noticeVerdict(7));
+    $this->assertSame('final', WaitlistManager::noticeVerdict(0, 1), 'A limit of one makes the first email the last.');
+  }
+
 }

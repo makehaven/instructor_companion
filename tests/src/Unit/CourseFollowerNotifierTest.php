@@ -84,4 +84,27 @@ class CourseFollowerNotifierTest extends UnitTestCase {
     $this->assertStringContainsString('You asked to hear', $follower['body']);
   }
 
+  /**
+   * @covers ::compose
+   */
+  public function testWaitlistNoticeSaysHowManyAndWhenItIsTheLast(): void {
+    $event = [
+      'id' => 978,
+      'title' => 'Intro to Sewing: Get to Know Your Machine',
+      'start' => '2026-10-15 18:00:00',
+      'course_nid' => 40260,
+      'course_title' => 'Intro to Sewing',
+      'course_type' => 'workshop',
+    ];
+    $first = CourseFollowerNotifier::compose('Pat', $event, 'https://example.org/reg', 'https://example.org/course', 'waitlist', 'https://example.org/leave');
+    $this->assertStringContainsString('up to 3 new dates and then stop', $first['body']);
+    $this->assertStringNotContainsString('last note', $first['body']);
+    $this->assertStringContainsString('https://example.org/leave', $first['body']);
+    $last = CourseFollowerNotifier::compose('Pat', $event, 'https://example.org/reg', 'https://example.org/course', 'waitlist', 'https://example.org/leave', TRUE);
+    $this->assertStringContainsString('This is the last note we will send you about Intro to Sewing.', $last['body']);
+    $this->assertStringNotContainsString('up to 3 new dates', $last['body']);
+    $follower = CourseFollowerNotifier::compose('Pat', $event, 'https://example.org/reg', 'https://example.org/course', 'follower', '', TRUE);
+    $this->assertStringNotContainsString('last note', $follower['body'], 'Followers have no limit; they unfollow.');
+  }
+
 }

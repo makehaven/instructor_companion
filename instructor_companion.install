@@ -30,7 +30,32 @@ function instructor_companion_schema() {
       'participant' => ['participant_id'],
     ],
   ];
+  $schema['instructor_companion_waitlist_log'] = instructor_companion_waitlist_log_schema();
   return $schema;
+}
+
+/**
+ * The waitlist log table: notices sent and entries removed.
+ */
+function instructor_companion_waitlist_log_schema(): array {
+  return [
+    'description' => 'Waitlist history per person and course: each "another run is open" email sent (kind notice; three without a registration remove the person) and each entry removed with its reason (kind removed). The CiviCRM participant row is kept as Cancelled; this says why.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'kind' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'description' => 'notice or removed'],
+      'contact_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'civicrm_contact.id'],
+      'course_nid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Course node; 0 when the event has no course.'],
+      'event_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'notice: the run announced. removed: the run the entry was on.'],
+      'participant_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'removed: civicrm_participant.id. 0 for a notice.'],
+      'reason' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'person_course' => ['kind', 'contact_id', 'course_nid'],
+      'participant' => ['participant_id'],
+    ],
+  ];
 }
 
 /**
@@ -770,4 +795,44 @@ function instructor_companion_update_9021() {
     }
   }
   return sprintf('Restored %d waitlisted participant(s) wrongly marked No-show%s.', count($restored), $restored ? ': ' . implode(', ', $restored) : '');
+}
+
+/**
+ * Adds the waitlist log: notices sent per person and course, and removals.
+ *
+ * Three "another run is open" emails without a registration now take a
+ * person off a course's waiting list (JR, 2026-11-10).
+ */
+function instructor_companion_update_9022() {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('instructor_companion_waitlist_log')) {
+    return 'Waitlist log table already exists.';
+  }
+  $schema->createTable('instructor_companion_waitlist_log', instructor_companion_waitlist_log_schema());
+  return 'Waitlist log table created.';
+}
+
+/**
+ * One-time waitlist backlog cleanup: old entries on courses that keep running.
+ *
+ * Cancels (no email, nothing deleted) entries over a year old whose course
+ * has run three or more times since. It runs here, before cron, because the
+ * same release drops the one-year limit on who hears about a new run.
+ * `drush ic-waitlist-cleanup` lists what it would take.
+ */
+function instructor_companion_update_9023(&$sandbox) {
+  $waitlist = \Drupal::service('instructor_companion.waitlist');
+  if (!isset($sandbox['ids'])) {
+    $sandbox['ids'] = array_column($waitlist->staleBacklog(), 'participant_id');
+    $sandbox['total'] = count($sandbox['ids']);
+    $sandbox['done'] = 0;
+  }
+  $chunk = array_splice($sandbox['ids'], 0, 25);
+  if ($chunk) {
+    $sandbox['done'] += $waitlist->cancelParticipants($chunk, 'backlog cleanup: joined over a year ago and the course has run 3+ times since');
+  }
+  $sandbox['#finished'] = $sandbox['ids'] ? 1 - count($sandbox['ids']) / max(1, $sandbox['total']) : 1;
+  if ($sandbox['#finished'] >= 1) {
+    return sprintf('Waitlist backlog: %d of %d old entr(ies) cancelled.', $sandbox['done'], $sandbox['total']);
+  }
 }
