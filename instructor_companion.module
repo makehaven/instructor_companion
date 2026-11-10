@@ -1822,7 +1822,9 @@ function _instructor_companion_gate_instructors_directory(\Drupal\views\ViewExec
 
   /** @var \Drupal\makerspace_dashboard\Service\EventsMembershipDataService $service */
   $service = \Drupal::service('makerspace_dashboard.events_membership_data');
-  $data = $service->getActiveInstructorDemographics($start, $end);
+  // Member-only workshops are workshops (JR, 2026-11-10): the same three
+  // class types the daily status sync counts, one more than the KPI default.
+  $data = $service->getActiveInstructorDemographics($start, $end, ['Ticketed Workshop', 'Program', 'Ticketed Member Only']);
 
   $uids = array_map(
     static fn (array $row): int => (int) ($row['uid'] ?? 0),
