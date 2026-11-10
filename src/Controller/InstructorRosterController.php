@@ -94,7 +94,11 @@ class InstructorRosterController extends ControllerBase {
       '#markup' => '<p class="education-console__intro">' . $this->t(
         '<strong>Active</strong> means staff-approved to propose and teach; it is
          what the public <a href=":dir">/instructors</a> directory shows and what
-         the approval gate checks. Nothing sets it automatically — you do, here.
+         the approval gate checks. It follows teaching: someone who has taught a
+         class in the last 12 months is active, and someone who has not, with
+         none scheduled, becomes inactive overnight. Meetups and other hosted
+         events are not classes. Approving someone here gives them 12 months to
+         teach; deactivating someone here holds until they next teach.
          Photo and bio are now the first thing a visitor sees on an instructor\'s
          page, so the "incomplete" filter is worth a pass before a term starts.',
         [':dir' => Url::fromRoute('view.instructors.page_1')->toString()]
@@ -147,8 +151,8 @@ class InstructorRosterController extends ControllerBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['education-console__tiles']],
       'active' => $tile($this->t('Active instructors'), $counts['active'], $this->t('approved to teach; listed publicly'), 'active', TRUE),
-      'taught' => $tile($this->t('Taught in the last 12 months'), $counts['taught_12mo'], $this->t('any status'), 'all', TRUE),
-      'never' => $tile($this->t('Active, never taught'), $counts['active_never'], $this->t('approved but no session yet'), 'never', FALSE),
+      'taught' => $tile($this->t('Taught a class in the last 12 months'), $counts['taught_12mo'], $this->t('workshops and programs; not meetups'), 'all', TRUE),
+      'never' => $tile($this->t('Active, never taught'), $counts['active_never'], $this->t('approved but no class yet'), 'never', FALSE),
       'incomplete' => $tile($this->t('Active, incomplete profile'), $counts['incomplete'], $this->t('missing photo or bio'), 'incomplete', FALSE),
     ];
 
@@ -177,7 +181,7 @@ class InstructorRosterController extends ControllerBase {
       $this->t('Status'),
       $this->t('Profile'),
       $this->t('Topics'),
-      $this->t('Sessions'),
+      $this->t('Classes'),
       $this->t('Last taught'),
       $this->t('Upcoming'),
       $this->t('Agreement'),
@@ -290,8 +294,8 @@ class InstructorRosterController extends ControllerBase {
     $profile->save();
     $name = $profile->getOwner() ? $profile->getOwner()->getDisplayName() : $profile->label();
     $this->messenger()->addStatus($status === InstructorApprovalGate::STATUS_ACTIVE
-      ? $this->t('@name is now an active instructor: they can propose and teach, and appear on /instructors.', ['@name' => $name])
-      : $this->t('@name is now inactive: no proposing or teaching, and hidden from /instructors.', ['@name' => $name]));
+      ? $this->t('@name is now an active instructor: they can propose and teach, and appear on /instructors. They stay active for 12 months, and for as long as they keep teaching.', ['@name' => $name])
+      : $this->t('@name is now inactive: no proposing or teaching, and hidden from /instructors. This holds until they next teach a class.', ['@name' => $name]));
     return new RedirectResponse(Url::fromRoute('instructor_companion.roster', [], ['query' => ['show' => $request->query->get('show', 'all')]])->toString());
   }
 
@@ -315,24 +319,10 @@ class InstructorRosterController extends ControllerBase {
       }
     }
 
-    $stats = [];
-    if ($uids && $this->database->schema()->tableExists('civicrm_event__field_civi_event_instructor')) {
-      $now = date('Y-m-d H:i:s');
-      $year_ago = date('Y-m-d H:i:s', strtotime('-12 months'));
-      $q = $this->database->select('civicrm_event__field_civi_event_instructor', 'i');
-      $q->join('civicrm_event', 'e', 'e.id = i.entity_id');
-      $q->addField('i', 'field_civi_event_instructor_target_id', 'uid');
-      $q->addExpression("SUM(e.start_date <= '$now')", 'sessions');
-      $q->addExpression("SUM(e.start_date <= '$now' AND e.start_date >= '$year_ago')", 'sessions_12mo');
-      $q->addExpression("SUM(e.start_date > '$now' AND e.is_active = 1)", 'upcoming');
-      $q->addExpression("MAX(CASE WHEN e.start_date <= '$now' THEN e.start_date END)", 'last_taught');
-      $q->condition('i.field_civi_event_instructor_target_id', $uids, 'IN')
-        ->condition('e.is_template', 0)
-        ->groupBy('i.field_civi_event_instructor_target_id');
-      foreach ($q->execute() as $s) {
-        $stats[(int) $s->uid] = $s;
-      }
-    }
+    // Classes only, and the same numbers the daily status sync decides on:
+    // the instructor field also names the host of a meetup, which is not
+    // teaching (JR, 2026-11-10).
+    $stats = \Drupal::service('instructor_companion.status_sync')->classStats($uids);
 
     $rows = [];
     foreach ($profiles as $p) {
@@ -366,10 +356,10 @@ class InstructorRosterController extends ControllerBase {
         'has_bio' => trim(str_replace("\xC2\xA0", ' ', $bio)) !== '',
         'private' => $avail !== '' && !in_array($avail, ['no', 'none', '0', 'not_available'], TRUE),
         'topics' => $topics,
-        'sessions' => (int) ($s->sessions ?? 0),
-        'sessions_12mo' => (int) ($s->sessions_12mo ?? 0),
-        'upcoming' => (int) ($s->upcoming ?? 0),
-        'last_taught' => !empty($s->last_taught) ? strtotime($s->last_taught) : 0,
+        'sessions' => (int) ($s['classes'] ?? 0),
+        'sessions_12mo' => (int) ($s['classes_12mo'] ?? 0),
+        'upcoming' => (int) ($s['upcoming'] ?? 0),
+        'last_taught' => (int) ($s['last_class'] ?? 0),
         'agreement' => $agreement,
       ];
     }

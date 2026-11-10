@@ -38,6 +38,12 @@ services:
       - '@instructor_companion.attendance_manager'
     tags:
       - { name: drush.command }
+  instructor_companion.status_commands:
+    class: \Drupal\instructor_companion\Commands\InstructorStatusCommands
+    arguments:
+      - '@instructor_companion.status_sync'
+    tags:
+      - { name: drush.command }
   instructor_companion.follower_commands:
     class: \Drupal\instructor_companion\Commands\FollowerCommands
     arguments:

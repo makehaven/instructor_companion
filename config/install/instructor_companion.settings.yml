@@ -145,6 +145,7 @@ abandoned_body: |
 
   The MakeHaven Team
   www.makehaven.org
+auto_status_months: 12
 preclass_enabled: false
 preclass_event_types:
   - 6

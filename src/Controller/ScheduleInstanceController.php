@@ -55,14 +55,20 @@ class ScheduleInstanceController extends ControllerBase {
       ? (int) $node->get('field_civicrm_template_id')->value
       : NULL;
 
-    if (!$template_id) {
-      $this->messenger()->addError($this->t('This course has no CiviCRM template linked. Set @field on the course before scheduling instances.', [
-        '@field' => 'field_civicrm_template_id',
-      ]));
-      return $this->redirectToCourse($node);
-    }
-
     \Drupal::service('civicrm')->initialize();
+
+    if (!$template_id) {
+      // No template: do what staff do by hand for nearly every class, copy
+      // the most recent run. Price, description, instructor, image, size
+      // and sessions all come along (hook_civicrm_copy carries the Drupal
+      // fields), so only the date needs setting.
+      $source = $this->findMostRecentPastEvent((int) $node->id());
+      if (!$source) {
+        $this->messenger()->addError($this->t('This course has never run and has no CiviCRM template linked, so there is nothing to copy. Create the first event in CiviCRM (New Event, from a template) and set its Parent Course to this course.'));
+        return $this->redirectToCourse($node);
+      }
+      return $this->copyLastRun($node, (int) $source['id']);
+    }
 
     try {
       // Verify the template exists and is actually a template before cloning.
@@ -279,6 +285,54 @@ class ScheduleInstanceController extends ControllerBase {
       'media_id' => $media_id,
       'area_interest' => $area_interest,
     ];
+  }
+
+  /**
+   * Copy the course's most recent run and open the copy for editing.
+   *
+   * The same thing as CiviCRM's "Copy Event", minus the "Copy of" title
+   * and the hunt for the copy in the event list. Dates are left as copied:
+   * a made-up date on a public event is worse than the old one.
+   */
+  protected function copyLastRun(NodeInterface $node, int $source_id) {
+    try {
+      $source = \civicrm_api3('Event', 'getsingle', ['id' => $source_id, 'return' => ['title', 'start_date']]);
+      $copy = \CRM_Event_BAO_Event::copy($source_id);
+      $new_id = (int) $copy->id;
+      \civicrm_api3('Event', 'create', [
+        'id' => $new_id,
+        'title' => self::stripCopyPrefix((string) $source['title']),
+        'is_template' => 0,
+      ]);
+      \Drupal::logger('instructor_companion')->info('Copied event @new from last run @src for course @c (@title)', [
+        '@new' => $new_id,
+        '@src' => $source_id,
+        '@c' => $node->id(),
+        '@title' => $node->label(),
+      ]);
+      $this->messenger()->addStatus($this->t('Copied the last run of @course (@date). Price, description, instructor and size came with it. Set the new date and save.', [
+        '@course' => $node->label(),
+        '@date' => !empty($source['start_date']) ? date('M j, Y', strtotime($source['start_date'])) : $this->t('no date'),
+      ]));
+      return new RedirectResponse(Url::fromRoute('entity.civicrm_event.edit_form', [
+        'civicrm_event' => $new_id,
+      ])->toString());
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('instructor_companion')->error('Copy of last run failed for course @c: @msg', [
+        '@c' => $node->id(),
+        '@msg' => $e->getMessage(),
+      ]);
+      $this->messenger()->addError($this->t('Could not copy the last run: @msg', ['@msg' => $e->getMessage()]));
+      return $this->redirectToCourse($node);
+    }
+  }
+
+  /**
+   * Title without CiviCRM's "Copy of " prefix (however many times copied).
+   */
+  public static function stripCopyPrefix(string $title): string {
+    return trim((string) preg_replace('/^(\s*Copy of\s+)+/i', '', $title));
   }
 
   /**

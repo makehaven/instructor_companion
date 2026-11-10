@@ -391,8 +391,13 @@ class InstructorDashboardController extends ControllerBase {
       }
       elseif ($profile->hasField('field_instructor_status')
         && strtolower((string) $profile->get('field_instructor_status')->value) !== 'active') {
+        // Someone who has taught before is not waiting on a first approval:
+        // they went inactive after 12 months without a class.
+        $taught = \Drupal::service('instructor_companion.status_sync')->classStats([(int) $current_user->id()]);
         $approval_message = new FormattableMarkup(
-          'Your onboarding is complete, but staff approval is still required before you can propose or teach classes. You can finish your profile and browse workshops now. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.',
+          !empty($taught[(int) $current_user->id()]['classes'])
+            ? 'You have not taught a class in the last 12 months, so your instructor listing is paused. To teach again, email <a href="mailto:education@makehaven.org">education@makehaven.org</a> and we will set you up.'
+            : 'Your onboarding is complete, but staff approval is still required before you can propose or teach classes. You can finish your profile and browse workshops now. Questions? Email <a href="mailto:education@makehaven.org">education@makehaven.org</a>.',
           []
         );
         $build['approval_warning'] = [

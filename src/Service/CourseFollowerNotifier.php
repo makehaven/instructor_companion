@@ -208,6 +208,10 @@ final class CourseFollowerNotifier {
       if (isset($notified[$event_id])) {
         continue;
       }
+      if (!self::readyToAnnounce((string) $row['title'], (string) ($row['created'] ?? ''), $this->time->getRequestTime())) {
+        // Still being set up; a later cron run picks it up.
+        continue;
+      }
       // Claim first and persist, so a failure part-way cannot re-send.
       $notified[$event_id] = ['t' => $this->time->getRequestTime(), 'sent' => 0];
       $this->state->set(self::STATE_KEY, $notified);
@@ -231,6 +235,36 @@ final class CourseFollowerNotifier {
   }
 
   /**
+   * Minutes a new event is left alone before followers hear about it.
+   *
+   * Staff make events by copying the last run and then setting the date.
+   * The notice used to go at the next cron run, a few minutes after the
+   * copy, with whatever date and title it had at that moment.
+   */
+  public const SETTLE_MINUTES = 60;
+
+  /**
+   * Whether a new event has been finished enough to tell followers.
+   *
+   * @param string $title
+   *   Event title.
+   * @param string $created
+   *   CiviCRM created_date (site-local string), or '' when unknown.
+   * @param int $now
+   *   Current timestamp.
+   */
+  public static function readyToAnnounce(string $title, string $created, int $now): bool {
+    if (preg_match('/^\s*Copy of\s/i', $title)) {
+      return FALSE;
+    }
+    $made = $created !== '' ? strtotime($created) : FALSE;
+    if ($made === FALSE) {
+      return TRUE;
+    }
+    return ($now - $made) >= self::SETTLE_MINUTES * 60;
+  }
+
+  /**
    * Public, active, non-template, future events that belong to a course.
    *
    * @return array<int, array>
@@ -241,7 +275,7 @@ final class CourseFollowerNotifier {
     $q->join('civicrm_event__field_parent_course', 'pc', 'pc.entity_id = e.id');
     $q->join('node_field_data', 'n', 'n.nid = pc.field_parent_course_target_id');
     $q->leftJoin('node__field_course_type', 't', 't.entity_id = n.nid');
-    $q->fields('e', ['id', 'title', 'start_date'])
+    $q->fields('e', ['id', 'title', 'start_date', 'created_date'])
       ->fields('n', ['nid'])
       ->addField('n', 'title', 'course_title');
     $q->addField('t', 'field_course_type_value', 'course_type');
@@ -257,6 +291,7 @@ final class CourseFollowerNotifier {
         'id' => (int) $r->id,
         'title' => (string) $r->title,
         'start' => (string) $r->start_date,
+        'created' => (string) ($r->created_date ?? ''),
         'course_nid' => (int) $r->nid,
         'course_title' => (string) $r->course_title,
         'course_type' => (string) ($r->course_type ?? 'workshop'),

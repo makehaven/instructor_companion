@@ -122,6 +122,9 @@ instructor_companion.settings:
     abandoned_body:
       type: text
       label: 'Stalled registration body'
+    auto_status_months:
+      type: integer
+      label: 'Months without teaching a class before an instructor becomes inactive (0 = never automatic)'
     preclass_enabled:
       type: boolean
       label: 'Send the week-out and two-day reminders (and switch off the CiviCRM ones they replace)'

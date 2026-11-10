@@ -70,6 +70,13 @@ function instructor_companion_cron() {
   // Waitlisted events made outside the CiviCRM copy path get the offer window
   // here, so an unpaid offer cannot hold a seat forever.
   \Drupal::service('instructor_companion.event_hygiene')->backfillWaitlistExpiry();
+  // Once a day: active means taught a class in the last 12 months.
+  try {
+    \Drupal::service('instructor_companion.status_sync')->run();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('instructor_companion')->error('Instructor status sync failed: @m', ['@m' => $e->getMessage()]);
+  }
 }
 
 /**
@@ -81,6 +88,19 @@ function instructor_companion_cron() {
  * pages, the /instructors list — gets it. The setup list tells them.
  */
 function instructor_companion_profile_presave(EntityInterface $profile) {
+  // A staff change to the status (roster button or the profile form) is a
+  // decision the daily status sync respects; its own saves are not.
+  if ($profile->bundle() === 'instructor'
+    && !$profile->isNew()
+    && $profile->hasField('field_instructor_status')
+    && isset($profile->original)
+    && (string) $profile->get('field_instructor_status')->value !== (string) $profile->original->get('field_instructor_status')->value
+    && (string) $profile->get('field_instructor_status')->value !== '') {
+    $sync = \Drupal::service('instructor_companion.status_sync');
+    if (!$sync->isSyncing()) {
+      $sync->recordManual((int) $profile->id(), strtolower((string) $profile->get('field_instructor_status')->value));
+    }
+  }
   if ($profile->bundle() !== 'instructor'
     || !$profile->hasField('field_instructor_photo')
     || !$profile->get('field_instructor_photo')->isEmpty()) {
@@ -1000,20 +1020,28 @@ function instructor_companion_node_view(array &$build, EntityInterface $entity, 
     ? (int) $entity->get('field_civicrm_template_id')->value
     : NULL;
 
-  if ($template_id) {
+  $has_run = !$template_id && (bool) \Drupal::database()->query(
+    "SELECT 1 FROM civicrm_event e
+     JOIN civicrm_event__field_parent_course pc ON pc.entity_id = e.id
+     WHERE pc.field_parent_course_target_id = :nid AND e.is_active = 1 AND e.is_template = 0 LIMIT 1",
+    [':nid' => $entity->id()]
+  )->fetchField();
+  if ($template_id || $has_run) {
     $build['schedule_instance_button'] = [
       '#type' => 'link',
-      '#title' => t('Schedule New Instance'),
+      '#title' => $template_id ? t('Schedule New Instance') : t('Schedule another (copy the last run)'),
       '#url' => \Drupal\Core\Url::fromRoute('instructor_companion.schedule_instance', [
         'node' => $entity->id(),
       ]),
       '#attributes' => [
         'class' => ['button', 'button--primary', 'button--action'],
-        'title' => t('Clones template @id (with reminders, fees, profiles) into a new event and opens the edit form.', ['@id' => $template_id]),
+        'title' => $template_id
+          ? t('Clones template @id (with reminders, fees, profiles) into a new event and opens the edit form.', ['@id' => $template_id])
+          : t('Copies the most recent run with its price, description, instructor and size, and opens it so you can set the new date.'),
       ],
       '#cache' => [
         'contexts' => ['user.permissions'],
-        'tags' => $entity->getCacheTags(),
+        'tags' => array_merge($entity->getCacheTags(), ['civicrm_event_list']),
       ],
     ];
   }

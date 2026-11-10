@@ -314,6 +314,17 @@ services:
       - '@datetime.time'
       - '@private_key'
 
+  instructor_companion.status_sync:
+    class: Drupal\instructor_companion\Service\InstructorStatusSync
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@instructor_companion.approval_gate'
+      - '@state'
+      - '@config.factory'
+      - '@datetime.time'
+      - '@logger.channel.instructor_companion'
+
   instructor_companion.profile_nudge:
     class: Drupal\instructor_companion\Service\InstructorProfileNudge
     arguments:

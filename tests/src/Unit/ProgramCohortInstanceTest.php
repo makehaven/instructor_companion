@@ -33,4 +33,22 @@ class ProgramCohortInstanceTest extends TestCase {
     $this->assertStringStartsWith('<p>Curriculum', $html);
   }
 
+  public function testCopyPrefixIsStripped(): void {
+    $this->assertSame('GEMS Cohort 30', ScheduleInstanceController::stripCopyPrefix('Copy of GEMS Cohort 30'));
+    $this->assertSame('GEMS Cohort 30', ScheduleInstanceController::stripCopyPrefix('Copy of Copy of GEMS Cohort 30'));
+    $this->assertSame('Copy Machine Basics', ScheduleInstanceController::stripCopyPrefix('Copy Machine Basics'));
+  }
+
+  public function testFollowersAreNotToldAboutAnUnfinishedEvent(): void {
+    $now = strtotime('2026-11-04 15:00:00');
+    $ready = [\Drupal\instructor_companion\Service\CourseFollowerNotifier::class, 'readyToAnnounce'];
+    // Copied twelve minutes ago: Silas is still setting the date.
+    $this->assertFalse($ready('Intro to Sewing', '2026-11-04 14:48:00', $now));
+    $this->assertTrue($ready('Intro to Sewing', '2026-11-04 13:59:00', $now));
+    // Never while it still carries CiviCRM's copy title.
+    $this->assertFalse($ready('Copy of GEMS Cohort 30', '2026-11-01 09:00:00', $now));
+    // Unknown creation time does not block the notice for ever.
+    $this->assertTrue($ready('Intro to Sewing', '', $now));
+  }
+
 }
