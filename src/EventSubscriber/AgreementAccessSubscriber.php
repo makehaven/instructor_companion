@@ -77,7 +77,15 @@ final class AgreementAccessSubscriber implements EventSubscriberInterface {
     /** @var \Drupal\instructor_companion\Service\InstructorSetupChecklist $checklist */
     $checklist = \Drupal::service('instructor_companion.setup_checklist');
     if ($checklist->guideRequiredFirst((int) $this->currentUser->id())) {
-      $this->messenger->addWarning($this->t('Before signing the agreement, please read the Instructor Guidebook and confirm at the bottom of the page.'));
+      $this->messenger->addWarning($this->t('You asked for the Instructor Agreement and were brought to the Instructor Guidebook instead. The agreement is still here: it opens once you confirm at the bottom of this page that you have read the Guidebook, because signing it is a promise to follow what the Guidebook says.'));
+      // Staff usually arrive here to read or change the agreement, not to
+      // sign it, so tell them where its text is edited.
+      $agreement = $this->entityTypeManager->getStorage('webform')->load('webform_5220');
+      if ($agreement && $agreement->access('update', $this->currentUser)) {
+        $this->messenger->addStatus($this->t('Staff: to change the agreement wording, <a href=":edit">edit the agreement form</a>. Only people who have not yet confirmed the Guidebook are sent here first.', [
+          ':edit' => $agreement->toUrl('edit-form')->toString(),
+        ]));
+      }
       $event->setResponse(new RedirectResponse($checklist->guideNode()->toUrl()->toString()));
       return;
     }
