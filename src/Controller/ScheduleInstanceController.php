@@ -91,14 +91,24 @@ class ScheduleInstanceController extends ControllerBase {
       // Drupal-side format = plain_text, which causes the edit form to render
       // HTML tags as visible text. We write them via the entity API in
       // writeDrupalFields() with format=full_html.
-      \civicrm_api3('Event', 'create', [
+      $is_program = $this->isProgram($node);
+      $params = [
         'id' => $new_event_id,
         'title' => $node->label(),
         'is_template' => 0,
         'is_active' => 1,
         'start_date' => $start->format('Y-m-d H:i:s'),
         'end_date' => $end->format('Y-m-d H:i:s'),
-      ]);
+      ];
+      if ($is_program) {
+        // A program's cohort is listed on the program page and announced to
+        // the interest list as soon as it is public. The date here is a
+        // placeholder, so it stays off the public listing until staff set
+        // the real one and tick Public.
+        $params['title'] = self::cohortTitle((string) $node->label(), $this->runsSoFar($node));
+        $params['is_public'] = 0;
+      }
+      \civicrm_api3('Event', 'create', $params);
 
       $source = $this->findMostRecentPastEvent((int) $node->id());
       $this->writeDrupalFields($new_event_id, $node, $source);
@@ -121,10 +131,18 @@ class ScheduleInstanceController extends ControllerBase {
         '@title' => $node->label(),
       ]);
 
-      $this->messenger()->addStatus($this->t('Created new instance of @course. Reminders, fees, and profiles were carried over from template @tpl. Set the real date and instructor before publishing.', [
-        '@course' => $node->label(),
-        '@tpl' => $template_id,
-      ]));
+      if ($is_program) {
+        $this->messenger()->addStatus($this->t('Created "@title" from template @tpl. It is not public yet. Set the real start date, check the cohort number, price and size, then tick Public: that puts it on the program page and emails the interest list.', [
+          '@title' => $params['title'],
+          '@tpl' => $template_id,
+        ]));
+      }
+      else {
+        $this->messenger()->addStatus($this->t('Created new instance of @course. Reminders, fees, and profiles were carried over from template @tpl. Set the real date and instructor before publishing.', [
+          '@course' => $node->label(),
+          '@tpl' => $template_id,
+        ]));
+      }
 
       return new RedirectResponse(Url::fromRoute('entity.civicrm_event.edit_form', [
         'civicrm_event' => $new_event_id,
@@ -163,7 +181,20 @@ class ScheduleInstanceController extends ControllerBase {
       return;
     }
 
-    if ($course->hasField('body') && !$course->get('body')->isEmpty()) {
+    if ($this->isProgram($course)) {
+      // A program's body is its whole public page (with the cohort-list
+      // token in it). The cohort event gets the short summary and a link
+      // back to that page instead.
+      $summary = $course->hasField('body') ? trim((string) $course->get('body')->summary) : '';
+      $event_entity->set('description', [
+        'value' => self::cohortDescription((string) $course->label(), $summary, $course->toUrl('canonical', ['absolute' => TRUE])->toString()),
+        'format' => 'full_html',
+      ]);
+      if ($summary !== '') {
+        $event_entity->set('summary', $summary);
+      }
+    }
+    elseif ($course->hasField('body') && !$course->get('body')->isEmpty()) {
       $body = $course->get('body');
       if (!empty($body->value)) {
         $event_entity->set('description', [
@@ -248,6 +279,56 @@ class ScheduleInstanceController extends ControllerBase {
       'media_id' => $media_id,
       'area_interest' => $area_interest,
     ];
+  }
+
+  /**
+   * Whether the course is a program (cohorts), not a workshop.
+   */
+  protected function isProgram(NodeInterface $course): bool {
+    return $course->hasField('field_course_type')
+      && (string) $course->get('field_course_type')->value === 'program';
+  }
+
+  /**
+   * Runs of this course so far: linked events plus those before our records.
+   *
+   * Same numbers the program page shows as "N cohorts so far", with upcoming
+   * cohorts included so two scheduled in a row do not share a number.
+   */
+  protected function runsSoFar(NodeInterface $course): int {
+    $linked = (int) \Drupal::database()->query(
+      "SELECT COUNT(*) FROM civicrm_event e
+       JOIN civicrm_event__field_parent_course pc ON pc.entity_id = e.id
+       WHERE pc.field_parent_course_target_id = :nid
+         AND e.is_active = 1
+         AND e.is_template = 0",
+      [':nid' => $course->id()]
+    )->fetchField();
+    $before = $course->hasField('field_runs_before_records')
+      ? (int) $course->get('field_runs_before_records')->value
+      : 0;
+    // The copy being titled is not linked to the course yet.
+    return $linked + $before;
+  }
+
+  /**
+   * Title for the next cohort of a program.
+   */
+  public static function cohortTitle(string $course_title, int $runs_so_far): string {
+    return $course_title . ' - Cohort ' . (max(0, $runs_so_far) + 1);
+  }
+
+  /**
+   * Event description for a program cohort: summary plus a link to the page.
+   */
+  public static function cohortDescription(string $course_title, string $summary, string $program_url): string {
+    $html = '';
+    if (trim($summary) !== '') {
+      $html .= '<p>' . htmlspecialchars(trim($summary), ENT_NOQUOTES, 'UTF-8') . '</p>';
+    }
+    $html .= '<p>Curriculum, schedule and what is included: <a href="' . htmlspecialchars($program_url, ENT_QUOTES, 'UTF-8') . '">'
+      . htmlspecialchars($course_title, ENT_NOQUOTES, 'UTF-8') . ' program page</a>.</p>';
+    return $html;
   }
 
   protected function redirectToCourse(NodeInterface $node): RedirectResponse {
