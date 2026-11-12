@@ -1018,13 +1018,6 @@ class EducationConsoleController extends ControllerBase {
   protected const FILL_RATE_GOAL = 0.70;
 
   /**
-   * Attendee seats a year that may carry no payment record before it is worth
-   * a look. Coverage has sat at 92-94% since 2024 on roughly 450 seats, so a
-   * handful is normal and a jump is not.
-   */
-  protected const UNPAID_SEATS_TOLERANCE = 45;
-
-  /**
    * Clamp unlimited/placeholder capacities so a value such as 99 cannot
    * dominate the workshop fill KPI. Matches the education dashboard.
    */
@@ -1061,7 +1054,6 @@ class EducationConsoleController extends ControllerBase {
     $waitlist = $this->countWaitlisted($yearStart);
     $fill = $this->fillRate($ninetyAgo, $now);
     $evals = $this->evaluationResponseRate($ninetyAgo, $now);
-    $unpaid = $this->seatsWithoutPaymentRecord($yearStart, $now);
 
     $pace = $sessions === NULL
       ? NULL
@@ -1112,13 +1104,10 @@ class EducationConsoleController extends ControllerBase {
           Url::fromUserInput('/makerspace-dashboard/education'),
           $evals === NULL ? NULL : ($evals >= 0.20 ? 'clear' : 'attention')
         ),
-        'unpaid' => $this->goalTile(
-          $this->t('Workshop seats with no payment linked'),
-          $unpaid === NULL ? NULL : (string) $unpaid,
-          $this->t('registrations this year with no CiviCRM payment attached — comped, paid offline, or a link the system never wrote; the list says who'),
-          Url::fromRoute('instructor_companion.workshops_unpaid'),
-          $unpaid === NULL ? NULL : ($unpaid > self::UNPAID_SEATS_TOLERANCE ? 'attention' : 'clear')
-        ),
+        // "Workshop seats with no payment linked" was dropped from the strip
+        // (Ashley, feedback 21018): they are instructors, transfers and staff
+        // sign-ups, nothing to act on. The list stays at
+        // instructor_companion.workshops_unpaid for an occasional check.
       ],
       'waitlist_table' => $this->waitlistByCourseTable($yearStart),
       'more' => [
@@ -1128,55 +1117,6 @@ class EducationConsoleController extends ControllerBase {
         '#attributes' => ['class' => ['education-console__goals-link']],
       ],
     ];
-  }
-
-  /**
-   * Attendee seats this year carrying no payment record at all.
-   *
-   * Not a revenue figure and not an alarm: a comped or scholarship seat
-   * legitimately has no contribution. The point is that each one should be a
-   * deliberate choice rather than a registration nobody chased. Coverage has
-   * held around 92-94% for three years, so a sharp move is the signal, not the
-   * level.
-   *
-   * Free events are excluded, matching the list the tile links to.
-   *
-   * EXISTS rather than a join — a participant can carry several payment rows,
-   * and joining would count them more than once.
-   */
-  protected function seatsWithoutPaymentRecord(\DateTimeImmutable $start, \DateTimeImmutable $end): ?int {
-    try {
-      $eventTypeId = $this->workshopTypeId();
-      if (!$eventTypeId) {
-        return NULL;
-      }
-      $query = $this->database->select('civicrm_participant', 'p');
-      $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
-      $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
-      $query->condition('pst.is_counted', 1);
-      $query->condition('p.is_test', 0);
-      $query->condition('p.role_id', '1');
-      $query->condition('e.is_active', 1);
-      $query->condition('e.is_template', 0);
-      $query->condition('e.event_type_id', $eventTypeId);
-      $query->condition('e.start_date', [
-        $start->format('Y-m-d H:i:s'),
-        $end->format('Y-m-d H:i:s'),
-      ], 'BETWEEN');
-      // Same filter as the list behind this tile: free events have nothing
-      // to pay, so they are not missing a payment.
-      $query->where(WorkshopInsightsService::chargeableEventCondition('e'));
-
-      $paid = $this->database->select('civicrm_participant_payment', 'pp');
-      $paid->addField('pp', 'participant_id');
-      $paid->where('pp.participant_id = p.id');
-      $query->notExists($paid);
-
-      return (int) $query->countQuery()->execute()->fetchField();
-    }
-    catch (\Exception $e) {
-      return NULL;
-    }
   }
 
   /**
