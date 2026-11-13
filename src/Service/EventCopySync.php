@@ -42,14 +42,16 @@ class EventCopySync {
    * Drupal fields carried from the original event to its copy.
    *
    * Computed fields (registered / remaining / full / marketing status) and
-   * the low-capacity notice flag are deliberately left out.
+   * the low-capacity notice flag are deliberately left out. So is the old
+   * file field field_civi_event_image: it is hidden on the edit form, so a
+   * copy of a 2025 event carried a picture staff could not see or remove,
+   * and the event page showed it beside the new media picture (1007, 11-12).
    */
   public const COPIED_FIELDS = [
     'field_parent_course',
     'field_civi_event_instructor',
     'field_civi_event_badges',
     'field_civi_event_media_image',
-    'field_civi_event_image',
     'field_civi_event_area_interest',
     'field_civi_event_tags',
     'field_event_skill_level',
