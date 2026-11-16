@@ -93,7 +93,7 @@ final class QuizResultCtaSubscriber implements EventSubscriberInterface {
         '#type' => 'container',
         '#attributes' => ['style' => 'flex:1 1 auto;min-width:280px'],
         'heading' => [
-          '#markup' => '<h2 style="margin:0 0 0.25em 0;font-size:1.4em;color:#7a4300">' . $this->t('🎉 You passed the orientation quiz.') . '</h2>',
+          '#markup' => '<h2 style="margin:0 0 0.25em 0;font-size:1.4em;color:#7a4300">' . $this->t('You passed the orientation quiz.') . '</h2>',
         ],
         'body' => [
           // This panel used to link straight to the Master Instructor

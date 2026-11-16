@@ -83,7 +83,7 @@ class PostEventHubController extends ControllerBase {
     if ($status['all_complete']) {
       $build['done'] = [
         '#markup' => '<div class="messages messages--status peh-alldone">'
-        . $this->t('🎉 All wrap-up tasks for this class are done. Thank you!') . '</div>',
+        . $this->t('All wrap-up tasks for this class are done. Thank you.') . '</div>',
       ];
     }
 
