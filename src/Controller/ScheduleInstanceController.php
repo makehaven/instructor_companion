@@ -27,6 +27,14 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 class ScheduleInstanceController extends ControllerBase {
 
   /**
+   * CiviCRM template for the first run of a course that has none of its own.
+   *
+   * Template 3 is "Workshop": reminders, price set and registration profiles
+   * for a ticketed workshop. Same default as TemplateBulkAssignCommands.
+   */
+  public const FIRST_RUN_TEMPLATE_ID = 3;
+
+  /**
    * Access check for the route + local task tab.
    *
    * Tab only appears on course nodes for users who can create CiviCRM events.
@@ -57,17 +65,26 @@ class ScheduleInstanceController extends ControllerBase {
 
     \Drupal::service('civicrm')->initialize();
 
+    $first_run = FALSE;
     if (!$template_id) {
       // No template: do what staff do by hand for nearly every class, copy
       // the most recent run. Price, description, instructor, image, size
       // and sessions all come along (hook_civicrm_copy carries the Drupal
       // fields), so only the date needs setting.
       $source = $this->findMostRecentPastEvent((int) $node->id());
-      if (!$source) {
-        $this->messenger()->addError($this->t('This course has never run and has no CiviCRM template linked, so there is nothing to copy. Create the first event in CiviCRM (New Event, from a template) and set its Parent Course to this course.'));
+      if ($source) {
+        return $this->copyLastRun($node, (int) $source['id']);
+      }
+      // A new course: its first run comes from the standard Workshop
+      // template, so a class can start on its course page instead of as an
+      // unlinked CiviCRM event (JR 11-17). A program's cohort needs its own
+      // program template, so programs still have to have one set.
+      if ($this->isProgram($node)) {
+        $this->messenger()->addError($this->t('This program has never run and has no CiviCRM template linked. Create the first cohort in CiviCRM from the program template and set its Parent Course to this program.'));
         return $this->redirectToCourse($node);
       }
-      return $this->copyLastRun($node, (int) $source['id']);
+      $template_id = self::FIRST_RUN_TEMPLATE_ID;
+      $first_run = TRUE;
     }
 
     try {
@@ -114,6 +131,12 @@ class ScheduleInstanceController extends ControllerBase {
         $params['title'] = self::cohortTitle((string) $node->label(), $this->runsSoFar($node));
         $params['is_public'] = 0;
       }
+      elseif ($first_run) {
+        // Nothing about a first run is known yet: date, price and instructor
+        // are all placeholders, so it stays off the public calendar until
+        // staff have set them.
+        $params['is_public'] = 0;
+      }
       \civicrm_api3('Event', 'create', $params);
 
       $source = $this->findMostRecentPastEvent((int) $node->id());
@@ -141,6 +164,11 @@ class ScheduleInstanceController extends ControllerBase {
         $this->messenger()->addStatus($this->t('Created "@title" from template @tpl. It is not public yet. Set the real start date, check the cohort number, price and size, then tick Public: that puts it on the program page and emails the interest list.', [
           '@title' => $params['title'],
           '@tpl' => $template_id,
+        ]));
+      }
+      elseif ($first_run) {
+        $this->messenger()->addStatus($this->t('Created the first class for @course, with the course description and the standard workshop reminders and registration form. It is not public yet. Set the real date, price, size, instructor and picture, then tick Public.', [
+          '@course' => $node->label(),
         ]));
       }
       else {
