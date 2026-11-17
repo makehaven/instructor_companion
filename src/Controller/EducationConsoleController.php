@@ -1187,7 +1187,8 @@ class EducationConsoleController extends ControllerBase {
   /**
    * Registrations that could not get a seat, on events since a date.
    *
-   * Statuses 7 and 9 are "On waitlist" and "Pending from waitlist".
+   * Statuses 7 and 9 are "On waitlist" and "Pending from waitlist"; the
+   * seat-alerts status is the same people in a class's last days.
    */
   protected function countWaitlisted(\DateTimeImmutable $since): ?int {
     $type = $this->workshopTypeId();
@@ -1199,7 +1200,7 @@ class EducationConsoleController extends ControllerBase {
         "SELECT COUNT(*) FROM {civicrm_participant} p
          INNER JOIN {civicrm_event} e ON e.id = p.event_id AND e.is_template = 0
            AND e.is_active = 1 AND e.event_type_id = :type
-         WHERE p.is_test = 0 AND p.status_id IN (7, 9) AND e.start_date >= :since",
+         WHERE p.is_test = 0 AND p.status_id IN (7, 9, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") AND e.start_date >= :since",
         [':type' => $type, ':since' => $since->format('Y-m-d H:i:s')]
       )->fetchField();
     }
@@ -1330,7 +1331,7 @@ class EducationConsoleController extends ControllerBase {
            AND e.is_active = 1 AND e.event_type_id = :type
          LEFT JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id
          LEFT JOIN {node_field_data} n ON n.nid = pc.field_parent_course_target_id
-         WHERE p.is_test = 0 AND p.status_id IN (7, 9) AND e.start_date >= :since
+         WHERE p.is_test = 0 AND p.status_id IN (7, 9, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") AND e.start_date >= :since
          GROUP BY n.nid, CASE WHEN n.nid IS NULL THEN e.title END, COALESCE(n.title, e.title)
          ORDER BY waiting DESC
          LIMIT 8",

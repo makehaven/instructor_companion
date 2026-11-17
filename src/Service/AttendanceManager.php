@@ -43,6 +43,8 @@ class AttendanceManager {
     'Awaiting approval',
     'Pending from waitlist',
     'Pending from approval',
+    // The waiting list in a class's last days (WaitlistOpenSeats).
+    WaitlistManager::ALERT_STATUS_NAME,
   ];
 
   /**

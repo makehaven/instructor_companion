@@ -108,7 +108,7 @@ class TeachingPipeline {
       INNER JOIN {civicrm_event} e ON e.id = p.event_id AND e.is_template = 0 AND e.is_active = 1
       INNER JOIN {civicrm_event__field_civi_event_area_interest} a ON a.entity_id = e.id AND a.deleted = 0
       LEFT JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id AND pc.deleted = 0
-      WHERE p.is_test = 0 AND p.status_id IN (7, 9, 12) AND e.start_date >= :year AND e.event_type_id IN (:types[])
+      WHERE p.is_test = 0 AND p.status_id IN (7, 9, 12, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") AND e.start_date >= :year AND e.event_type_id IN (:types[])
         AND NOT EXISTS (
           SELECT 1 FROM {civicrm_participant} p2
           INNER JOIN {civicrm_event} e2 ON e2.id = p2.event_id

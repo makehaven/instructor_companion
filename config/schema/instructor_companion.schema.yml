@@ -152,6 +152,9 @@ instructor_companion.settings:
     waitlist_offer_hours:
       type: integer
       label: 'Hours an unpaid waitlist offer stays open (0 = leave events alone)'
+    waitlist_open_seat_hours:
+      type: integer
+      label: 'Hours before a class when held seats stop: freed seats are open to anyone and the waiting list is emailed (0 = off)'
     cloned_reminder_titles:
       type: sequence
       label: 'Per-event reminder titles switched off after a CiviCRM copy'

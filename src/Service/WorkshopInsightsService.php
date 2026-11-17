@@ -80,7 +80,7 @@ class WorkshopInsightsService {
              (SELECT COUNT(*) FROM {civicrm_event__field_civi_event_sessions} s WHERE s.entity_id = e.id AND s.deleted = 0) AS sessions,
              SUM(CASE WHEN p.status_id IN (1, 2, 14, 15) AND $role_like THEN 1 ELSE 0 END) AS sold,
              SUM(CASE WHEN p.status_id = 5 THEN 1 ELSE 0 END) AS pay_later,
-             SUM(CASE WHEN p.status_id = 7 THEN 1 ELSE 0 END) AS waiting,
+             SUM(CASE WHEN p.status_id IN (7, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") THEN 1 ELSE 0 END) AS waiting,
              SUM(CASE WHEN p.status_id = 9 THEN 1 ELSE 0 END) AS offered,
              SUM(CASE WHEN p.status_id = 6 AND p.register_date >= :recent THEN 1 ELSE 0 END) AS abandoned
       FROM {civicrm_event} e
@@ -204,7 +204,7 @@ class WorkshopInsightsService {
       INNER JOIN {civicrm_event} e ON e.id = p.event_id AND e.is_template = 0 AND e.is_active = 1
       LEFT JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id AND pc.deleted = 0
       LEFT JOIN {node_field_data} n ON n.nid = pc.field_parent_course_target_id
-      WHERE p.is_test = 0 AND p.status_id IN (7, 9, 12) AND e.start_date BETWEEN :since AND :now
+      WHERE p.is_test = 0 AND p.status_id IN (7, 9, 12, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") AND e.start_date BETWEEN :since AND :now
         " . ($types ? 'AND e.event_type_id IN (:types[])' : '') . "
       GROUP BY n.nid, COALESCE(n.title, e.title)
       ORDER BY waiting DESC
@@ -267,7 +267,7 @@ class WorkshopInsightsService {
       INNER JOIN {civicrm_event} e ON e.id = p.event_id AND e.is_template = 0 AND e.is_active = 1
       INNER JOIN {civicrm_event__field_parent_course} pc ON pc.entity_id = e.id AND pc.deleted = 0
       WHERE pc.field_parent_course_target_id IN (:nids[])
-        AND p.is_test = 0 AND p.status_id IN (7, 9, 12) AND e.start_date >= :year
+        AND p.is_test = 0 AND p.status_id IN (7, 9, 12, " . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . ") AND e.start_date >= :year
         AND NOT EXISTS (
           SELECT 1 FROM {civicrm_participant} p2
           INNER JOIN {civicrm_event} e2 ON e2.id = p2.event_id

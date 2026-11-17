@@ -131,7 +131,7 @@ final class CourseFollowerNotifier {
     $q->addField('c', 'display_name', 'display_name');
     $q->condition('pc.field_parent_course_target_id', $course_nid)
       ->condition('p.is_test', 0)
-      ->condition('p.status_id', [7, 9, 12], 'IN')
+      ->condition('p.status_id', array_values(array_filter([7, 9, 12, WaitlistManager::alertStatusIdFor($this->database)])), 'IN')
       ->condition('e.is_template', 0)
       ->condition('e.is_active', 1)
       ->condition('c.is_deleted', 0)
