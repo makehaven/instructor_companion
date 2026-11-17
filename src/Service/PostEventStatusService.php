@@ -67,6 +67,14 @@ class PostEventStatusService {
   protected const CLOSED_BY_STAFF_STATE_KEY = 'instructor_companion.closeout_closed_by_staff';
 
   /**
+   * Low-rated evaluations staff have opened, keyed by submission id.
+   *
+   * Each entry: uid, time. Opening one from the console takes it off
+   * "Evaluations to read" for everyone (Ashley, feedback sid 21116).
+   */
+  protected const EVALUATIONS_READ_STATE_KEY = 'instructor_companion.low_rated_evaluations_read';
+
+  /**
    * The participant-facing Event Feedback webform (survey link in reminders).
    */
   public const EVALUATION_WEBFORM = 'webform_1181';
@@ -146,6 +154,20 @@ class PostEventStatusService {
       'reason' => $reason,
     ];
     $this->state->set(self::CLOSED_BY_STAFF_STATE_KEY, $map);
+  }
+
+  /**
+   * Records that staff have read a low-rated evaluation.
+   *
+   * Entries older than the list's own window are dropped on write, so the
+   * map stays the size of one 90-day list.
+   */
+  public function markEvaluationRead(int $sid, int $uid): void {
+    $now = \Drupal::time()->getRequestTime();
+    $map = (array) $this->state->get(self::EVALUATIONS_READ_STATE_KEY, []);
+    $map = array_filter($map, fn($e) => ($e['time'] ?? 0) > $now - 120 * 86400);
+    $map[$sid] = ['uid' => $uid, 'time' => $now];
+    $this->state->set(self::EVALUATIONS_READ_STATE_KEY, $map);
   }
 
   /**
@@ -642,6 +664,10 @@ class PostEventStatusService {
     $q->condition('ws.created', $since, '>=');
     // 0 is "not answered", so the floor is 1.
     $q->condition('sat.value', [1, self::LOW_RATING], 'BETWEEN');
+    $read = array_keys((array) $this->state->get(self::EVALUATIONS_READ_STATE_KEY, []));
+    if ($read) {
+      $q->condition('ws.sid', $read, 'NOT IN');
+    }
     $q->orderBy('ws.created', 'DESC');
     $q->range(0, $limit);
 

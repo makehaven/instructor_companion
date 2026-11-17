@@ -318,6 +318,17 @@ instructor_companion.closeout_remind:
   options:
     _admin_route: TRUE
 
+instructor_companion.evaluation_read:
+  path: '/admin/education/evaluation/{sid}/read'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\EducationConsoleController::readEvaluation'
+  requirements:
+    _permission: 'access education console'
+    _csrf_token: 'TRUE'
+    sid: \d+
+  options:
+    _admin_route: TRUE
+
 instructor_companion.older_closeout:
   path: '/admin/education/closeout/older'
   defaults:

@@ -349,10 +349,8 @@ class EducationConsoleController extends ControllerBase {
           'data' => [
             '#type' => 'link',
             '#title' => $this->t('Read the response'),
-            '#url' => Url::fromRoute('entity.webform_submission.canonical', [
-              'webform' => PostEventStatusService::EVALUATION_WEBFORM,
-              'webform_submission' => $row['sid'],
-            ]),
+            // Opening it is what clears it from this list (feedback 21116).
+            '#url' => Url::fromRoute('instructor_companion.evaluation_read', ['sid' => $row['sid']]),
           ],
         ],
       ];
@@ -367,7 +365,8 @@ class EducationConsoleController extends ControllerBase {
           'Attendees who rated a class @n out of 5 or lower in the last 90 days.
            Volume is low enough that a per-class average means little, but a
            single low score with a comment usually says something real. Nobody
-           is emailed about these — reading them is the whole mechanism.',
+           is emailed about these — reading them is the whole mechanism.
+           Opening a response takes it off this list.',
           ['@n' => PostEventStatusService::LOW_RATING]
         ) . '</p>',
       ],
@@ -389,6 +388,22 @@ class EducationConsoleController extends ControllerBase {
         '#url' => Url::fromRoute('entity.webform.results_submissions', ['webform' => PostEventStatusService::EVALUATION_WEBFORM]),
       ],
     ];
+  }
+
+  /**
+   * Staff action: open a low-rated evaluation and mark it read.
+   */
+  public function readEvaluation(int $sid): RedirectResponse {
+    $submission = $this->entityTypeManager()->getStorage('webform_submission')->load($sid);
+    if (!$submission || $submission->getWebform()->id() !== PostEventStatusService::EVALUATION_WEBFORM) {
+      $this->messenger()->addWarning($this->t('That evaluation no longer exists.'));
+      return $this->redirect('instructor_companion.education_console');
+    }
+    $this->postEventStatus->markEvaluationRead($sid, (int) $this->currentUser()->id());
+    return $this->redirect('entity.webform_submission.canonical', [
+      'webform' => PostEventStatusService::EVALUATION_WEBFORM,
+      'webform_submission' => $sid,
+    ]);
   }
 
   /**
