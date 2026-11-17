@@ -185,6 +185,7 @@ class InstructorRosterController extends ControllerBase {
       $this->t('Last taught'),
       $this->t('Upcoming'),
       $this->t('Agreement'),
+      $this->t('Insurance'),
       $this->t('Actions'),
     ];
     $table_rows = [];
@@ -237,6 +238,7 @@ class InstructorRosterController extends ControllerBase {
           $r['last_taught'] ? $this->dateFormatter->format($r['last_taught'], 'custom', 'M j, Y') : '—',
           ['data' => $r['upcoming'] ?: '—', 'class' => ['education-roster__num']],
           $r['agreement'] ?: '—',
+          ['data' => $this->insuranceCell($r)],
           [
             'data' => [
               '#type' => 'operations',
@@ -297,6 +299,40 @@ class InstructorRosterController extends ControllerBase {
       ? $this->t('@name is now an active instructor: they can propose and teach, and appear on /instructors. They stay active for 12 months, and for as long as they keep teaching.', ['@name' => $name])
       : $this->t('@name is now inactive: no proposing or teaching, and hidden from /instructors. This holds until they next teach a class.', ['@name' => $name]));
     return new RedirectResponse(Url::fromRoute('instructor_companion.roster', [], ['query' => ['show' => $request->query->get('show', 'all')]])->toString());
+  }
+
+  /**
+   * Insurance column: certificate link plus expiry, flagged when past.
+   *
+   * Insurance is optional (Instructor Agreement section 7 only encourages
+   * it), so a blank cell is normal, not a gap.
+   */
+  protected function insuranceCell(array $r): array {
+    $expires = $r['insurance_expires'];
+    if (!$r['insurance_fid']) {
+      return ['#markup' => $expires ? $this->t('date only, no certificate') : '—'];
+    }
+    $file = $this->entityTypeManager()->getStorage('file')->load($r['insurance_fid']);
+    $cell = [];
+    if ($file) {
+      $cell['link'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Certificate'),
+        '#url' => Url::fromUri($file->createFileUrl(FALSE)),
+      ];
+    }
+    if ($expires === '') {
+      $cell['exp'] = ['#markup' => ' <small>' . $this->t('no end date') . '</small>'];
+    }
+    elseif ($expires < date('Y-m-d')) {
+      $cell['exp'] = [
+        '#markup' => ' <span class="education-roster__missing">' . $this->t('expired @d', ['@d' => $expires]) . '</span>',
+      ];
+    }
+    else {
+      $cell['exp'] = ['#markup' => ' <small>' . $this->t('to @d', ['@d' => $expires]) . '</small>'];
+    }
+    return $cell;
   }
 
   /**
@@ -361,6 +397,10 @@ class InstructorRosterController extends ControllerBase {
         'upcoming' => (int) ($s['upcoming'] ?? 0),
         'last_taught' => (int) ($s['last_class'] ?? 0),
         'agreement' => $agreement,
+        'insurance_fid' => $p->hasField('field_instructor_insurance') && !$p->get('field_instructor_insurance')->isEmpty()
+          ? (int) $p->get('field_instructor_insurance')->target_id : 0,
+        'insurance_expires' => $p->hasField('field_instructor_insurance_exp')
+          ? (string) $p->get('field_instructor_insurance_exp')->value : '',
       ];
     }
     usort($rows, static function ($a, $b) {
