@@ -687,7 +687,9 @@ function instructor_companion_mail($key, &$message, $params) {
 
     case 'post_event_reminder':
       $message['from'] = \Drupal::config('system.site')->get('mail');
-      $message['subject'] = t('A few wrap-up tasks left for @event', ['@event' => $params['event_label']]);
+      $message['subject'] = ((int) ($params['stage'] ?? 1)) > 1
+        ? t('Reminder: wrap-up still open for @event', ['@event' => $params['event_label']])
+        : t('A few wrap-up tasks left for @event', ['@event' => $params['event_label']]);
       $message['body'][] = t('Hi @name,', ['@name' => $params['instructor_name']]);
       $message['body'][] = t('Thanks for teaching @event! A couple of post-class tasks are still open:', [
         '@event' => $params['event_label'],
@@ -697,6 +699,12 @@ function instructor_companion_mail($key, &$message, $params) {
       }
       $message['body'][] = t('Knock them all out in one place here: @url', ['@url' => $params['hub_url']]);
       $message['body'][] = t('This includes taking attendance, approving badges, submitting feedback and the materials you need reordered, and requesting payment for your hours.');
+      if (!empty($params['payment_held'])) {
+        $message['body'][] = t('Your hours for this class are paid once attendance, badges and feedback are done. Until then they wait out of the pay run.');
+      }
+      if (!empty($params['badges_owed'])) {
+        $message['body'][] = t('Students cannot use the tool until you approve their badges.');
+      }
       $message['body'][] = t('Questions? Reply to this email or contact education@makehaven.org.');
       break;
   }
