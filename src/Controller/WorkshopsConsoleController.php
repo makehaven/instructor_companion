@@ -19,8 +19,9 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * The first sub-page of the education hub. It answers "which classes need a
  * decision this week" (behind pace, empty, waitlisted, offers unpaid, stalled
  * registrations, missing data) and "which courses should run again". It does
- * not replace /admin/workshops or the event audit — those stay up until this
- * page has proven itself.
+ * not replace the event audit. Since 2026-11-17 (JR) it replaces the upcoming
+ * runs table on /admin/workshops, which is now Course History (catalog and
+ * per-workshop runs only).
  */
 class WorkshopsConsoleController extends ControllerBase {
 
@@ -106,7 +107,7 @@ class WorkshopsConsoleController extends ControllerBase {
       '#title' => $this->t('The pages this one sits beside'),
       '#attributes' => ['class' => ['education-console__links']],
       '#items' => [
-        $this->link($this->t('Workshops dashboard (legacy)'), Url::fromUri('internal:/admin/workshops')),
+        $this->link($this->t('Course History (every workshop with all its runs, fill and revenue)'), Url::fromUri('internal:/admin/workshops')),
         $this->link($this->t('Event audit — upcoming (legacy)'), Url::fromUri('internal:/admin/event-audit/upcoming')),
         $this->link($this->t('Events pending incomplete (legacy)'), Url::fromUri('internal:/report/events/pendingincomplete')),
         $this->link($this->t('Manage events in CiviCRM'), $civi_events),

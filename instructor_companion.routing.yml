@@ -369,7 +369,7 @@ instructor_companion.workshops_console:
   path: '/admin/education/workshops'
   defaults:
     _controller: '\Drupal\instructor_companion\Controller\WorkshopsConsoleController::build'
-    _title: 'Workshops'
+    _title: 'Workshops Console'
   requirements:
     _permission: 'access education console'
   options:
