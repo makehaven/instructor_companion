@@ -70,6 +70,14 @@ function instructor_companion_cron() {
   // Waitlisted events made outside the CiviCRM copy path get the offer window
   // here, so an unpaid offer cannot hold a seat forever.
   \Drupal::service('instructor_companion.event_hygiene')->backfillWaitlistExpiry();
+  // The last three days before a class: no held seats; a freed seat is open
+  // to anyone and the waiting list is emailed (JR, 2026-11-17).
+  try {
+    \Drupal::service('instructor_companion.waitlist_open_seats')->run();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('instructor_companion')->error('Waitlist open-seat sweep failed: @m', ['@m' => $e->getMessage()]);
+  }
   // Once a day: active means taught a class in the last 12 months.
   try {
     \Drupal::service('instructor_companion.status_sync')->run();
@@ -633,6 +641,7 @@ function instructor_companion_mail($key, &$message, $params) {
       break;
 
     case 'course_follower_notice':
+    case 'waitlist_open_seat':
       $message['from'] = \Drupal::config('system.site')->get('mail');
       $message['subject'] = (string) $params['subject'];
       $message['body'][] = (string) $params['body'];

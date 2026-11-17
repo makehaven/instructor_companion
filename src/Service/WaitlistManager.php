@@ -27,6 +27,10 @@ use Psr\Log\LoggerInterface;
  *  - leave(): a signed link in our "another run is open" email lets the
  *    person take themselves off every waitlist for the course.
  *  - cancelParticipants(): staff removal from /admin/education/workshops.
+ *  - In the last days before a class (WaitlistOpenSeats) nobody holds a
+ *    seat: waiting entries move to the "Waitlist seat alerts" status, which
+ *    CiviCRM neither promotes nor treats as blocking, and go back to "On
+ *    waitlist" once the class is over.
  *  - removeStruckOut(): three "another run is open" emails that the person
  *    did not act on take them off the course's waiting list (JR, 2026-11-10).
  *    A strike is an email we sent, not a run that happened, so a course that
@@ -48,6 +52,20 @@ class WaitlistManager {
   public const COUNTED_STATUSES = [1, 2, 5, 14, 15];
 
   /**
+   * Name of the status used in a class's last days (update 9024).
+   *
+   * Its id differs per site, so look it up with alertStatusId().
+   */
+  public const ALERT_STATUS_NAME = 'Waitlist seat alerts';
+
+  /**
+   * Resolved alert status ids, per connection.
+   *
+   * @var array<string, int>
+   */
+  protected static array $alertIds = [];
+
+  /**
    * "Another run is open" emails a person gets per course before removal.
    */
   public const NOTICE_LIMIT = 3;
@@ -60,6 +78,52 @@ class WaitlistManager {
     protected TimeInterface $time,
     protected PrivateKey $privateKey,
   ) {}
+
+  /**
+   * Id of the last-days waiting status, or 0 before update 9024 has run.
+   *
+   * 0 is safe to put in an IN () list: no participant has status 0.
+   */
+  public static function alertStatusIdFor(Connection $database): int {
+    $key = spl_object_hash($database);
+    if (!isset(self::$alertIds[$key])) {
+      $id = 0;
+      try {
+        if ($database->schema()->tableExists('civicrm_participant_status_type')) {
+          $id = (int) $database->select('civicrm_participant_status_type', 's')
+            ->fields('s', ['id'])
+            ->condition('s.name', self::ALERT_STATUS_NAME)
+            ->execute()->fetchField();
+        }
+      }
+      catch (\Throwable $e) {
+        $id = 0;
+      }
+      if (!$id) {
+        // Not cached, so the status is found as soon as the update creates it.
+        return 0;
+      }
+      self::$alertIds[$key] = $id;
+    }
+    return self::$alertIds[$key];
+  }
+
+  /**
+   * Id of the last-days waiting status on this site, or 0.
+   */
+  public function alertStatusId(): int {
+    return self::alertStatusIdFor($this->database);
+  }
+
+  /**
+   * Statuses of someone still waiting for a seat on a date (not expired).
+   *
+   * @return int[]
+   *   On waitlist, Pending from waitlist and, when it exists, seat alerts.
+   */
+  public function waitingStatusIds(): array {
+    return array_values(array_filter([self::STATUS_WAITLIST, self::STATUS_OFFERED, $this->alertStatusId()]));
+  }
 
   /**
    * The course an event belongs to, or NULL.
@@ -97,12 +161,10 @@ class WaitlistManager {
     $q->addField('em', 'email', 'email');
     $q->condition('p.event_id', $event_id)
       ->condition('p.is_test', 0)
-      ->condition('p.status_id', [
-        self::STATUS_WAITLIST,
-        self::STATUS_OFFERED,
+      ->condition('p.status_id', array_merge($this->waitingStatusIds(), [
         self::STATUS_EXPIRED,
         self::STATUS_CANCELLED,
-      ], 'IN')
+      ]), 'IN')
       ->orderBy('p.register_date');
     $out = [];
     foreach ($q->execute() as $r) {
@@ -115,6 +177,7 @@ class WaitlistManager {
         'status' => (string) $r->status,
         'registered' => strtotime((string) $r->registered) ?: 0,
         'offered' => (int) $r->status_id === self::STATUS_OFFERED,
+        'alert' => $this->alertStatusId() > 0 && (int) $r->status_id === $this->alertStatusId(),
       ];
     }
     return $out;
@@ -123,10 +186,23 @@ class WaitlistManager {
   /**
    * A contact's live waitlist entries (waiting or offered) across a course.
    *
+   * @param int $contact_id
+   *   The person.
+   * @param int $course_nid
+   *   The course.
+   * @param int|null $except_event
+   *   An event to leave out, usually the one they just got a seat on.
+   * @param array|null $statuses
+   *   NULL means everyone still waiting: waitingStatusIds().
+   *
    * @return int[]
    *   Participant ids.
    */
-  public function activeWaitlistIds(int $contact_id, int $course_nid, ?int $except_event = NULL, array $statuses = [self::STATUS_WAITLIST, self::STATUS_OFFERED]): array {
+  public function activeWaitlistIds(int $contact_id, int $course_nid, ?int $except_event = NULL, ?array $statuses = NULL): array {
+    $statuses = array_values(array_filter($statuses ?? $this->waitingStatusIds()));
+    if (!$statuses) {
+      return [];
+    }
     $q = $this->database->select('civicrm_participant', 'p');
     $q->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
     $q->innerJoin('civicrm_event__field_parent_course', 'pc', 'pc.entity_id = e.id AND pc.deleted = 0');
@@ -210,7 +286,7 @@ class WaitlistManager {
    */
   public function leave(int $contact_id, int $course_nid): int {
     // Expired offers too: they still put the person in the notice audience.
-    $ids = $this->activeWaitlistIds($contact_id, $course_nid, NULL, [self::STATUS_WAITLIST, self::STATUS_OFFERED, self::STATUS_EXPIRED]);
+    $ids = $this->activeWaitlistIds($contact_id, $course_nid, NULL, array_merge($this->waitingStatusIds(), [self::STATUS_EXPIRED]));
     return $ids ? $this->cancelParticipants($ids, "contact $contact_id left the waitlist for course $course_nid by email link") : 0;
   }
 
@@ -272,7 +348,7 @@ class WaitlistManager {
     $q->addExpression('MAX(p.register_date)');
     $q->condition('p.contact_id', $contact_id)
       ->condition('p.is_test', 0)
-      ->condition('p.status_id', [self::STATUS_WAITLIST, self::STATUS_OFFERED, self::STATUS_EXPIRED], 'IN')
+      ->condition('p.status_id', array_merge($this->waitingStatusIds(), [self::STATUS_EXPIRED]), 'IN')
       ->condition('pc.field_parent_course_target_id', $course_nid);
     $joined = strtotime((string) $q->execute()->fetchField()) ?: 0;
     return (int) $this->database->select(self::LOG_TABLE, 'l')

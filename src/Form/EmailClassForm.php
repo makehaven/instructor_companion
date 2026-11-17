@@ -46,6 +46,7 @@ class EmailClassForm extends FormBase {
     'Awaiting approval',
     'Pending from waitlist',
     'Pending from approval',
+    \Drupal\instructor_companion\Service\WaitlistManager::ALERT_STATUS_NAME,
   ];
 
   public function __construct(

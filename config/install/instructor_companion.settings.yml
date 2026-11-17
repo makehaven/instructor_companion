@@ -156,6 +156,7 @@ preclass_week_body: ''
 preclass_soon_subject: ''
 preclass_soon_body: ''
 waitlist_offer_hours: 24
+waitlist_open_seat_hours: 72
 cloned_reminder_titles:
   - '3 days Later Reminder'
   - 'Thanks for attending'

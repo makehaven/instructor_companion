@@ -423,6 +423,34 @@ function instructor_companion_sessions_presubmit(array &$form, FormStateInterfac
 }
 
 /**
+ * Runs the last-days waitlist sweep for an event once the request is done.
+ *
+ * Not inside the CiviCRM post-commit callback: that runs while the
+ * transaction object is destroyed, where PHP cannot switch fibers, and
+ * rendering the email needs to ("Cannot switch fibers in current execution
+ * context"). A shutdown function also keeps the email off the page load of
+ * whoever cancelled.
+ */
+function _instructor_companion_open_seat_sweep_later(int $event_id): void {
+  static $events = NULL;
+  if ($events === NULL) {
+    $events = [];
+    drupal_register_shutdown_function(static function () use (&$events) {
+      foreach (array_keys($events) as $id) {
+        try {
+          \Drupal::service('instructor_companion.waitlist_open_seats')->sweepEvent((int) $id);
+        }
+        catch (\Throwable $e) {
+          \Drupal::logger('instructor_companion')->error('Open-seat sweep for event @e failed: @m', ['@e' => $id, '@m' => $e->getMessage()]);
+        }
+      }
+      $events = [];
+    });
+  }
+  $events[$event_id] = TRUE;
+}
+
+/**
  * A participant got a counted seat: drop their other waitlists for the course.
  *
  * Runs after CiviCRM's commit so the row is visible on Drupal's connection.
@@ -450,10 +478,12 @@ function _instructor_companion_participant_post(int $participant_id, $objectRef)
       // CiviCRM sends the evaluation as session one ends; hold it now for a
       // multi-session class rather than waiting for the hourly Drupal cron.
       \Drupal::service('instructor_companion.session_evaluation')->holdEvent($event);
-      if (!in_array($status, \Drupal\instructor_companion\Service\WaitlistManager::COUNTED_STATUSES, TRUE)) {
-        return;
+      if (in_array($status, \Drupal\instructor_companion\Service\WaitlistManager::COUNTED_STATUSES, TRUE)) {
+        \Drupal::service('instructor_companion.waitlist')->onCountedRegistration($contact, $event);
       }
-      \Drupal::service('instructor_companion.waitlist')->onCountedRegistration($contact, $event);
+      // In a class's last days a cancellation opens a seat to anyone and the
+      // waiting list hears now, not at the next cron run.
+      _instructor_companion_open_seat_sweep_later($event);
     }
     catch (\Throwable $e) {
       \Drupal::logger('instructor_companion')->error('Waitlist tidy for participant @p failed: @m', [

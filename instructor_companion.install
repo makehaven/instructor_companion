@@ -836,3 +836,42 @@ function instructor_companion_update_9023(&$sandbox) {
     return sprintf('Waitlist backlog: %d of %d old entr(ies) cancelled.', $sandbox['done'], $sandbox['total']);
   }
 }
+
+/**
+ * Adds the "Waitlist seat alerts" participant status and its 72 h setting.
+ *
+ * In the last three days before a class nobody holds a seat (JR,
+ * 2026-11-17): waiting entries move to this status, which CiviCRM neither
+ * promotes nor counts as making the event full, and their owners are emailed
+ * when a seat opens. See WaitlistOpenSeats. Cron does the moving; this only
+ * creates the status.
+ */
+function instructor_companion_update_9024() {
+  $config = \Drupal::configFactory()->getEditable('instructor_companion.settings');
+  if ($config->get('waitlist_open_seat_hours') === NULL) {
+    $config->set('waitlist_open_seat_hours', 72)->save();
+  }
+  \Drupal::service('civicrm')->initialize();
+  $existing = \Civi\Api4\ParticipantStatusType::get(FALSE)
+    ->addWhere('name', '=', \Drupal\instructor_companion\Service\WaitlistManager::ALERT_STATUS_NAME)
+    ->execute()->first();
+  if ($existing) {
+    return sprintf('Participant status "%s" already exists (id %d).', $existing['name'], $existing['id']);
+  }
+  $weight = (int) \CRM_Core_DAO::singleValueQuery('SELECT MAX(weight) FROM civicrm_participant_status_type') + 1;
+  $created = \Civi\Api4\ParticipantStatusType::create(FALSE)
+    ->addValue('name', \Drupal\instructor_companion\Service\WaitlistManager::ALERT_STATUS_NAME)
+    ->addValue('label', 'On waitlist (told when a seat opens)')
+    ->addValue('class', 'Waiting')
+    ->addValue('is_reserved', TRUE)
+    ->addValue('is_active', TRUE)
+    ->addValue('is_counted', FALSE)
+    ->addValue('weight', $weight)
+    ->addValue('visibility_id', 2)
+    ->execute()->first();
+  // CiviCRM caches its status list; without this the new status reads as
+  // "not a valid option" until the next full CiviCRM cache clear.
+  \CRM_Core_PseudoConstant::flush();
+  \Civi::cache('metadata')->clear();
+  return sprintf('Participant status "%s" created (id %d).', \Drupal\instructor_companion\Service\WaitlistManager::ALERT_STATUS_NAME, $created['id']);
+}

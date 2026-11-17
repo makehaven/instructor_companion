@@ -191,7 +191,7 @@ class AbandonedRegistrationService {
     $q->condition($or);
     // Sold seats and whether this contact registered properly since.
     $q->addExpression('(SELECT COUNT(*) FROM {civicrm_participant} s WHERE s.event_id = e.id AND s.is_test = 0 AND s.status_id IN (1, 2, 5, 14, 15))', 'sold');
-    $q->addExpression('(SELECT COUNT(*) FROM {civicrm_participant} s2 WHERE s2.event_id = e.id AND s2.contact_id = p.contact_id AND s2.status_id IN (1, 2, 5, 7, 9, 14, 15))', 'registered_since');
+    $q->addExpression('(SELECT COUNT(*) FROM {civicrm_participant} s2 WHERE s2.event_id = e.id AND s2.contact_id = p.contact_id AND s2.status_id IN (1, 2, 5, 7, 9, 14, 15, ' . \Drupal\instructor_companion\Service\WaitlistManager::alertStatusIdFor($this->database) . '))', 'registered_since');
     $q->orderBy('p.register_date');
 
     $out = [];

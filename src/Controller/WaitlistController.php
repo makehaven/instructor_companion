@@ -67,10 +67,13 @@ class WaitlistController extends ControllerBase {
     $rows = [];
     $removed = $this->waitlist->removalNotes(array_column($entries, 'participant_id'));
     foreach ($entries as $e) {
-      $live = in_array($e['status_id'], [WaitlistManager::STATUS_WAITLIST, WaitlistManager::STATUS_OFFERED], TRUE);
+      $live = in_array($e['status_id'], $this->waitlist->waitingStatusIds(), TRUE);
       $state = $e['status'];
       if ($e['offered']) {
         $state = $this->t('Offered a seat, not yet paid');
+      }
+      elseif (!empty($e['alert'])) {
+        $state = $this->t('Waiting; class is in its last days, so seats are open to anyone and this person is emailed when one opens');
       }
       elseif ($e['status_id'] === WaitlistManager::STATUS_CANCELLED && isset($removed[$e['participant_id']])) {
         $note = $removed[$e['participant_id']];
@@ -116,7 +119,7 @@ class WaitlistController extends ControllerBase {
             '@when' => $this->dateFormatter->format(strtotime($event['start_date']) ?: 0, 'custom', 'D j M Y, g:i a'),
             '@sold' => $sold,
             '@cap' => (int) $event['max_participants'] ?: '∞',
-            '@n' => count(array_filter($entries, fn($e) => in_array($e['status_id'], [7, 9], TRUE))),
+            '@n' => count(array_filter($entries, fn($e) => in_array($e['status_id'], $this->waitlist->waitingStatusIds(), TRUE))),
             '@window' => $window
               ? $this->t('An unpaid offer expires after @h hours and the seat goes to the next person.', ['@h' => $window])
               : $this->t('No offer window on this event: an unpaid offer holds the seat until someone acts (the nightly cron will set @h h).', ['@h' => $this->hygiene->waitlistOfferHours()]),
@@ -168,7 +171,7 @@ class WaitlistController extends ControllerBase {
   public function remove(int $event_id, int $participant, Request $request): RedirectResponse {
     $entries = array_filter(
       $this->waitlist->entriesForEvent($event_id),
-      fn($e) => $e['participant_id'] === $participant && in_array($e['status_id'], [7, 9], TRUE)
+      fn($e) => $e['participant_id'] === $participant && in_array($e['status_id'], $this->waitlist->waitingStatusIds(), TRUE)
     );
     if (!$entries) {
       $this->messenger()->addWarning($this->t('That entry is no longer on the waitlist.'));
