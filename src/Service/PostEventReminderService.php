@@ -11,9 +11,11 @@ use Drupal\Core\Url;
 use Psr\Log\LoggerInterface;
 
 /**
- * Sends the post-class wrap-up reminder when tasks remain ~48h after class.
+ * Sends the post-class wrap-up reminder while tasks remain after class.
  *
- * Only fires when something is still outstanding.
+ * Three sends: 2, 7 and 14 days after the class is over, each only when
+ * something is still outstanding (JR 2026-11-17: a single email at 48h left
+ * most classes with badges and feedback undone for months).
  * Deliberately a custom Drupal cron pass, NOT a CiviCRM scheduled reminder:
  * CiviCRM's action_schedule is exactly the surface with an open duplicate-
  * reminder bug, and an admin-UI reminder can't ask PostEventStatusService
@@ -23,22 +25,30 @@ use Psr\Log\LoggerInterface;
 class PostEventReminderService {
 
   /**
-   * State key: map of event_id => ['t' => unix_ts, 'sent' => bool].
+   * State key: map of event_id => ['t' => unix_ts, 'sent' => bool, 'n' => int].
+   *
+   * 'n' = reminder stages handled. Records from before the repeats have no
+   * 'n' and count as stage 1 handled.
    */
   protected const SENT_STATE_KEY = 'instructor_companion.post_event_reminder_sent';
 
   /**
-   * Reminder fires once the class has been over this long.
+   * Reminder stages: hours after the class is over.
+   */
+  public const STAGE_HOURS = [48, 168, 336];
+
+  /**
+   * First reminder fires once the class has been over this long.
    */
   protected const MIN_HOURS = 48;
 
   /**
-   * Upper edge of the look-back window.
+   * Upper edge of the look-back window: the last stage plus a day.
    *
    * Wider than the cron interval so a skipped cron still catches the event;
-   * the sent-once guard prevents dupes.
+   * the per-stage record prevents dupes.
    */
-  protected const MAX_HOURS = 72;
+  protected const MAX_HOURS = 360;
 
   /**
    * Drop processed-event records older than this so state stays small.
@@ -94,11 +104,17 @@ class PostEventReminderService {
       $row = (object) $row;
       $event_id = (int) $row->event_id;
       $uid = (int) $row->uid;
-      if (isset($sent[$event_id]) || !$uid) {
+      if (!$uid) {
+        continue;
+      }
+      $handled = isset($sent[$event_id]) ? (int) ($sent[$event_id]['n'] ?? 1) : 0;
+      $due = self::dueStage((string) ($row->ended ?? ''), $now);
+      if ($due <= $handled) {
         continue;
       }
       // Mark processed up-front so a mid-loop failure can't cause a resend.
-      $sent[$event_id] = ['t' => $now, 'sent' => FALSE];
+      // A class found late (cron down a week) gets one email, not several.
+      $sent[$event_id] = ['t' => $now, 'sent' => FALSE, 'n' => $due];
 
       // Skip dead/empty classes — nagging about a 0-attendee event is noise.
       if (!$this->hasCountedParticipants($event_id)) {
@@ -110,7 +126,7 @@ class PostEventReminderService {
         continue;
       }
 
-      if ($this->sendReminder($event_id, $uid, $status)) {
+      if ($this->sendReminder($event_id, $uid, $status, $due)) {
         $sent[$event_id]['sent'] = TRUE;
         $processed++;
       }
@@ -133,6 +149,31 @@ class PostEventReminderService {
       date('Y-m-d H:i:s', $now - self::MAX_HOURS * 3600),
       date('Y-m-d H:i:s', $now - self::MIN_HOURS * 3600),
     ];
+  }
+
+  /**
+   * How many reminder stages are due for a class that ended at $ended.
+   *
+   * Pure, unit tested. 0 = none yet (or unknown end).
+   *
+   * @param string $ended
+   *   Local 'Y-m-d H:i:s' end of the last session.
+   * @param int $now
+   *   Unix time.
+   */
+  public static function dueStage(string $ended, int $now): int {
+    $end = $ended !== '' ? strtotime($ended) : FALSE;
+    if ($end === FALSE) {
+      return 0;
+    }
+    $hours = ($now - $end) / 3600;
+    $n = 0;
+    foreach (self::STAGE_HOURS as $stage) {
+      if ($hours >= $stage) {
+        $n++;
+      }
+    }
+    return $n;
   }
 
   /**
@@ -182,11 +223,14 @@ class PostEventReminderService {
     if ($status['all_complete']) {
       return FALSE;
     }
-    if (!$this->sendReminder($event_id, $uid, $status)) {
+    if (!$this->sendReminder($event_id, $uid, $status, 1)) {
       return FALSE;
     }
+    // Keep the automatic stage count, so a staff nudge neither resets the
+    // 7- and 14-day reminders nor skips them.
     $sent = (array) $this->state->get(self::SENT_STATE_KEY, []);
-    $sent[$event_id] = ['t' => \Drupal::time()->getRequestTime(), 'sent' => TRUE];
+    $handled = isset($sent[$event_id]) ? (int) ($sent[$event_id]['n'] ?? 1) : 0;
+    $sent[$event_id] = ['t' => \Drupal::time()->getRequestTime(), 'sent' => TRUE, 'n' => $handled];
     $this->state->set(self::SENT_STATE_KEY, $sent);
     $this->logger->notice('Post-class reminder for event @id re-sent to uid @uid by staff.', [
       '@id' => $event_id,
@@ -198,7 +242,7 @@ class PostEventReminderService {
   /**
    * Sends the reminder email to the instructor.
    */
-  protected function sendReminder(int $event_id, int $uid, array $status): bool {
+  protected function sendReminder(int $event_id, int $uid, array $status, int $stage = 1): bool {
     $user = $this->entityTypeManager->getStorage('user')->load($uid);
     if (!$user || !$user->getEmail()) {
       return FALSE;
@@ -212,6 +256,11 @@ class PostEventReminderService {
       'instructor_name' => $user->getDisplayName(),
       'event_label' => $event->label(),
       'outstanding' => $status['incomplete_labels'],
+      'stage' => $stage,
+      // Hours are held out of the pay run until the wrap-up is done.
+      'payment_held' => $this->postEventStatus->paymentHoldEnabled()
+        && PostEventStatusService::wrapupStepsOwed($status) !== [],
+      'badges_owed' => in_array(PostEventStatusService::STEP_BADGES, (array) ($status['incomplete'] ?? []), TRUE),
       'hub_url' => Url::fromRoute('instructor_companion.post_event_hub',
         ['event_id' => $event_id], ['absolute' => TRUE])->toString(),
     ];

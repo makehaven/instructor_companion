@@ -221,10 +221,22 @@ class PostEventHubController extends ControllerBase {
       if ($pending) {
         $action['tip'] = [
           '#markup' => '<p class="peh-step-tip">'
-          . $this->t('You can request it now. Finishing steps 1 to 3 first helps us pay you sooner.')
+          . ($this->postEventStatus->paymentHoldEnabled()
+            ? $this->t('You can log them now. They are paid once steps 1 to 3 are done.')
+            : $this->t('You can request it now. Finishing steps 1 to 3 first helps us pay you sooner.'))
           . '</p>',
         ];
       }
+    }
+    // Hours already logged but held: say why they have not been paid.
+    elseif ($step['key'] === PostEventStatusService::STEP_PAYMENT
+      && $this->postEventStatus->paymentHoldEnabled()
+      && PostEventStatusService::wrapupStepsOwed($status) !== []) {
+      $action['tip'] = [
+        '#markup' => '<p class="peh-step-tip">'
+        . $this->t('Logged. Your hours are paid once steps 1 to 3 are done.')
+        . '</p>',
+      ];
     }
 
     return $action;

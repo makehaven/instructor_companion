@@ -44,6 +44,9 @@ instructor_companion.settings:
     invite_body:
       type: text
       label: 'Instructor agreement invite email body'
+    payment_hold_enabled:
+      type: boolean
+      label: 'Hold class hours out of the pay run until the wrap-up is done'
     closeout_event_types:
       type: sequence
       label: 'CiviCRM event types that owe post-class wrap-up'

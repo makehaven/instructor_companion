@@ -300,6 +300,12 @@ class SettingsForm extends ConfigFormBase {
         '#default_value' => \Drupal\instructor_companion\Service\PostEventStatusService::closeoutEventTypes(),
         '#description' => $this->t('Leave Meetup unticked — a meetup is hosted, not taught, so its host owes no badges or payment. Leave Program unticked too: a program is a multi-week cohort and its first session is not the end of anything. Unticking a type stops the console listing, the post-class reminder, the at-start attendance email and the dashboard\'s "Happening now" prompt.'),
       ];
+      $form['closeout']['payment_hold_enabled'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Pay class hours once the wrap-up is done'),
+        '#default_value' => (bool) $config->get('payment_hold_enabled'),
+        '#description' => $this->t('Hours logged for a finished class stay out of the 1st/15th pay run until attendance, badges and post-class feedback are done, or staff mark the class closed out. They are then paid on the next cron. Assistants who are not the event\'s instructor, and sessions of a class still running, are paid as usual. Tell instructors before switching this on.'),
+      ];
     }
 
     $followup_types = \Drupal\instructor_companion\Service\PostEventStatusService::eventTypeOptions();
@@ -536,6 +542,9 @@ class SettingsForm extends ConfigFormBase {
       ->set('session_evaluation_url', $form_state->hasValue('session_evaluation_url')
         ? trim((string) $form_state->getValue('session_evaluation_url'))
         : $this->config('instructor_companion.settings')->get('session_evaluation_url'))
+      ->set('payment_hold_enabled', $form_state->hasValue('payment_hold_enabled')
+        ? (bool) $form_state->getValue('payment_hold_enabled')
+        : (bool) $this->config('instructor_companion.settings')->get('payment_hold_enabled'))
       ->set('closeout_event_types', $form_state->hasValue('closeout_event_types')
         ? array_values(array_map('intval', array_filter((array) $form_state->getValue('closeout_event_types'))))
         : $this->config('instructor_companion.settings')->get('closeout_event_types'))

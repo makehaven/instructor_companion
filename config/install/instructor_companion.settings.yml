@@ -67,6 +67,7 @@ invite_body: |
   www.makehaven.org
 attendance_prompt_enabled: true
 attendance_prompt_offset_minutes: -15
+payment_hold_enabled: false
 closeout_event_types:
   - 6
   - 16

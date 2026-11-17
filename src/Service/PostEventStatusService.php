@@ -160,6 +160,90 @@ class PostEventStatusService {
   }
 
   /**
+   * Whether class hours wait for the wrap-up before they are paid.
+   *
+   * JR 2026-11-17, Ashley: most instructors logged hours and never approved
+   * badges or sent feedback, leaving students unable to use the tool. Off
+   * until instructors have been told.
+   */
+  public function paymentHoldEnabled(): bool {
+    return (bool) $this->configFactory->get('instructor_companion.settings')->get('payment_hold_enabled');
+  }
+
+  /**
+   * The wrap-up steps that must be done before hours are paid, still open.
+   *
+   * Pure, unit tested: everything outstanding except the payment step itself.
+   *
+   * @param array $status
+   *   A ::computeStatus() / ::getStatus() result.
+   *
+   * @return string[]
+   *   Untranslated labels of the open steps, in order.
+   */
+  public static function wrapupStepsOwed(array $status): array {
+    $owed = [];
+    foreach ((array) ($status['incomplete'] ?? []) as $key) {
+      if ($key !== self::STEP_PAYMENT) {
+        $owed[] = self::LABELS[$key] ?? $key;
+      }
+    }
+    return $owed;
+  }
+
+  /**
+   * Why an hourly payment request for a class is held, or NULL to pay it.
+   *
+   * Held only when the hold is on, the class is a type that owes wrap-up and
+   * someone attended, the payee is one of its instructors, its last session
+   * is over, staff have not marked it closed out, and attendance, badges or
+   * feedback are still open. An assistant who is not on the event's
+   * instructor field is never held for the instructor's steps, and a session
+   * of a class still running is paid as usual.
+   */
+  public function paymentHoldReason(int $event_id, int $payee_uid): ?string {
+    if (!$event_id || !$payee_uid || !$this->paymentHoldEnabled() || $this->closedByStaff($event_id)) {
+      return NULL;
+    }
+    try {
+      $q = $this->database->select('civicrm_event', 'e');
+      $q->innerJoin('civicrm_event__field_civi_event_instructor', 'i', 'e.id = i.entity_id AND i.deleted = 0');
+      $q->addField('e', 'event_type_id');
+      $q->condition('e.id', $event_id);
+      $q->condition('i.field_civi_event_instructor_target_id', $payee_uid);
+      $type = $q->range(0, 1)->execute()->fetchField();
+      if ($type === FALSE) {
+        return NULL;
+      }
+      $types = self::closeoutEventTypes();
+      if ($types && !in_array((int) $type, $types, TRUE)) {
+        return NULL;
+      }
+      $p = $this->database->select('civicrm_participant', 'p');
+      $p->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+      $p->condition('p.event_id', $event_id);
+      $p->condition('p.is_test', 0);
+      $p->condition('pst.is_counted', 1);
+      if (!(int) $p->countQuery()->execute()->fetchField()) {
+        return NULL;
+      }
+    }
+    catch (\Throwable $e) {
+      // Never hold pay on a lookup failure.
+      return NULL;
+    }
+    $end = $this->sessions()->effectiveEnd($event_id);
+    if ($end === NULL || $end > date('Y-m-d H:i:s', \Drupal::time()->getRequestTime())) {
+      return NULL;
+    }
+    $owed = self::wrapupStepsOwed($this->getStatus($event_id, $payee_uid));
+    if (!$owed) {
+      return NULL;
+    }
+    return sprintf('class wrap-up not finished for event %d (%s)', $event_id, implode(', ', $owed));
+  }
+
+  /**
    * Records that the instructor has confirmed attendance for an event.
    */
   public function confirmAttendance(int $event_id, int $uid, ?string $session_start = NULL): void {

@@ -166,4 +166,32 @@ class PostEventStatusTest extends UnitTestCase {
     $this->fail("Step '$key' not found in result.");
   }
 
+  /**
+   * Hours wait on every open step except the payment step itself.
+   *
+   * @covers \Drupal\instructor_companion\Service\PostEventStatusService::wrapupStepsOwed
+   */
+  public function testWrapupStepsOwed(): void {
+    $hours_only = PostEventStatusService::computeStatus([
+      'attendance_confirmed' => TRUE,
+      'badges_applicable' => TRUE,
+      'badges_total_pairs' => 3,
+      'badges_done_pairs' => 0,
+      'feedback_submitted' => FALSE,
+      'payment_done' => TRUE,
+    ]);
+    $this->assertSame(
+      ['Approve badges', 'Post-class feedback & materials'],
+      PostEventStatusService::wrapupStepsOwed($hours_only)
+    );
+
+    $only_payment_left = PostEventStatusService::computeStatus([
+      'attendance_confirmed' => TRUE,
+      'badges_applicable' => FALSE,
+      'feedback_submitted' => TRUE,
+      'payment_done' => FALSE,
+    ]);
+    $this->assertSame([], PostEventStatusService::wrapupStepsOwed($only_payment_left));
+  }
+
 }
