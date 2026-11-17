@@ -1054,7 +1054,11 @@ class EducationConsoleController extends ControllerBase {
     }
     $waitlist = $this->countWaitlisted($yearStart);
     $fill = $this->fillRate($ninetyAgo, $now);
+    // Shown and judged as the same whole percent: 69.8% read "70%" yet was
+    // coloured as missing the 70% goal (JR, feedback sid 21112).
+    $fill_pct = $fill === NULL ? NULL : (int) round($fill * 100);
     $evals = $this->evaluationResponseRate($ninetyAgo, $now);
+    $evals_pct = $evals === NULL ? NULL : (int) round($evals * 100);
 
     $pace = $sessions === NULL
       ? NULL
@@ -1093,17 +1097,17 @@ class EducationConsoleController extends ControllerBase {
         ),
         'fill' => $this->goalTile(
           $this->t('Workshop seats filled'),
-          $fill === NULL ? NULL : round($fill * 100) . '%',
+          $fill_pct === NULL ? NULL : $fill_pct . '%',
           $this->t('of capacity, Ticketed Workshops only (not meetups, programs or Build & Badge), last 90 days — goal @n%', ['@n' => round(self::FILL_RATE_GOAL * 100)]),
           Url::fromUserInput('/makerspace-dashboard/education'),
-          $fill === NULL ? NULL : ($fill >= self::FILL_RATE_GOAL ? 'clear' : 'attention')
+          $fill_pct === NULL ? NULL : ($fill_pct >= (int) round(self::FILL_RATE_GOAL * 100) ? 'clear' : 'attention')
         ),
         'evaluations' => $this->goalTile(
           $this->t('Workshop evaluations returned'),
-          $evals === NULL ? NULL : round($evals * 100) . '%',
+          $evals_pct === NULL ? NULL : $evals_pct . '%',
           $this->t('of seats, last 90 days — the only quality signal there is'),
           Url::fromUserInput('/makerspace-dashboard/education'),
-          $evals === NULL ? NULL : ($evals >= 0.20 ? 'clear' : 'attention')
+          $evals_pct === NULL ? NULL : ($evals_pct >= 20 ? 'clear' : 'attention')
         ),
         // "Workshop seats with no payment linked" was dropped from the strip
         // (Ashley, feedback 21018): they are instructors, transfers and staff
