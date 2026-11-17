@@ -266,6 +266,16 @@ class ScheduleInstanceController extends ControllerBase {
       );
     }
 
+    // Primary Staff Contact is required on the edit form. A first run has no
+    // earlier event to take it from, so the event could not be saved until
+    // someone noticed the empty field: the person scheduling it is the
+    // staff contact until they change it.
+    if ($event_entity->hasField('field_civi_event_staff_contact')
+      && $event_entity->get('field_civi_event_staff_contact')->isEmpty()
+      && $this->currentUser()->isAuthenticated()) {
+      $event_entity->set('field_civi_event_staff_contact', ['target_id' => $this->currentUser()->id()]);
+    }
+
     $event_entity->save();
   }
 
