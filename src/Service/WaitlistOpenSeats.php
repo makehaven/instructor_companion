@@ -331,23 +331,30 @@ final class WaitlistOpenSeats {
     $register_url = $this->notifier->baseUrl() . '/civicrm/event/register?reset=1&id=' . $event_id;
     $sent = 0;
     foreach ($this->recipients($event_id) as $r) {
-      $leave = $course ? $this->waitlist->leaveUrl($r['contact_id'], $course) : '';
-      $message = self::compose($r['name'], (string) $event->title, (string) $event->start_date, $open, $register_url, $leave);
+      // Logged first so the register link can name this one email.
+      $log_id = $this->logEmail($r['contact_id'], $course, $event_id, sprintf('%d open seat(s)', $open));
+      $link = $log_id ? $this->waitlist->clickUrl($log_id) : $register_url;
+      $leave = $course ? WaitlistManager::forceHttps($this->waitlist->leaveUrl($r['contact_id'], $course)) : '';
+      $message = self::compose($r['name'], (string) $event->title, (string) $event->start_date, $open, $link, $leave);
       $result = $this->mailManager->mail(
         'instructor_companion',
         self::MAIL_KEY,
         $r['email'],
         \Drupal::languageManager()->getDefaultLanguage()->getId(),
-        ['subject' => $message['subject'], 'body' => $message['body']],
+        [
+          'subject' => $message['subject'],
+          'body' => $message['body'],
+          'headers' => WaitlistManager::postmarkHeaders('seat_alert', $event_id, $log_id, $r['contact_id']),
+        ],
         NULL,
         TRUE
       );
       if (empty($result['result'])) {
+        $this->waitlist->forgetEmail($log_id);
         $this->logger->warning('Open-seat email to @mail about event @e did not send.', ['@mail' => $r['email'], '@e' => $event_id]);
         continue;
       }
       $sent++;
-      $this->log($r['contact_id'], $course, $event_id, sprintf('%d open seat(s)', $open));
     }
     $this->logger->notice('Waitlist: @n person(s) told that @s seat(s) opened on event @e "@t".', [
       '@n' => $sent,
@@ -359,25 +366,15 @@ final class WaitlistOpenSeats {
   }
 
   /**
-   * One log row per email (kind seat_alert; never a strike).
+   * One log row per email (kind seat_alert; never a strike). Returns its id.
    */
-  private function log(int $contact_id, int $course_nid, int $event_id, string $reason): void {
+  private function logEmail(int $contact_id, int $course_nid, int $event_id, string $reason): int {
     try {
-      if (!$this->database->schema()->tableExists(WaitlistManager::LOG_TABLE)) {
-        return;
-      }
-      $this->database->insert(WaitlistManager::LOG_TABLE)->fields([
-        'kind' => 'seat_alert',
-        'contact_id' => $contact_id,
-        'course_nid' => $course_nid,
-        'event_id' => $event_id,
-        'participant_id' => 0,
-        'reason' => $reason,
-        'created' => $this->time->getRequestTime(),
-      ])->execute();
+      return $this->waitlist->recordEmail('seat_alert', $contact_id, $course_nid, $event_id, $reason);
     }
     catch (\Throwable $e) {
       $this->logger->warning('Open-seat email not written to the log: @m', ['@m' => $e->getMessage()]);
+      return 0;
     }
   }
 

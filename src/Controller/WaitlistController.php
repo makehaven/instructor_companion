@@ -126,6 +126,7 @@ class WaitlistController extends ControllerBase {
           ]
         ) . '</p>',
       ],
+      'emails' => $this->emailResults($event_id),
       'how' => $this->howItWorks($course),
       'table' => [
         '#type' => 'table',
@@ -141,6 +142,51 @@ class WaitlistController extends ControllerBase {
       ],
     ];
     return $build;
+  }
+
+  /**
+   * What the waitlist emails about this date led to.
+   */
+  protected function emailResults(int $event_id): array {
+    $sends = $this->waitlist->emailResults($event_id);
+    if (!$sends) {
+      return [];
+    }
+    $labels = [
+      'notice' => $this->t('"Another date is open"'),
+      'seat_alert' => $this->t('"A seat just opened"'),
+    ];
+    $rows = [];
+    foreach ($sends as $send) {
+      $rows[] = [
+        'sent' => $this->dateFormatter->format($send['sent'], 'custom', 'D j M, g:i a'),
+        'kind' => $labels[$send['kind']] ?? $send['kind'],
+        'emails' => $send['emails'],
+        'clicked' => $send['tracked'] ? $send['clicked'] : $this->t('not tracked'),
+        'registered' => $send['registered'],
+        'left' => $send['left'],
+      ];
+    }
+    return [
+      '#type' => 'container',
+      'heading' => ['#markup' => '<h3>' . $this->t('Emails about this date') . '</h3>'],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          'sent' => $this->t('Sent'),
+          'kind' => $this->t('Email'),
+          'emails' => $this->t('People emailed'),
+          'clicked' => $this->t('Clicked to register'),
+          'registered' => $this->t('Then took a seat'),
+          'left' => $this->t('Then left the list'),
+        ],
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['education-console__table']],
+      ],
+      'note' => [
+        '#markup' => '<p class="education-console__age">' . $this->t('Clicks in the first two minutes after sending are left out: mail filters open every link on arrival. "Took a seat" counts anyone emailed who registered for this date afterwards, whether or not they used the link. Opens cannot be counted, because these emails are plain text.') . '</p>',
+      ],
+    ];
   }
 
   /**
@@ -187,6 +233,27 @@ class WaitlistController extends ControllerBase {
       }
     }
     return new RedirectResponse(Url::fromRoute('instructor_companion.waitlist_event', ['event_id' => $event_id])->toString());
+  }
+
+  /**
+   * Public: the tracked register link in a waitlist email.
+   *
+   * Counts the click and forwards to the class. The destination comes from
+   * the log row, not the URL. An unknown or tampered link goes to the events
+   * list rather than an error, since the person still wants a class.
+   */
+  public function click(int $log, string $hash): RedirectResponse {
+    try {
+      $dest = $this->waitlist->recordClick($log, $hash);
+    }
+    catch (\Throwable $e) {
+      $this->getLogger('instructor_companion')->warning('Waitlist click @id not recorded: @m', ['@id' => $log, '@m' => $e->getMessage()]);
+      $dest = NULL;
+    }
+    $response = new RedirectResponse(Url::fromUserInput($dest ?? '/events')->setAbsolute()->toString(), 302);
+    // Never cached by Drupal or the CDN: every click must reach this code.
+    $response->headers->set('Cache-Control', 'no-store, private');
+    return $response;
   }
 
   /**

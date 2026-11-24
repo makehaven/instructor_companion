@@ -203,6 +203,20 @@ page under **After the class**, and have a dry-run Drush command.
   of the same course who never got a later seat, with wording
   that says why they are hearing ("you were on the waiting list"). A waitlist is
   per event; the course is what runs again.
+- **What waitlist emails lead to (2026-11-24, update 9025).** Both waitlist
+  emails ("another date is open" and "a seat just opened") are logged *before*
+  sending, and their register link is `/waitlist/go/{log id}/{signature}`,
+  which counts the click on that row (`clicks`, `first_click`) and forwards to
+  the class. The destination comes from the row, never the URL. Clicks in the
+  first 120 s are treated as mail scanners (`WaitlistManager::SCANNER_SECONDS`).
+  Every email from this module carries a Postmark `X-PM-Tag`
+  (`instructor_companion-<key>`; the waitlist ones `waitlist-new-date` /
+  `waitlist-seat-alert`) plus `X-PM-Metadata-event/log/contact`, so Postmark's
+  dashboard can split delivery and clicks by kind. The class waitlist page
+  (`/admin/education/workshops/{event}/waitlist`) shows each send: emailed,
+  clicked, then took a seat on that date, then left the list. Opens are not
+  counted: the emails are plain text. Emails logged before the update show
+  clicks as "not tracked".
 - **Three notices, then off the list (2026-11-10).** There is no age limit on a
   waitlist entry: a course that rarely runs keeps its list for years. What ends
   it is `WaitlistManager::NOTICE_LIMIT` (3) "another run is open" emails the

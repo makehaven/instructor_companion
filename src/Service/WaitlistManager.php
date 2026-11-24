@@ -72,6 +72,30 @@ class WaitlistManager {
 
   public const LOG_TABLE = 'instructor_companion_waitlist_log';
 
+  /**
+   * State key: when click tracking started (update 9025).
+   *
+   * Emails logged before this have no click data, which is not the same as
+   * nobody clicking.
+   */
+  public const CLICK_TRACKING_SINCE = 'instructor_companion.waitlist_click_tracking_since';
+
+  /**
+   * Clicks this soon after sending are treated as mail scanners, not people.
+   *
+   * Corporate and school mail filters open every link on arrival. Postmark's
+   * own click count includes them.
+   */
+  public const SCANNER_SECONDS = 120;
+
+  /**
+   * Email kinds that carry a tracked link, with Postmark tags.
+   */
+  public const EMAIL_TAGS = [
+    'notice' => 'waitlist-new-date',
+    'seat_alert' => 'waitlist-seat-alert',
+  ];
+
   public function __construct(
     protected Connection $database,
     protected LoggerInterface $logger,
@@ -318,19 +342,38 @@ class WaitlistManager {
   /**
    * Notes that a person was emailed about a new run of a course.
    */
-  public function recordNotice(int $contact_id, int $course_nid, int $event_id): void {
+  public function recordNotice(int $contact_id, int $course_nid, int $event_id): int {
+    return $this->recordEmail('notice', $contact_id, $course_nid, $event_id);
+  }
+
+  /**
+   * Logs an email before it is sent, so its link can carry the row id.
+   *
+   * @return int
+   *   The log row id, or 0 when there is no log table.
+   */
+  public function recordEmail(string $kind, int $contact_id, int $course_nid, int $event_id, string $reason = ''): int {
     if (!$this->hasLog()) {
-      return;
+      return 0;
     }
-    $this->database->insert(self::LOG_TABLE)->fields([
-      'kind' => 'notice',
+    return (int) $this->database->insert(self::LOG_TABLE)->fields([
+      'kind' => $kind,
       'contact_id' => $contact_id,
       'course_nid' => $course_nid,
       'event_id' => $event_id,
       'participant_id' => 0,
-      'reason' => '',
+      'reason' => mb_substr($reason, 0, 255),
       'created' => $this->time->getRequestTime(),
     ])->execute();
+  }
+
+  /**
+   * Removes the row for an email that did not send.
+   */
+  public function forgetEmail(int $log_id): void {
+    if ($log_id && $this->hasLog()) {
+      $this->database->delete(self::LOG_TABLE)->condition('id', $log_id)->execute();
+    }
   }
 
   /**
@@ -547,6 +590,189 @@ class WaitlistManager {
       'course' => $course_nid,
       'hash' => $this->leaveHash($contact_id, $course_nid),
     ], ['absolute' => TRUE])->toString();
+  }
+
+  /**
+   * Signature for a tracked link. Pure given its secret; unit tested.
+   */
+  public static function computeClickHash(int $log_id, string $secret): string {
+    return Crypt::hmacBase64('waitlist-click:' . $log_id, $secret);
+  }
+
+  /**
+   * Absolute tracked link for one logged email.
+   *
+   * Always https: from cron there is no request, and Url::fromRoute() would
+   * otherwise produce http:// links.
+   */
+  public function clickUrl(int $log_id): string {
+    $url = Url::fromRoute('instructor_companion.waitlist_click', [
+      'log' => $log_id,
+      'hash' => self::computeClickHash($log_id, $this->secret()),
+    ], ['absolute' => TRUE])->toString();
+    return self::forceHttps($url);
+  }
+
+  /**
+   * Turns http:// into https://. Pure; unit tested.
+   */
+  public static function forceHttps(string $url): string {
+    return (string) preg_replace('#^http://#i', 'https://', $url);
+  }
+
+  /**
+   * Where a tracked link goes, by email kind. Pure; unit tested.
+   *
+   * Derived from the log row, never from the URL, so the link cannot be
+   * turned into an open redirect.
+   */
+  public static function clickDestination(string $kind, int $event_id): string {
+    return $kind === 'seat_alert'
+      ? '/civicrm/event/register?reset=1&id=' . $event_id
+      : '/civicrm/event/info?id=' . $event_id . '&reset=1';
+  }
+
+  /**
+   * Whether a click looks like a person rather than a mail scanner. Pure.
+   */
+  public static function isPersonClick(int $sent, int $clicked, int $scanner_seconds = self::SCANNER_SECONDS): bool {
+    return $clicked - $sent >= $scanner_seconds;
+  }
+
+  /**
+   * Records a click on a tracked link.
+   *
+   * @return string|null
+   *   Site-relative destination, or NULL when the link is not valid.
+   */
+  public function recordClick(int $log_id, string $hash): ?string {
+    if (!$this->hasLog() || !hash_equals(self::computeClickHash($log_id, $this->secret()), $hash)) {
+      return NULL;
+    }
+    $row = $this->database->select(self::LOG_TABLE, 'l')
+      ->fields('l', ['id', 'kind', 'event_id', 'created', 'first_click'])
+      ->condition('l.id', $log_id)
+      ->execute()->fetchObject();
+    if (!$row || !isset(self::EMAIL_TAGS[$row->kind])) {
+      return NULL;
+    }
+    $now = $this->time->getRequestTime();
+    $update = $this->database->update(self::LOG_TABLE)
+      ->expression('clicks', 'clicks + 1')
+      ->condition('id', $log_id);
+    if (!(int) $row->first_click && self::isPersonClick((int) $row->created, $now)) {
+      $update->fields(['first_click' => $now]);
+    }
+    $update->execute();
+    return self::clickDestination((string) $row->kind, (int) $row->event_id);
+  }
+
+  /**
+   * Waitlist emails about one class date, grouped into sends, with results.
+   *
+   * @return array<int, array>
+   *   Newest first. Each: kind, sent (timestamp of the first email), emails,
+   *   tracked (bool), clicked (people), registered (people who then took a
+   *   seat on this date), left (people who used the leave link afterwards).
+   */
+  public function emailResults(int $event_id): array {
+    if (!$this->hasLog() || !$this->database->schema()->fieldExists(self::LOG_TABLE, 'first_click')) {
+      return [];
+    }
+    $rows = $this->database->select(self::LOG_TABLE, 'l')
+      ->fields('l', ['kind', 'contact_id', 'created', 'first_click'])
+      ->condition('l.event_id', $event_id)
+      ->condition('l.kind', array_keys(self::EMAIL_TAGS), 'IN')
+      ->orderBy('l.created')
+      ->execute()->fetchAll(\PDO::FETCH_ASSOC);
+    if (!$rows) {
+      return [];
+    }
+    $seats = [];
+    $q = $this->database->query(
+      'SELECT contact_id, MIN(register_date) AS registered FROM {civicrm_participant}
+       WHERE event_id = :e AND is_test = 0 AND status_id IN (:counted[]) GROUP BY contact_id',
+      [':e' => $event_id, ':counted[]' => self::COUNTED_STATUSES]
+    );
+    foreach ($q as $r) {
+      // CiviCRM stores site-local time; strtotime() reads it in the same zone.
+      $seats[(int) $r->contact_id] = (int) strtotime((string) $r->registered);
+    }
+    $left = [];
+    $course = $this->courseOf($event_id);
+    if ($course) {
+      $q = $this->database->select(self::LOG_TABLE, 'l')
+        ->fields('l', ['contact_id', 'created'])
+        ->condition('l.kind', 'removed')
+        ->condition('l.course_nid', $course)
+        ->condition('l.reason', '%by email link', 'LIKE');
+      foreach ($q->execute() as $r) {
+        $left[(int) $r->contact_id] = max($left[(int) $r->contact_id] ?? 0, (int) $r->created);
+      }
+    }
+    $since = (int) (\Drupal::state()->get(self::CLICK_TRACKING_SINCE) ?? 0);
+    return self::summarizeSends($rows, $seats, $left, $since);
+  }
+
+  /**
+   * Groups logged emails into sends and counts results. Pure; unit tested.
+   *
+   * @param array $rows
+   *   kind, contact_id, created, first_click; oldest first.
+   * @param array<int,int> $seats
+   *   contact id => when they took a seat on this date.
+   * @param array<int,int> $left
+   *   contact id => when they left the course's list by email link.
+   * @param int $tracking_since
+   *   When click tracking started; 0 = never.
+   * @param int $gap
+   *   Emails of one kind further apart than this are separate sends.
+   */
+  public static function summarizeSends(array $rows, array $seats, array $left, int $tracking_since, int $gap = 3600): array {
+    $sends = [];
+    $current = NULL;
+    foreach ($rows as $r) {
+      $kind = (string) $r['kind'];
+      $at = (int) $r['created'];
+      if ($current === NULL || $sends[$current]['kind'] !== $kind || $at - $sends[$current]['last'] > $gap) {
+        $sends[] = ['kind' => $kind, 'sent' => $at, 'last' => $at, 'people' => []];
+        $current = array_key_last($sends);
+      }
+      $sends[$current]['last'] = $at;
+      $cid = (int) $r['contact_id'];
+      $person = $sends[$current]['people'][$cid] ?? ['clicked' => FALSE, 'at' => $at];
+      $person['clicked'] = $person['clicked'] || (int) $r['first_click'] > 0;
+      $sends[$current]['people'][$cid] = $person;
+    }
+    $out = [];
+    foreach ($sends as $send) {
+      $people = $send['people'];
+      $out[] = [
+        'kind' => $send['kind'],
+        'sent' => $send['sent'],
+        'emails' => count($people),
+        'tracked' => $tracking_since > 0 && $send['sent'] >= $tracking_since,
+        'clicked' => count(array_filter($people, fn($p) => $p['clicked'])),
+        'registered' => count(array_filter(array_keys($people), fn($cid) => isset($seats[$cid]) && $seats[$cid] >= $people[$cid]['at'])),
+        'left' => count(array_filter(array_keys($people), fn($cid) => isset($left[$cid]) && $left[$cid] >= $people[$cid]['at'])),
+      ];
+    }
+    return array_reverse($out);
+  }
+
+  /**
+   * Postmark headers for a waitlist email. Pure; unit tested.
+   *
+   * Postmark reads X-PM-Tag and X-PM-Metadata-* from SMTP messages; the tag
+   * groups the emails in its dashboard and the metadata finds one email.
+   */
+  public static function postmarkHeaders(string $kind, int $event_id, int $log_id, int $contact_id): array {
+    return [
+      'X-PM-Tag' => self::EMAIL_TAGS[$kind] ?? ('waitlist-' . $kind),
+      'X-PM-Metadata-event' => (string) $event_id,
+      'X-PM-Metadata-log' => (string) $log_id,
+      'X-PM-Metadata-contact' => (string) $contact_id,
+    ];
   }
 
 }

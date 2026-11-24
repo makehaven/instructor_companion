@@ -232,11 +232,10 @@ final class CourseFollowerNotifier {
         if ($verdict === 'stop') {
           continue;
         }
+        // A waiting-list notice is logged inside email(), before sending, so
+        // its register link can be tracked; the row is the strike.
         if ($this->email($f, $row, $verdict === 'final')) {
           $count++;
-          if ($waited) {
-            $this->waitlist->recordNotice((int) $f['contact_id'], (int) $row['course_nid'], (int) $row['id']);
-          }
         }
       }
       $notified[$event_id]['sent'] = $count;
@@ -405,8 +404,15 @@ final class CourseFollowerNotifier {
     $register_url = $base . '/civicrm/event/info?id=' . (int) $event['id'] . '&reset=1';
     $course_url = $base . $this->aliasManager->getAliasByPath('/node/' . (int) $event['course_nid']);
     $leave_url = '';
+    $log_id = 0;
+    $headers = ['X-PM-Tag' => 'course-new-date', 'X-PM-Metadata-event' => (string) $event['id']];
     if (($follower['reason'] ?? '') === 'waitlist' && !empty($follower['contact_id']) && $this->waitlist) {
-      $leave_url = $this->waitlist->leaveUrl((int) $follower['contact_id'], (int) $event['course_nid']);
+      $leave_url = WaitlistManager::forceHttps($this->waitlist->leaveUrl((int) $follower['contact_id'], (int) $event['course_nid']));
+      $log_id = $this->waitlist->recordNotice((int) $follower['contact_id'], (int) $event['course_nid'], (int) $event['id']);
+      if ($log_id) {
+        $register_url = $this->waitlist->clickUrl($log_id);
+      }
+      $headers = WaitlistManager::postmarkHeaders('notice', (int) $event['id'], $log_id, (int) $follower['contact_id']);
     }
     $message = self::compose($follower['name'], $event, $register_url, $course_url, (string) ($follower['reason'] ?? 'follower'), $leave_url, $final);
     $result = $this->mailManager->mail(
@@ -414,11 +420,12 @@ final class CourseFollowerNotifier {
       self::MAIL_KEY,
       $follower['email'],
       \Drupal::languageManager()->getDefaultLanguage()->getId(),
-      ['subject' => $message['subject'], 'body' => $message['body']],
+      ['subject' => $message['subject'], 'body' => $message['body'], 'headers' => $headers],
       NULL,
       TRUE
     );
     if (empty($result['result'])) {
+      $this->waitlist?->forgetEmail($log_id);
       $this->logger->warning('Course follower notice to @mail about event @e did not send.', [
         '@mail' => $follower['email'],
         '@e' => $event['id'],

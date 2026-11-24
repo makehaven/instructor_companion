@@ -409,6 +409,16 @@ instructor_companion.waitlist_remove:
   options:
     _admin_route: TRUE
 
+instructor_companion.waitlist_click:
+  path: '/waitlist/go/{log}/{hash}'
+  defaults:
+    _controller: '\Drupal\instructor_companion\Controller\WaitlistController::click'
+  requirements:
+    _access: 'TRUE'
+    log: '\d+'
+  options:
+    no_cache: TRUE
+
 instructor_companion.waitlist_leave:
   path: '/waitlist/leave/{contact}/{course}/{hash}'
   defaults:

@@ -49,10 +49,13 @@ function instructor_companion_waitlist_log_schema(): array {
       'participant_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'removed: civicrm_participant.id. 0 for a notice.'],
       'reason' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
       'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'clicks' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Emails only: times the tracked register link was opened, scanners included.'],
+      'first_click' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Emails only: first click that looks like a person (not in the first minutes after sending, when mail scanners open links). 0 = none.'],
     ],
     'primary key' => ['id'],
     'indexes' => [
       'person_course' => ['kind', 'contact_id', 'course_nid'],
+      'event_kind' => ['event_id', 'kind'],
       'participant' => ['participant_id'],
     ],
   ];
@@ -874,4 +877,29 @@ function instructor_companion_update_9024() {
   \CRM_Core_PseudoConstant::flush();
   \Civi::cache('metadata')->clear();
   return sprintf('Participant status "%s" created (id %d).', \Drupal\instructor_companion\Service\WaitlistManager::ALERT_STATUS_NAME, $created['id']);
+}
+
+/**
+ * Click tracking on waitlist emails: two columns, an index, and a start date.
+ */
+function instructor_companion_update_9025() {
+  $schema = \Drupal::database()->schema();
+  $table = \Drupal\instructor_companion\Service\WaitlistManager::LOG_TABLE;
+  if (!$schema->tableExists($table)) {
+    return 'Waitlist log table missing; nothing to do.';
+  }
+  $spec = instructor_companion_waitlist_log_schema();
+  foreach (['clicks', 'first_click'] as $field) {
+    if (!$schema->fieldExists($table, $field)) {
+      $schema->addField($table, $field, $spec['fields'][$field]);
+    }
+  }
+  if (!$schema->indexExists($table, 'event_kind')) {
+    $schema->addIndex($table, 'event_kind', ['event_id', 'kind'], $spec);
+  }
+  $state = \Drupal::state();
+  if (!$state->get(\Drupal\instructor_companion\Service\WaitlistManager::CLICK_TRACKING_SINCE)) {
+    $state->set(\Drupal\instructor_companion\Service\WaitlistManager::CLICK_TRACKING_SINCE, \Drupal::time()->getRequestTime());
+  }
+  return 'Waitlist emails now record clicks on their register link.';
 }

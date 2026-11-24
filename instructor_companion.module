@@ -420,6 +420,15 @@ function _instructor_companion_install_defaults(): array {
  * Implements hook_mail().
  */
 function instructor_companion_mail($key, &$message, $params) {
+  // Postmark groups mail by X-PM-Tag; every email from this module carries
+  // its kind so delivery and clicks can be read per kind. Senders may add
+  // their own tag and X-PM-Metadata-* headers through $params['headers'].
+  $message['headers']['X-PM-Tag'] = 'instructor_companion-' . $key;
+  foreach ((array) ($params['headers'] ?? []) as $name => $value) {
+    if (is_string($name) && preg_match('/^X-PM-(Tag|Metadata-[A-Za-z0-9_-]{1,20})$/', $name)) {
+      $message['headers'][$name] = mb_substr((string) $value, 0, 80);
+    }
+  }
   switch ($key) {
     case 'new_instructor_applicant':
       $message['from'] = \Drupal::config('system.site')->get('mail');
